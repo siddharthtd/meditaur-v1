@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# Project-local entry point. Node/pnpm run in infra/Dockerfile.tools, not on the host.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CMD="${1:-help}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+run() {
+  "${SCRIPT_DIR}/in-docker.sh" "$@"
+}
+
+# Where the host stack lives, as seen from inside the tools container. 127.0.0.1
+# in there is the container itself, which is why this name exists at all.
+LOCAL_STACK_URL="http://host.docker.internal:54321"
+
+# Says whether the host stack is answering, from inside the container the tests
+# run in — so "is host.docker.internal still mapped?" has an answer on every live
+# run instead of only when someone remembers to run the local target. Never fails
+# the run: a stack that is not there only matters to the local target, and that
+# target fails on its own with instructions.
+probe_local_stack() {
+  local url code
+  url="${SUPABASE_LOCAL_URL:-}"
+  if [[ -z "${url}" ]]; then
+    url="$(sed -n 's/^SUPABASE_LOCAL_URL=//p' "${ROOT}/.env" 2>/dev/null | tail -1)"
+    url="${url%\"}"
+    url="${url#\"}"
+  fi
+  url="${url:-${LOCAL_STACK_URL}}"
+  code="$(run node -e 'fetch(process.argv[1] + "/auth/v1/health").then((r) => console.log(r.status)).catch(() => console.log("down"))' "${url}" 2>/dev/null | tail -1)"
+  if [[ "${code}" =~ ^2 ]]; then
+    echo "meditaur: local stack at ${url} — answering (${code})."
+  else
+    echo "meditaur: local stack at ${url} — not answering; ./scripts/meditaur up starts it."
+  fi
+}
+
+# The local stack's own keys, asked of the CLI, so nobody has to copy them into
+# `.env` by hand — which is the step that made "run the local half" feel like
+# homework. Falls back to whatever `.env` already holds when the CLI or the stack
+# is absent, and the tests fail with instructions when neither produced a trio.
+local_credentials() {
+  command -v supabase >/dev/null 2>&1 || return 0
+  local out api anon service
+  out="$(supabase status -o env 2>/dev/null || true)"
+  [[ -n "${out}" ]] || return 0
+  pick() {
+    printf '%s\n' "${out}" | grep -E "^$1=" | tail -1 | cut -d= -f2- | tr -d '"'
+  }
+  api="$(pick API_URL)"
+  anon="$(pick ANON_KEY)"
+  [[ -n "${anon}" ]] || anon="$(pick PUBLISHABLE_KEY)"
+  service="$(pick SERVICE_ROLE_KEY)"
+  [[ -n "${service}" ]] || service="$(pick SECRET_KEY)"
+  # 127.0.0.1 in the tools container is the container itself: the tests must be
+  # handed the host gateway, whatever the CLI reports locally.
+  if [[ -n "${api}" ]]; then
+    export SUPABASE_LOCAL_URL="http://host.docker.internal:${api##*:}"
+  fi
+  if [[ -n "${anon}" && -n "${service}" ]]; then
+    export SUPABASE_LOCAL_ANON_KEY="${anon}"
+    export SUPABASE_LOCAL_SERVICE_ROLE_KEY="${service}"
+    echo "meditaur: local credentials taken from the running stack."
+  fi
+}
+
+case "${CMD}" in
+  setup)
+    "${SCRIPT_DIR}/setup.sh"
+    ;;
+  dev)
+    "${ROOT}/scripts/clean-run.sh" --keep-next
+    run --publish pnpm --filter @meditaur/web dev "$@"
+    ;;
+  check)
+    run pnpm check "$@"
+    ;;
+  check:full)
+    # Whole gate, orchestrated from the host so e2e keeps its own image. This is
+    # the occasional pass, not the edit loop: it covers **both** live databases
+    # next to e2e, while `check` stays Supabase-free for the fast one. Supabase
+    # still is not required to build or lint — the hosted half skips itself when
+    # no keys are configured (which is why CI stays green without secrets), and
+    # the local half needs the stack this starts.
+    "${SCRIPT_DIR}/clean-run.sh"
+    if command -v supabase >/dev/null 2>&1; then
+      # Idempotent: starts the stack if it is down and re-applies the migrations,
+      # so the local half is testing this checkout's schema, not a stale one.
+      "${SCRIPT_DIR}/local-up.sh"
+    else
+      echo "meditaur: no Supabase CLI on the host; the local half of the live tests cannot run."
+      echo "meditaur: ./scripts/meditaur test:integration:hosted covers the hosted project alone."
+    fi
+    run pnpm check
+    local_credentials
+    run bash -c 'SUPABASE_TARGET=hosted pnpm test:integration > /tmp/hosted.log 2>&1 & h=$!
+      SUPABASE_TARGET=local pnpm test:integration > /tmp/local.log 2>&1 & l=$!
+      wait "$h"; hc=$?
+      wait "$l"; lc=$?
+      echo "=== live: hosted (exit ${hc}) ==="; tail -n 12 /tmp/hosted.log
+      echo "=== live: local (exit ${lc}) ==="; tail -n 12 /tmp/local.log
+      [ "${hc}" -eq 0 ] && [ "${lc}" -eq 0 ]'
+    run pnpm build
+    "${SCRIPT_DIR}/e2e.sh"
+    ;;
+  test | test:unit)
+    run pnpm test:unit "$@"
+    ;;
+  test:integration)
+    probe_local_stack
+    run pnpm test:integration "$@"
+    ;;
+  test:integration:hosted)
+    # The hosted project. Fails rather than skips when the trio is missing.
+    export SUPABASE_TARGET=hosted
+    probe_local_stack
+    run pnpm test:integration "$@"
+    ;;
+  test:integration:local)
+    # The host stack, from inside the container, over host.docker.internal.
+    # Needs ./scripts/meditaur up first; a dead stack is a failure, not a skip.
+    local_credentials
+    export SUPABASE_TARGET=local
+    probe_local_stack
+    run pnpm test:integration "$@"
+    ;;
+  test:integration:both)
+    # Both databases, one container start, at the same time. The two suites share
+    # nothing — different database, random ids, their own users — so running them
+    # concurrently is free time, and both summaries are printed either way. Needs
+    # ./scripts/meditaur up; the local half fails without it rather than skipping.
+    local_credentials
+    probe_local_stack
+    run bash -c 'SUPABASE_TARGET=hosted pnpm test:integration > /tmp/hosted.log 2>&1 & h=$!
+      SUPABASE_TARGET=local pnpm test:integration > /tmp/local.log 2>&1 & l=$!
+      wait "$h"; hc=$?
+      wait "$l"; lc=$?
+      echo "=== hosted (exit ${hc}) ==="; tail -n 20 /tmp/hosted.log
+      echo "=== local (exit ${lc}) ==="; tail -n 20 /tmp/local.log
+      [ "${hc}" -eq 0 ] && [ "${lc}" -eq 0 ]'
+    ;;
+  e2e | test:e2e)
+    "${SCRIPT_DIR}/e2e.sh"
+    ;;
+  build)
+    "${SCRIPT_DIR}/clean-run.sh"
+    run pnpm build "$@"
+    ;;
+  preview)
+    "${SCRIPT_DIR}/preview.sh"
+    ;;
+  up | local:up)
+    "${SCRIPT_DIR}/local-up.sh"
+    ;;
+  down)
+    "${SCRIPT_DIR}/down.sh"
+    ;;
+  cloud)
+    # Hosted Supabase: link, push migrations, run the live tests. Host CLI, same
+    # exception as `up`.
+    "${SCRIPT_DIR}/cloud.sh" "$@"
+    ;;
+  clean)
+    "${SCRIPT_DIR}/clean.sh"
+    ;;
+  clean:all)
+    "${SCRIPT_DIR}/clean.sh"
+    rm -rf "${ROOT}/node_modules" "${ROOT}"/apps/*/node_modules "${ROOT}"/packages/*/node_modules
+    echo "meditaur: node_modules removed (run ./scripts/meditaur setup)"
+    ;;
+  clean:tools)
+    rm -rf "${ROOT}/.tools"
+    echo "meditaur: .tools/ caches removed (run ./scripts/meditaur setup)"
+    ;;
+  exec)
+    run "$@"
+    ;;
+  help | -h | --help)
+    cat <<'EOF'
+meditaur — Node/pnpm run in Docker (infra/Dockerfile.tools, node:24.20.0-bookworm-slim)
+
+  ./scripts/meditaur setup             first clone: build the tools image, pnpm install
+  ./scripts/meditaur dev               stop leftover preview, then Next.js
+  ./scripts/meditaur check             typecheck, lint, unit tests
+  ./scripts/meditaur check:full        check + integration + build + e2e (Docker)
+  ./scripts/meditaur build             wipe last build, production Next.js build
+  ./scripts/meditaur preview           wipe last preview, Docker prod-like image
+  ./scripts/meditaur up                host Supabase CLI only; optional (Dexie is the default)
+  ./scripts/meditaur cloud             hosted project: link, push migrations, live tests (needs .env)
+  ./scripts/meditaur down              stop Docker/supabase leftovers
+  ./scripts/meditaur test:integration     live tests against the target .env describes
+  ./scripts/meditaur test:integration:both     ... hosted, then the local stack
+  ./scripts/meditaur test:integration:hosted   ... against the hosted project
+  ./scripts/meditaur test:integration:local    ... against the host stack (needs `up`)
+  ./scripts/meditaur e2e               Playwright in Docker (Chromium is in the image)
+  ./scripts/meditaur clean             generated files only
+  ./scripts/meditaur clean:all         also node_modules
+  ./scripts/meditaur clean:tools       remove .tools/ pnpm caches
+  ./scripts/meditaur exec <cmd...>     run any command in the tools container
+EOF
+    ;;
+  *)
+    echo "meditaur: unknown command '${CMD}'" >&2
+    echo "Run ./scripts/meditaur help" >&2
+    exit 1
+    ;;
+esac

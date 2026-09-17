@@ -1,0 +1,14 @@
+name: meditaur-e2e
+
+services:
+  e2e:
+    image: meditaur-e2e:local
+    pull_policy: never
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.e2e
+    ipc: host
+    init: true
+    environment:
+      CI: "1"
+      NEXT_PUBLIC_E2E: "1"

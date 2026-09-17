@@ -1,0 +1,18 @@
+FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS deps
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.17.1 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json tsconfig.base.json ./
+COPY apps/web/package.json apps/web/package.json
+COPY packages/application/package.json packages/application/package.json
+COPY packages/domain/package.json packages/domain/package.json
+COPY packages/audio-web/package.json packages/audio-web/package.json
+COPY packages/ui/package.json packages/ui/package.json
+COPY packages/db/package.json packages/db/package.json
+RUN pnpm install --frozen-lockfile \
+  && pnpm --filter @meditaur/web exec playwright install --with-deps chromium
+
+FROM deps
+COPY . .
+ENV CI=1
+ENV NEXT_PUBLIC_E2E=1
+CMD ["pnpm", "test:e2e"]

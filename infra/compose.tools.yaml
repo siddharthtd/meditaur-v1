@@ -1,0 +1,27 @@
+name: meditaur-tools
+
+services:
+  tools:
+    image: meditaur-tools:local
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile.tools
+    working_dir: /app
+    init: true
+    user: "${MEDITAUR_UID:-1000}:${MEDITAUR_GID:-1000}"
+    # A Supabase stack started on the host is reachable from here at
+    # http://host.docker.internal:54321. 127.0.0.1 would be this container.
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ..:/app
+    environment:
+      HOME: /app/.tools
+      COREPACK_HOME: /app/.tools/corepack
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      PNPM_HOME: /app/.tools/pnpm-home
+      npm_config_store_dir: /app/.tools/pnpm-store
+      npm_config_cache: /app/.tools/npm-cache
+    ports:
+      - "3000:3000"

@@ -1,0 +1,4 @@
+# Accessible to the agent (see .cursorignore) but do not dump generated
+# viz/AST JSON into the semantic index. Prefer graphify query / wiki /.
+graphify-out/graph.html
+graphify-out/graph.json

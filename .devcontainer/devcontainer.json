@@ -1,0 +1,21 @@
+{
+  "name": "Meditaur",
+  "build": {
+    "context": "..",
+    "dockerfile": "../infra/Dockerfile.tools"
+  },
+  "workspaceFolder": "/app",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind",
+  "containerEnv": {
+    "HOME": "/app/.tools",
+    "COREPACK_HOME": "/app/.tools/corepack",
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+    "PNPM_HOME": "/app/.tools/pnpm-home",
+    "npm_config_store_dir": "/app/.tools/pnpm-store",
+    "npm_config_cache": "/app/.tools/npm-cache"
+  },
+  "postCreateCommand": "pnpm install --frozen-lockfile",
+  "forwardPorts": [3000],
+  "remoteUser": "node",
+  "updateRemoteUserUID": true
+}

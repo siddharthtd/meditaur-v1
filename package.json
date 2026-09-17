@@ -1,0 +1,42 @@
+{
+  "name": "meditaur",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": "24.x",
+    "pnpm": ">=10.17.1"
+  },
+  "scripts": {
+    "check": "pnpm typecheck && pnpm typecheck:tests && pnpm lint && pnpm test:unit",
+    "check:full": "pnpm check && pnpm test:integration && pnpm build",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "typecheck:tests": "tsc --noEmit -p tests/tsconfig.json",
+    "lint": "turbo lint && eslint tests",
+    "dev": "pnpm --filter @meditaur/web dev",
+    "test": "pnpm test:unit",
+    "test:unit": "vitest run --config tests/unit/vitest.config.ts",
+    "test:integration": "vitest run --config tests/integration/vitest.config.ts",
+    "test:e2e": "pnpm --filter @meditaur/web test:e2e",
+    "clean": "bash scripts/clean.sh",
+    "local:up": "bash scripts/local-up.sh",
+    "local:down": "bash scripts/down.sh",
+    "local:preview": "bash scripts/preview.sh"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@meditaur/application": "workspace:*",
+    "@meditaur/audio-web": "workspace:*",
+    "@meditaur/domain": "workspace:*",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.10.0",
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0",
+    "vitest": "^4.1.11"
+  }
+}

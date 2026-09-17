@@ -1,0 +1,31 @@
+FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS deps
+WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.17.1 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc turbo.json tsconfig.base.json ./
+COPY apps/web/package.json apps/web/package.json
+COPY packages/application/package.json packages/application/package.json
+COPY packages/domain/package.json packages/domain/package.json
+COPY packages/audio-web/package.json packages/audio-web/package.json
+COPY packages/ui/package.json packages/ui/package.json
+COPY packages/db/package.json packages/db/package.json
+RUN pnpm install --frozen-lockfile
+
+FROM deps AS build
+COPY . .
+RUN pnpm --filter @meditaur/web build
+
+FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS run
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=build /app/apps/web/.next ./apps/web/.next
+COPY --from=build /app/apps/web/package.json ./apps/web/package.json
+# next.config.ts is read by `next start` (redirects live there), so the preview
+# image must ship it next to the build output.
+COPY --from=build /app/apps/web/next.config.ts ./apps/web/next.config.ts
+# `next start` serves the build from the working directory. It must be the app
+# directory that owns .next, not the monorepo root.
+WORKDIR /app/apps/web
+EXPOSE 3000
+CMD ["node", "node_modules/next/dist/bin/next", "start", "--port", "3000"]

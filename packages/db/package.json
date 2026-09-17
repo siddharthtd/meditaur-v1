@@ -1,0 +1,19 @@
+{
+  "name": "@meditaur/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "test:unit": "node -e \"process.exit(0)\""
+  },
+  "dependencies": {
+    "@meditaur/domain": "workspace:*",
+    "@supabase/supabase-js": "^2.116.0",
+    "dexie": "^4.0.11"
+  }
+}

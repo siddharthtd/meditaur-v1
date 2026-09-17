@@ -1,0 +1,6 @@
+# Cursor also ignores .gitignore. graphify-out is generated and must stay
+# untracked, but Agent Glob/Grep treat "gitignored" as "does not exist".
+# Un-ignore so agents can find graph.json / GRAPH_REPORT.md / wiki/.
+# Do not remove graphify-out from .gitignore.
+!graphify-out/
+!graphify-out/**

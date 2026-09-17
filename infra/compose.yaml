@@ -1,0 +1,12 @@
+name: meditaur
+
+services:
+  web:
+    image: meditaur-web:local
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production

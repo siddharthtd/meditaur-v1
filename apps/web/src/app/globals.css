@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — UI_DESIGN.md §1.
+ *
+ * This block is the one home for the palette. Every `@theme` key below
+ * generates the utilities the screens use (`bg-bg`, `bg-surface`,
+ * `text-muted`, `border-line`, `bg-chakra-heart`, …), so no screen hard-codes
+ * a hex or reaches for a raw Tailwind palette colour again.
+ */
+@theme {
+  /* Base and surface tiers (§1.1) — dark, warm, with actual depth. */
+  --color-bg: #17120d;
+  --color-surface: #241c16;
+  --color-surface-raised: #2f251d;
+  --color-text: #f3e9d6;
+  --color-muted: #a89a86;
+  --color-line: #3b2f24;
+
+  /* Chakra accents (§1.2). One muted hue per centre, used sparingly: a ring,
+     a tinted button, a small label — never a large background wash. */
+  --color-chakra-root: #b5533c;
+  --color-chakra-hara: #c97a3d;
+  --color-chakra-solar-plexus: #c9a227;
+  --color-chakra-heart: #6b8f5e;
+  --color-chakra-throat: #4e85a3;
+  --color-chakra-third-eye: #5b5c99;
+  --color-chakra-crown: #8a6baf;
+  /* Point and Custom focus points have no chakra hue: warm cream. */
+  --color-accent: #d8c9a8;
+  /* Destructive is its own hue — cooler and more saturated than Root's
+     terracotta — and always travels with an icon and a confirm step. */
+  --color-destructive: #c0392b;
+
+  /* Typography (§1.3): Fraunces announces, Manrope does the reading. The
+     `--font-*` values themselves are declared by next/font in layout.tsx. */
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-fraunces), ui-serif, georgia, serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+}
+
+html[data-text-size="md"] {
+  font-size: 16px;
+}
+
+html[data-text-size="lg"] {
+  font-size: 18px;
+}
+
+html[data-text-size="xl"] {
+  font-size: 20px;
+}
+
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * Scrollbars (§1.10) — a thin overlay scrollbar, CSS only. Touch keeps native
+ * momentum scrolling with the same styled indicator; a custom JS touch-scroll
+ * is a known source of jank and stays out.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-accent) 45%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--color-accent) 40%, transparent);
+  background-clip: content-box;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-accent);
+}
+
+/*
+ * The time wheel is a scroll container the reader is meant to read as a wheel,
+ * not as a box with a scrollbar (§1.7): `TimeWheel` in packages/ui names this
+ * class on the column it scrolls. It cannot be a utility — hiding a
+ * `::-webkit-scrollbar` needs a rule, and this is the one scroller in the app
+ * that should not show an indicator. Momentum, snapping and keyboard scrolling
+ * are untouched; only the indicator is hidden.
+ */
+.time-wheel {
+  scrollbar-width: none;
+}
+
+.time-wheel::-webkit-scrollbar {
+  display: none;
+}

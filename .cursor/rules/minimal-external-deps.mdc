@@ -1,0 +1,22 @@
+---
+description: Minimal allowlisted external libraries. Do not add packages without updating the allowlist.
+alwaysApply: true
+---
+
+# Minimal external dependencies
+
+Default is **no new package**. This is a security rule, not a style preference.
+
+- `packages/domain`, `packages/application`, and `packages/audio-web` stay free of npm dependencies other than workspace `*` links.
+- `packages/ui` depends only on a `react` peer. No UI kits.
+- Runtime browser code may use only what is listed in [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md).
+
+Before adding or widening a dependency (including `devDependencies`, Docker `FROM` images, GitHub `uses:`, or `pnpm dlx`):
+
+1. Stop if the name is not on the allowlist in `docs/DEPENDENCIES.md`. Ask. Do not add it “just for now.”
+2. Prefer platform APIs already in the product (Web Audio, `fetch`, Dexie, `sessionStorage`).
+3. Do not add axios, lodash, date-fns, zustand, UI kits, icon packs, or a second CSS framework.
+4. Do not `pnpm dlx` / `npx` an undeclared package in CI. That is an unpinned supply chain.
+5. Same change must update `docs/DEPENDENCIES.md` and `tests/unit/architecture/integrity.test.ts`.
+
+`@supabase/supabase-js` stays out until P2.6 implements AuthPort and actually imports it.

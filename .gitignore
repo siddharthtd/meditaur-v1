@@ -1,0 +1,43 @@
+# pnpm/corepack caches from the tools container. Never commit. Node is not here.
+.tools/
+# Ignore Cursor local state; keep committed project rules.
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+# Local editor state; keep committed project rules (.cursor/rules stays).
+.vscode/
+
+# Build / test leftovers
+.turbo/
+.next/
+**/playwright-report/
+**/test-results/
+**/blob-report/
+**/coverage/
+**/*.tsbuildinfo
+node_modules/.vite/
+**/.vite/
+
+node_modules
+dist
+out
+.env
+.env.local
+# Dotenv variants (Next.js, Vercel CLI, test runners). `.env.example` stays
+# tracked and names variables only -- never a value. tests/unit/architecture/
+# integrity.test.ts asserts `.env` is ignored and scans the rest of the tree for
+# key-shaped values.
+.env.*
+!.env.example
+*.log
+.DS_Store
+graphify-out
+.vercel
+next-env.d.ts
+.supabase
+# Supabase CLI local state from `./scripts/meditaur up`. Never commit.
+supabase/.temp/
+supabase/.branches/
+supabase/snippets/
+.pnpm-store
+.pnpm-debug.log
