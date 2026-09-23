@@ -55,10 +55,12 @@ describe("text size", () => {
     // one size and corrects to another.
     expect(TEXT_SIZE_BOOTSTRAP).toContain(JSON.stringify(TEXT_SIZE_STORAGE_KEY));
     expect(TEXT_SIZE_BOOTSTRAP).toContain("document.documentElement.dataset.textSize=v");
-    for (const size of ['"md"', '"lg"', '"xl"']) {
+    for (const size of ['"sm"', '"md"', '"lg"', '"xl"']) {
       expect(TEXT_SIZE_BOOTSTRAP).toContain(`v===${size}`);
     }
-    // "sm" is not a text size, so the script must not accept it.
-    expect(TEXT_SIZE_BOOTSTRAP).not.toContain('"sm"');
+    // Only the four the preference allows: a stored value that is anything else
+    // has to be ignored rather than painted.
+    expect(TEXT_SIZE_BOOTSTRAP).not.toContain('"medium"');
+    expect(TEXT_SIZE_BOOTSTRAP).not.toContain('"xxl"');
   });
 });

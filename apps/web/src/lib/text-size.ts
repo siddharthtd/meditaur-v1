@@ -14,7 +14,16 @@ import type { UserPreferences } from "@meditaur/domain";
  */
 export const TEXT_SIZE_STORAGE_KEY = "meditaur:textSize";
 
-const TEXT_SIZES: readonly UserPreferences["textSize"][] = ["md", "lg", "xl"];
+/**
+ * The reading scale, smallest first — which is also the order the Settings screen
+ * offers it in, and the list the bootstrap script below accepts.
+ *
+ * The strings are the stored values, so they never move; what each one *means* is
+ * `globals.css`'s `html[data-text-size=…]` rule, where `md` is the 18px the app is
+ * designed against. Buttons are deliberately outside the scale: `Button` in
+ * `packages/ui` pins its own geometry in px.
+ */
+const TEXT_SIZES: readonly UserPreferences["textSize"][] = ["sm", "md", "lg", "xl"];
 
 /** Paints the preference and records it for the next load's first paint. */
 export function applyTextSize(size: UserPreferences["textSize"]): void {

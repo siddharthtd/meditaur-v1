@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Stop leftover local preview containers and wipe last-run outputs.
 # Pass --keep-next to leave apps/web/.next (used before `dev` / e2e).
+#
+# It deliberately does **not** touch `.turbo`: turbo's cache is keyed on content
+# hashes, so deleting it before a gate only throws away work that would have been
+# reused — 134s of typecheck and lint on a cold `check:full`. Caches are dropped
+# by `scripts/clean.sh` (`./scripts/meditaur clean`), which is asked for by name.
 # The meditaur-tools project is included: a `run --rm` container is not removed
 # when its client dies (closed terminal, killed editor) and it holds port 3000,
 # which makes the next `preview` fail to bind. Inside the tools container there
@@ -37,8 +42,7 @@ rm -rf \
   "${ROOT}/coverage"
 
 if [[ "${KEEP_NEXT}" -eq 0 ]]; then
-  rm -rf "${ROOT}/apps/web/.next" "${ROOT}/apps/web/out" "${ROOT}/.turbo"
-  rm -rf "${ROOT}/apps/"*/.turbo "${ROOT}/packages/"*/.turbo
+  rm -rf "${ROOT}/apps/web/.next" "${ROOT}/apps/web/out"
 fi
 
 echo "meditaur: previous run leftovers removed"

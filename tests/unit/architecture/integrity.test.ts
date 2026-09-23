@@ -131,13 +131,17 @@ describe("hexagon and schema contracts", () => {
     const ports = readRepo("packages/db/src/ports.ts");
     const fn = ports.slice(
       ports.indexOf("async loadCompileLibrary"),
-      ports.indexOf("listFocusPoints:"),
+      ports.indexOf("listMeditations:"),
     );
     expect(fn).toContain("if (!plan)");
-    const planBranchStart = fn.indexOf("const tableViewIds");
+    // The scoped branch reads by the ids the plan names. It used to be the table
+    // views that decided the scope; the plan's own blocks do that now, and the
+    // associations come from the entries of the chakras it runs.
+    const planBranchStart = fn.indexOf("const explicitSymbolIds");
     expect(planBranchStart).toBeGreaterThan(-1);
     const scoped = fn.slice(planBranchStart);
     expect(scoped).toContain("mediaIds");
+    expect(scoped).toContain("entriesForMeditationIds");
     expect(scoped).toMatch(/mediaAssets\.bulkGet/);
     expect(scoped).not.toMatch(/mediaAssets\.where\("workspaceId"\)/);
     expect(scoped).not.toMatch(/presets\.where\("workspaceId"\)/);
@@ -154,7 +158,7 @@ describe("hexagon and schema contracts", () => {
   });
 
   it("versions the catalogue rows in the domain, Dexie and SQL", () => {
-    // M5: the per-row basis a later push compares. Every catalogue row that sync
+    // The catalogue's per-row revision: the basis a later push compares. Every catalogue row that sync
     // will send has to say the same thing in all three descriptions of the
     // product, and the write path has to be the one that moves it.
     const models = readRepo("packages/domain/src/models.ts");
@@ -166,20 +170,24 @@ describe("hexagon and schema contracts", () => {
       /export type Versioned = \{[\s\S]*?revision: number;[\s\S]*?updatedAt: number;/,
     );
     for (const type of [
-      "FocusPoint",
+      "Meditation",
       "Symbol",
       "Intention",
       "FieldDef",
+      "FieldOption",
       "FieldValue",
-      "TableView",
       "BinauralPreset",
       "MediaAsset",
     ]) {
-      expect(models, type).toMatch(new RegExp(`export type ${type} = Versioned & \\{`));
+      expect(models, type).toMatch(new RegExp(`export type ${type} = (?:Archived|Versioned) & \\{`));
     }
+    // The Database's own new row, and the state that lets a record step aside
+    // without anything that depends on it being touched.
+    expect(models).toMatch(/export type Archived = Versioned & \{[\s\S]*?archivedAt: number \| null;/);
+    expect(models).toMatch(/export type Entry = Archived & \{[\s\S]*?meditationId: string \| null;/);
 
     // Dexie backfills those rows in one data-only version.
-    const v13 = dexie.slice(dexie.indexOf("this.version(13)"));
+    const v13 = dexie.slice(dexie.indexOf("this.version(13)"), dexie.indexOf("this.version(14)"));
     expect(v13.length).toBeGreaterThan(0);
     for (const table of [
       "focusPoints",
@@ -187,12 +195,59 @@ describe("hexagon and schema contracts", () => {
       "intentions",
       "fieldDefs",
       "fieldValuesByEntity",
-      "tableViews",
       "presets",
       "mediaAssets",
     ]) {
       expect(v13, table).toContain(`"${table}"`);
     }
+    // v15 is the Database: two tables arrive, two are dropped, and every stored
+    // pair becomes a row before the pair-scoped columns go.
+    const v15 = dexie.slice(dexie.indexOf("this.version(15)"), dexie.indexOf("export const db"));
+    expect(v15).toContain('entries: "id, workspaceId, focusPointId, symbolId"');
+    expect(v15).toContain("focusSymbolBindings: null");
+    expect(v15).toContain("tableViews: null");
+    expect(v15).toMatch(/table\("entries"\)\.bulkPut/);
+    expect(v15).toMatch(/intentions: "id, workspaceId, entryId"/);
+
+    // The owner's round 15 (2026-09-19) renamed the stored world — the table, the columns
+    // that named a meditation, and the two stored unions — in its own migration.
+    // The assertions above deliberately keep the *old* words, because they read
+    // files that are history and an applied migration is never edited; this is what
+    // asserts the schema a database has today, and that the history is what the
+    // rename says it is.
+    const rename = readRepo("supabase/migrations/20260919140000_rename_meditations.sql");
+    expect(rename).toMatch(/alter table public\.focus_points rename to meditations/);
+    expect(rename).toMatch(/rename column focus_point_id to meditation_id/);
+    expect(rename).toMatch(/set scope = 'meditation' where scope = 'focusPoint'/);
+    expect(rename).toMatch(/set ref_kind = 'meditation' where ref_kind = 'focusPoint'/);
+    expect(rename).toMatch(/check \(scope in \('entry', 'meditation', 'symbol'\)\)/);
+    expect(rename).toMatch(/check \(ref_kind is null or ref_kind in \('meditation', 'symbol', 'preset'\)\)/);
+    // And the Dexie side of the same move is one version that declares the old
+    // store gone, creates the new one and rewrites the field it indexed.
+    const v18 = dexie.slice(dexie.indexOf("this.version(18)"), dexie.indexOf("export const db"));
+    expect(v18).toMatch(/focusPoints: null/);
+    expect(v18).toMatch(/meditations: "id, workspaceId"/);
+    expect(v18).toMatch(/entries: "id, workspaceId, meditationId, symbolId"/);
+    expect(v18).toMatch(/renameField\("entries", "focusPointId", "meditationId"\)/);
+
+    // Stages (round 15, 2026-09-19) are three columns and one drop, in their own migration:
+    // a type's template, a meditation's own copy of it, and a block's materialised
+    // rows — with the single `duration_ms` gone, because a block's length is now the
+    // sum of its stages.
+    const stages = readRepo("supabase/migrations/20260919150000_stages.sql");
+    expect(stages).toMatch(
+      /alter table public\.meditation_types\s+add column if not exists stages jsonb not null default '\[\]'::jsonb/,
+    );
+    expect(stages).toMatch(/alter table public\.meditations\s+add column if not exists stages jsonb/);
+    expect(stages).toMatch(
+      /alter table public\.plan_blocks\s+add column if not exists stages jsonb not null default '\[\]'::jsonb/,
+    );
+    expect(stages).toMatch(/alter table public\.plan_blocks\s+drop column if exists duration_ms/);
+    // The Dexie side is one repair version: a type row with no template, and a
+    // meditation with no copy of its own.
+    const v20 = dexie.slice(dexie.indexOf("this.version(20)"), dexie.indexOf("export const db"));
+    expect(v20).toMatch(/copyStages\(seeded\.get\(row\.id as string\) \?\? \[\]\)/);
+    expect(v20).toMatch(/stages: template \? copyStages\(template\) : null/);
 
     // And the SQL migration adds both columns to each of those tables — one
     // statement each, so a table that quietly lost its columns cannot be covered
@@ -211,6 +266,23 @@ describe("hexagon and schema contracts", () => {
     // The one place a catalogue write is stamped.
     expect(app).toMatch(/function stamped<T extends Versioned>\(row: T\): T \{/);
     expect(app).toMatch(/return versionedRow\(row, ports\.clock\.nowMs\(\)\);/);
+  });
+
+  it("orders media assets in the domain, Dexie and SQL", () => {
+    // `P2 · 4`, the owner's answer 2026-09-21: an upload has an order, so a screen
+    // can insert it where it belongs instead of re-reading the catalogue. The column
+    // has to exist in all three descriptions of the product for the same reason the
+    // revision does — a device numbers what it already holds, and the cloud row that
+    // sync will send carries the same number (`P2 · 3`).
+    const models = readRepo("packages/domain/src/models.ts");
+    const dexie = readRepo("packages/db/src/schema.ts");
+    const sql = readRepo("supabase/migrations/20260921120000_media_asset_order.sql");
+
+    expect(models).toMatch(
+      /export type MediaAsset = Versioned & \{[\s\S]*?sortOrder: number;[\s\S]*?\};/,
+    );
+    expect(dexie).toMatch(/this\.version\(26\)[\s\S]*?assetsWithOrder\(/);
+    expect(sql).toMatch(/alter table public\.media_assets\s+add column if not exists sort_order int/);
   });
 
   it("describes the same product in SQL as Dexie: revision, snapshots, logs, cascading deletes", () => {
@@ -255,7 +327,7 @@ describe("hexagon and schema contracts", () => {
   });
 
   it("versions user preferences in the domain, Dexie and SQL, with the store as the swap", () => {
-    // Phase 2 / M11: preferences carry a revision, so a settings save that
+    // Preferences carry a revision, so a settings save that
     // another writer has moved past is refused instead of overwriting it. The
     // field has to exist in all three descriptions of the product, and the
     // compare-and-swap has to be the store's — a preference write may be a
@@ -298,14 +370,19 @@ describe("hexagon and schema contracts", () => {
   });
 
   it("keeps the requirements v2 migration aligned with Dexie v6", () => {
-    const sql = readRepo("supabase/migrations/20260915000000_requirements_v2.sql");
-    const models = readRepo("packages/domain/src/models.ts");
+    const sql = readRepo("supabase/migrations/20260915000000_requirements_v2.sql");    const models = readRepo("packages/domain/src/models.ts");
     const dexie = readRepo("packages/db/src/schema.ts");
-    expect(models).toMatch(/export type Intention = Versioned & \{/);
-    expect(models).toMatch(/focusPointId: string \| null;/);
+    expect(models).toMatch(/export type Intention = Archived & \{/);
+    // Nullable since the owner's round 16 (§2.1): an affirmation merged into the
+    // sentences, and a sentence written about nothing yet is the **orphan** the
+    // Affirmations table holds — so the pair it names is optional by design.
+    expect(models).toMatch(/entryId: string \| null;/);
     expect(models).toMatch(/binauralEnabled: boolean;/);
     expect(dexie).toMatch(/this\.version\(6\)/);
+    // v6 declared the pair-scoped shape; v15 is what replaces it, and both stay in
+    // the file because a database stored below v15 still walks through them.
     expect(dexie).toMatch(/intentions: "id, workspaceId, focusPointId, symbolId"/);
+    expect(dexie).toMatch(/intentions: "id, workspaceId, entryId"/);
     expect(sql).toMatch(/update public\.focus_points set kind = 'point' where kind = 'body'/);
     expect(sql).toMatch(/create table if not exists public\.intentions/);
     // The cascade migration replaces this constraint; the file stays history.
@@ -373,10 +450,10 @@ describe("hexagon and schema contracts", () => {
   it("keeps the open views read-only, and editing in the editors", () => {
     // The owner's fourth review, library items 6–8: pressing a card or a row
     // opens the entry, and what opens only *shows* — "no editable or selectable
-    // options". Everything that changes a focus point or a symbol lives in the
+    // options". Everything that changes a meditation or a symbol lives in the
     // editor, so a control that creeps back onto a sheet has to fail here first.
     for (const sheet of [
-      "apps/web/src/features/library/FocusSheet.tsx",
+      "apps/web/src/features/library/MeditationSheet.tsx",
       "apps/web/src/features/library/SymbolSheet.tsx",
     ]) {
       const source = readRepo(sheet);
@@ -384,15 +461,17 @@ describe("hexagon and schema contracts", () => {
       expect(source, `${sheet} carries no remove`).not.toMatch(/tier="destructive"/);
       expect(source, `${sheet} offers Edit`).toMatch(/onEdit/);
     }
-    // The editors own the management controls: the drag lists, the attach action
-    // and the binaural entry point.
-    const manage = readRepo("apps/web/src/features/library/FocusManage.tsx");
-    expect(manage).toMatch(/useSortable/);
-    expect(manage).toMatch(/Add symbol/);
+    // The editors own the management controls: the binaural entry point and the
+    // chakra-only sections. They live in `MeditationTable.tsx` since the Database tab
+    // took the rows and the columns, and the record view is what renders them.
+    const manage = readRepo("apps/web/src/features/library/MeditationTable.tsx");
     expect(manage).toMatch(/Open binaural config/);
+    expect(manage).toMatch(/function MeditationEditor/);
+    // The drag lists moved with the rows, into the Database (§5).
+    expect(readRepo("apps/web/src/features/database/DatabaseTable.tsx")).toMatch(/useSortable/);
     // A card has no `Open` button any more: the card itself is the open target.
     expect(readRepo("apps/web/src/features/library/CatalogCard.tsx")).not.toMatch(/>\s*Open\s*</);
-    expect(readRepo("apps/web/src/features/library/FocusTable.tsx")).not.toMatch(
+    expect(readRepo("apps/web/src/features/library/MeditationTable.tsx")).not.toMatch(
       /aria-label=\{`Open \$\{/,
     );
     // Table rows open the entry anywhere on the row, not only in the name cell.

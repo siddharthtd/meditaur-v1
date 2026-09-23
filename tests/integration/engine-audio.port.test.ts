@@ -6,32 +6,35 @@ import {
   compilePlan,
 } from "@meditaur/domain";
 import {
-  makeIntentions,
-  makeBinding,
   makeBlock,
-  makeFocus,
+  makeEntries,
+  makeMeditation,
   makePlan,
+  makeMeditationType,
   makePreset,
   makeSymbol,
-  makeTableView,
 } from "../fixtures/library.ts";
 
 describe("engine-audio port contract", () => {
   it("passes N left tones into setBinaural and fades before alarm", async () => {
     const clock = new FakeClock();
     const audio = new RecordingAudioPort();
+    const { entries, intentions } = makeEntries([
+      { meditationId: "fp1", symbolId: "s1", texts: ["A1"] },
+    ]);
     const library = {
-      focusPoints: [makeFocus("fp1", "Root")],
+      meditations: [makeMeditation("fp1", "Root")],
       symbols: [makeSymbol("s1", "Lam")],
-      bindings: [makeBinding("fp1", "s1", 0)],
-      intentions: makeIntentions("fp1", "s1", ["A1"]),
+      entries,
+      intentions,
       fieldDefs: [],
+      fieldOptions: [],
       fieldValues: [],
-      tableViews: [makeTableView()],
       presets: [makePreset()],
+      meditationTypes: [makeMeditationType()],
     };
     const snapshot = compilePlan(
-      makePlan([makeBlock("b1", 0, "focus", { durationMs: 500, symbolId: "s1" })]),
+      makePlan([makeBlock("b1", 0, { durationMs: 500, symbolId: "s1" })]),
       library,
       { now: 0, id: () => "i", stopBinauralOnAlarm: true },
     );

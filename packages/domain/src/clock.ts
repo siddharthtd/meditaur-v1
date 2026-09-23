@@ -33,6 +33,19 @@ export class FakeClock implements Clock {
     }
   }
 
+  /**
+   * Move the wall clock without letting the timers that are now overdue fire.
+   *
+   * `advance` is time as a *running* tab sees it: every timer that comes due
+   * runs. This is the other case — a hidden tab, where time passes and the
+   * browser simply does not run the callbacks. A test uses it to hand the engine
+   * a deadline that is already in the past while its timer is still pending,
+   * which is the situation `SessionEngine.resync()` exists to answer.
+   */
+  setNow(ms: number): void {
+    this.now = ms;
+  }
+
   advance(ms: number): void {
     const target = this.now + ms;
     for (;;) {

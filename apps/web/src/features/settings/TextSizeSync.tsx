@@ -13,7 +13,7 @@ export function TextSizeSync() {
     void (async () => {
       try {
         const prefs = await app.getPreferences(userId);
-        applyTextSize(prefs?.textSize ?? "lg");
+        applyTextSize(prefs?.textSize ?? "md");
       } catch {
         // Cosmetic: a failed read must not break the app shell.
       }

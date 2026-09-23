@@ -1,129 +1,139 @@
 import { newRowVersion } from "@meditaur/application";
 import {
-  BUILTIN_COLUMN_KEYS,
+  classicBinauralPair,
   createId,
   DEFAULT_FOCUS_DURATION_MS,
+  defaultEarEq,
   type BinauralPreset,
   type FieldDef,
-  type FieldEntityType,
+  type FieldScope,
   type FieldValue,
-  type FocusKind,
-  type FocusPoint,
-  type Intention,
+  type MeditationType,
+  type Meditation,
   type Symbol,
-  type SymbolFilter,
-  type TableView,
 } from "@meditaur/domain";
 
-export type TableId =
-  | "focus"
-  | "symbols"
-  | "intentions"
-  | "fields"
-  | "audio"
-  | "presets"
-  | "views"
-  | "plans"
-  | "history";
+/**
+ * The library's tabs.
+ *
+ * `Intentions`, `Views` and `Fields` are gone: one screen replaced them, and on
+ * 2026-09-19 that screen — the **Database** — left this strip for a nav entry of
+ * its own. What is left here browses the catalogue; nothing on this page writes.
+ *
+ * The strip is **generated** (the owner's round 15, §8): one tab per live
+ * meditation type, then the fixed screens below. A type is a row, so a reader who
+ * adds one gets a tab with nothing to register — which is why the type tabs are
+ * namespaced (`type:<id>`) rather than bare ids: a type's tab id must stay the
+ * same when its *name* is edited, so the scroll memory and the stored
+ * `meditaur:libraryTable` value survive a rename.
+ */
+export type FixedTableId = "symbols" | "archive" | "audio" | "presets" | "plans" | "history";
+export type TableId = FixedTableId | `type:${string}`;
 
 export const LIBRARY_TABLE_STORAGE_KEY = "meditaur:libraryTable";
 export const LIBRARY_LIST_MODE_KEY = "meditaur:libraryListMode";
 export const LIBRARY_COLUMNS_KEY = "meditaur:libraryColumns";
 export const BINAURAL_DRAFT_KEY_PREFIX = "meditaur:binauralDraft:";
+export const TYPE_TAB_PREFIX = "type:";
 
-export const TABLE_IDS: TableId[] = [
-  "focus",
-  "symbols",
-  "intentions",
-  "fields",
-  "audio",
-  "presets",
-  "views",
-  "plans",
-  "history",
+/** The fixed screens, in the order they follow the type tabs. */
+export const FIXED_LIBRARY_TABS: { id: FixedTableId; label: string }[] = [
+  { id: "symbols", label: "Symbols" },
+  { id: "archive", label: "Archive" },
+  { id: "audio", label: "Audio files" },
+  { id: "presets", label: "Presets" },
+  { id: "plans", label: "Plans" },
+  { id: "history", label: "History" },
 ];
+
+export function typeTabId(typeId: string): TableId {
+  return `${TYPE_TAB_PREFIX}${typeId}`;
+}
+
+/** The type a tab belongs to, or `null` for one of the fixed screens. */
+export function typeTabTypeId(table: TableId | null): string | null {
+  if (!table || !table.startsWith(TYPE_TAB_PREFIX)) return null;
+  const id = table.slice(TYPE_TAB_PREFIX.length);
+  return id.length > 0 ? id : null;
+}
+
+/** The tabs that browse a list with cards or a table, and so get the Columns picker. */
+export function isListTab(table: TableId | null): boolean {
+  return typeTabTypeId(table) != null || table === "symbols";
+}
+
+/** The whole strip: one tab per live type, then the fixed ones (§12.23). */
+export function libraryTabs(types: MeditationType[]): { id: TableId; label: string }[] {
+  return [
+    ...liveTypes(types).map((row) => ({ id: typeTabId(row.id), label: row.name })),
+    ...FIXED_LIBRARY_TABS,
+  ];
+}
 
 export type ListMode = "cards" | "table";
 
-export type AssocMode = "none" | "focus" | "symbol" | "both";
-
+/**
+ * What a screen is, in the stack the library keeps.
+ *
+ * Three screens, and every one of them reads: the list, a chakra's sheet and a
+ * symbol's sheet. Everything that *writes* — a record's editor, the binaural
+ * config, the grid — belongs to the Database, which is a route of its own, so the
+ * library cannot reach an editor even by accident.
+ */
 export type Screen =
   | { type: "list" }
-  | { type: "pick-focus" }
-  | { type: "pick-bind-symbol"; focusId: string }
-  | { type: "pick-intention-focus"; draft: Intention; returnTo: Screen }
-  | { type: "pick-intention-symbol"; draft: Intention; returnTo: Screen }
-  | { type: "pick-focus-preset"; value: FocusPoint; isNew: boolean }
-  | { type: "focus"; value: FocusPoint; isNew: boolean }
-  | { type: "focus-sheet"; focusId: string }
-  | { type: "symbol"; value: Symbol; isNew: boolean }
-  | { type: "symbol-sheet"; symbolId: string }
-  | { type: "field-def"; value: FieldDef; isNew: boolean; returnTo?: Screen }
-  | { type: "intention"; value: Intention; isNew: boolean; mode: AssocMode; returnToFocusId?: string }
-  | { type: "preset"; value: BinauralPreset; isNew: boolean }
-  | { type: "table-view"; value: TableView; isNew: boolean }
-  | { type: "binaural-config"; focusId: string };
+  | { type: "focus-sheet"; meditationId: string }
+  | { type: "symbol-sheet"; symbolId: string };
 
 /**
  * What one screen *is*, for the scroll memory (`useScreenScroll`).
  *
  * A screen's position belongs to the entry it is about, not to the screen type:
- * coming back to this focus point's editor should land where you left it, and
- * opening a different focus point should start at the top. The id is part of the
- * key for the same reason — and it is the id, not the draft, so typing a name
- * does not look like a different screen.
+ * coming back to this chakra's sheet should land where you left it, and opening a
+ * different one should start at the top. It is the id, not the draft, so typing a
+ * name does not look like a different screen.
  */
 export function screenId(screen: Screen): string {
   switch (screen.type) {
-    case "focus":
-    case "symbol":
-    case "field-def":
-    case "preset":
-    case "table-view":
-    case "intention":
-      return `${screen.type}:${screen.value.id}`;
     case "focus-sheet":
-      return `focus-sheet:${screen.focusId}`;
+      return `focus-sheet:${screen.meditationId}`;
     case "symbol-sheet":
       return `symbol-sheet:${screen.symbolId}`;
-    case "binaural-config":
-      return `binaural-config:${screen.focusId}`;
-    case "pick-bind-symbol":
-      return `pick-bind-symbol:${screen.focusId}`;
-    case "pick-focus-preset":
-      return `pick-focus-preset:${screen.value.id}`;
     default:
-      // `list` (keyed by its tab, in `Library`), and the pickers whose position
-      // only lasts the one visit.
+      // `list` (keyed by its tab, in `Library`).
       return screen.type;
   }
 }
 
-export const KIND_TILES: { id: FocusKind; label: string }[] = [
-  { id: "chakra", label: "Chakra" },
-  { id: "point", label: "Point" },
-  { id: "custom", label: "Custom" },
-];
+/**
+ * The live types, in the reader's order, for the screens that only read them.
+ *
+ * A type is a row (the owner's round 15), so "which types are there" is a question
+ * about the store, not about this file: a reader who adds one gets it in every
+ * picker, every tab and every Database table with nothing to register.
+ */
+export function liveTypes(types: MeditationType[]): MeditationType[] {
+  return [...types]
+    .filter((row) => row.archivedAt == null)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+}
 
-export const FILTER_TILES: { id: SymbolFilter; label: string }[] = [
-  { id: "block", label: "This block" },
-  { id: "focusPoint", label: "Focus point" },
-  { id: "all", label: "All symbols" },
-];
+/** The live types as `TileGrid` tiles, for the one control that picks one. */
+export function typeTiles(types: MeditationType[]): { id: string; label: string }[] {
+  return liveTypes(types).map((row) => ({ id: row.id, label: row.name }));
+}
 
-export const ASSOC_TILES: { id: AssocMode; label: string }[] = [
-  { id: "none", label: "None" },
-  { id: "focus", label: "Focus point" },
-  { id: "symbol", label: "Symbol" },
-  { id: "both", label: "Both" },
-];
+/** What a meditation's type is called. `-` when the row is gone. */
+export function typeName(types: MeditationType[], typeId: string): string {
+  return types.find((row) => row.id === typeId)?.name ?? "-";
+}
 
 export type LibraryColumn = { key: string; label: string; image?: boolean };
 
-export const FOCUS_BUILTIN_COLUMNS: LibraryColumn[] = [
+export const MEDITATION_BUILTIN_COLUMNS: LibraryColumn[] = [
   { key: "name", label: "Name" },
   { key: "image", label: "Image", image: true },
-  { key: "kind", label: "Kind" },
+  { key: "type", label: "Type" },
   { key: "location", label: "Location" },
   { key: "symbols", label: "Symbols" },
 ];
@@ -135,32 +145,62 @@ export const SYMBOL_BUILTIN_COLUMNS: LibraryColumn[] = [
   { key: "usage", label: "Usage" },
 ];
 
-/** Built-in columns first, then the custom field defs of that entity pool. */
+/**
+ * Whether a column belongs to a pool.
+ *
+ * A column belongs to one type, or to every type (`typeId === null`, §12.4). The
+ * pool it is drawn in is the difference: a Thanks Giving column must not appear
+ * on a Protection row, in that row's editor, or in the tab that lists it.
+ */
+export function columnIsInPool(def: { typeId: string | null }, typeId: string | null): boolean {
+  return def.typeId == null || def.typeId === typeId;
+}
+
+/** Built-in columns first, then the custom field defs of that scope's pool. */
 export function poolColumns(
   builtins: LibraryColumn[],
   defs: FieldDef[],
-  entityType: FieldEntityType,
+  scope: FieldScope,
+  /** The type whose pool this is, or `null` for a pool that is not a type's. */
+  typeId: string | null = null,
 ): LibraryColumn[] {
   return [
     ...builtins,
     ...[...defs]
-      .filter((def) => def.entityType === entityType)
+      .filter(
+        (def) =>
+          def.archivedAt == null && def.scope === scope && columnIsInPool(def, typeId),
+      )
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((def) => ({ key: def.key, label: def.label })),
   ];
 }
 
-export function parseLibraryTableId(raw: string | null): TableId {
-  if (raw === "affirmations") return "intentions";
-  if (raw && TABLE_IDS.includes(raw as TableId)) return raw as TableId;
-  return "focus";
+/**
+ * The tab a stored value names, or `null` when it names none.
+ *
+ * `focus` was this strip's one tab for every meditation until the owner's round
+ * 15 split it into a tab per type, and `affirmations`, `intentions`, `views` and
+ * `fields` were replaced by the Database before that. All of them answer `null`,
+ * which the screen reads as "the first tab" — the first live type — because the
+ * first tab is a question about the store and this function only sees a string.
+ */
+export function parseLibraryTableId(raw: string | null): TableId | null {
+  if (!raw) return null;
+  if ((FIXED_LIBRARY_TABS as { id: string }[]).some((row) => row.id === raw)) {
+    return raw as FixedTableId;
+  }
+  if (raw.startsWith(TYPE_TAB_PREFIX) && raw.length > TYPE_TAB_PREFIX.length) {
+    return raw as TableId;
+  }
+  return null;
 }
 
-export function readLibraryTable(): TableId {
+export function readLibraryTable(): TableId | null {
   try {
     return parseLibraryTableId(sessionStorage.getItem(LIBRARY_TABLE_STORAGE_KEY));
   } catch {
-    return "focus";
+    return null;
   }
 }
 
@@ -189,8 +229,8 @@ export function writeListMode(table: TableId, mode: ListMode): void {
   }
 }
 
-export function binauralDraftKey(focusPointId: string): string {
-  return `${BINAURAL_DRAFT_KEY_PREFIX}${focusPointId}`;
+export function binauralDraftKey(meditationId: string): string {
+  return `${BINAURAL_DRAFT_KEY_PREFIX}${meditationId}`;
 }
 
 export type BinauralDraftPayload = {
@@ -210,9 +250,9 @@ export type BinauralDraftPayload = {
   revision: number;
 };
 
-export function readBinauralDraft(focusPointId: string): BinauralDraftPayload | null {
+export function readBinauralDraft(meditationId: string): BinauralDraftPayload | null {
   try {
-    const raw = sessionStorage.getItem(binauralDraftKey(focusPointId));
+    const raw = sessionStorage.getItem(binauralDraftKey(meditationId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as BinauralDraftPayload;
     return { ...parsed, revision: parsed.revision ?? 0 };
@@ -221,35 +261,35 @@ export function readBinauralDraft(focusPointId: string): BinauralDraftPayload | 
   }
 }
 
-export function writeBinauralDraft(focusPointId: string, draft: BinauralDraftPayload): void {
+export function writeBinauralDraft(meditationId: string, draft: BinauralDraftPayload): void {
   try {
-    sessionStorage.setItem(binauralDraftKey(focusPointId), JSON.stringify(draft));
+    sessionStorage.setItem(binauralDraftKey(meditationId), JSON.stringify(draft));
   } catch {
     return;
   }
 }
 
-export function clearBinauralDraft(focusPointId: string): void {
+export function clearBinauralDraft(meditationId: string): void {
   try {
-    sessionStorage.removeItem(binauralDraftKey(focusPointId));
+    sessionStorage.removeItem(binauralDraftKey(meditationId));
   } catch {
     return;
   }
 }
 
 /**
- * Drops the drafts of focus points that no longer exist.
+ * Drops the drafts of meditations that no longer exist.
  *
- * A draft is keyed by focus point and is only removed on save, try, or revert —
+ * A draft is keyed by meditation and is only removed on save, try, or revert —
  * so a reader who opens the binaural config and leaves without choosing leaves
- * its draft behind, and deleting the focus point strands it for good. Nothing
+ * its draft behind, and deleting the meditation strands it for good. Nothing
  * else enumerates those keys, so this runs with each library load, which is the
  * only moment the live set is known.
  */
-export function pruneBinauralDrafts(liveFocusPointIds: Iterable<string>): void {
+export function pruneBinauralDrafts(liveMeditationIds: Iterable<string>): void {
   try {
     const live = new Set<string>();
-    for (const id of liveFocusPointIds) live.add(binauralDraftKey(id));
+    for (const id of liveMeditationIds) live.add(binauralDraftKey(id));
     const doomed: string[] = [];
     for (let index = 0; index < sessionStorage.length; index += 1) {
       const key = sessionStorage.key(index);
@@ -260,10 +300,6 @@ export function pruneBinauralDrafts(liveFocusPointIds: Iterable<string>): void {
   } catch {
     return;
   }
-}
-
-export function toggleColumn(columnKeys: string[], key: string): string[] {
-  return toggleOrdered(columnKeys, key, [...BUILTIN_COLUMN_KEYS]);
 }
 
 type ColumnStore = Record<string, string[]>;
@@ -280,6 +316,14 @@ function readColumnStore(): ColumnStore {
   }
 }
 
+/**
+ * Which columns a browse tab shows, for the session.
+ *
+ * `null` means "every column", so a reader who has never opened the picker sees
+ * the table as it is, and a column added later appears rather than staying hidden
+ * behind a selection made before it existed. The Database has no such setting: a
+ * column there *is* the table, and what a session shows lives on the plan.
+ */
 export function readTableColumns(table: TableId): string[] | null {
   const stored = readColumnStore()[table];
   if (!Array.isArray(stored)) return null;
@@ -331,15 +375,21 @@ export function draftsForSymbol(
   defs: FieldDef[],
   values: FieldValue[],
 ): Record<string, string> {
-  return draftsForEntity(symbolId, defs.filter((d) => d.entityType === "symbol"), values);
+  return draftsForEntity(symbolId, defs.filter((d) => d.scope === "symbol"), values);
 }
 
-export function draftsForFocus(
-  focusId: string,
+export function draftsForMeditation(
+  meditationId: string,
   defs: FieldDef[],
   values: FieldValue[],
+  /** The meditation's own type: its pool, plus the shared columns (§12.4). */
+  typeId: string | null = null,
 ): Record<string, string> {
-  return draftsForEntity(focusId, defs.filter((d) => d.entityType === "focusPoint"), values);
+  return draftsForEntity(
+    meditationId,
+    defs.filter((d) => d.scope === "meditation" && columnIsInPool(d, typeId)),
+    values,
+  );
 }
 
 export function nextSortOrder(items: { sortOrder: number }[]): number {
@@ -360,19 +410,17 @@ export function formatDurationMs(ms: number): string {
   return `${m}m ${s}s`;
 }
 
-export function assocModeOf(intention: Pick<Intention, "focusPointId" | "symbolId">): AssocMode {
-  if (intention.focusPointId && intention.symbolId) return "both";
-  if (intention.focusPointId) return "focus";
-  if (intention.symbolId) return "symbol";
-  return "none";
-}
-
-export function emptyFocusPoint(workspaceId: string, presetId: string | null): FocusPoint {
+export function emptyMeditation(
+  workspaceId: string,
+  presetId: string | null,
+  /** The type a brand-new meditation belongs to: the first live one. */
+  typeId: string,
+): Meditation {
   return {
     id: createId(),
     workspaceId,
     name: "",
-    kind: "custom",
+    typeId,
     locationText: "",
     defaultBinauralPresetId: presetId,
     defaultDurationMs: DEFAULT_FOCUS_DURATION_MS,
@@ -383,6 +431,43 @@ export function emptyFocusPoint(workspaceId: string, presetId: string | null): F
     representationAssetId: null,
     representationDescription: null,
     binauralEnabled: true,
+    // A new row follows its type: no copy of its own until the reader tunes one,
+    // which is what `null` means (`stagesForMeditation`).
+    stages: null,
+    sortOrder: 0,
+    archivedAt: null,
+    ...newRowVersion(),
+  };
+}
+
+export function emptySymbol(workspaceId: string): Symbol {
+  return {
+    id: createId(),
+    workspaceId,
+    name: "",
+    description: "",
+    usage: "",
+    imageAssetId: null,
+    sortOrder: 0,
+    archivedAt: null,
+    ...newRowVersion(),
+  };
+}
+
+export function emptyPreset(workspaceId: string): BinauralPreset {
+  const pair = classicBinauralPair(200, 8, 0.45);
+  return {
+    id: createId(),
+    workspaceId,
+    name: "",
+    leftTones: [pair.left],
+    rightTones: [pair.right],
+    fadeInMs: 40,
+    fadeOutMs: 40,
+    eqLeft: defaultEarEq(),
+    eqRight: defaultEarEq(),
+    sortOrder: 0,
+    archivedAt: null,
     ...newRowVersion(),
   };
 }

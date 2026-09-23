@@ -58,11 +58,16 @@ export function CatalogCard({
   editLabel?: string;
   /** The card's default action: the entry's read-only view. */
   onOpen?: () => void;
-  onEdit: () => void;
+  /**
+   * The card's own actions. Absent for the browse tabs, which have none at all
+   * (§8): a chakra's picture, its kind and its name are what the page is for,
+   * and editing it is the Database's record view.
+   */
+  onEdit?: () => void;
   deleteArmed?: boolean;
   /** What else the delete would take with it, shown while armed. */
   deleteNotice?: string | null;
-  onDelete: () => void;
+  onDelete?: () => void;
 }) {
   return (
     <div
@@ -111,20 +116,22 @@ export function CatalogCard({
       ) : null}
       <div className="relative flex flex-wrap items-center justify-end gap-2">
         {actions}
-        {/* Both actions are named after the row they act on: a list of identical
-            "Edit" and "Delete" buttons is unreadable to a screen reader. */}
-        <Button size="sm" aria-label={`${editLabel} ${title}`} onClick={onEdit}>
-          {editLabel}
-        </Button>
-        <Button
-          size="sm"
-          tier="destructive"
-          armed={deleteArmed}
-          aria-label={deleteArmed ? `Delete ${title}?` : `Delete ${title}`}
-          onClick={onDelete}
-        >
-          {deleteArmed ? `Delete ${title}?` : "Delete"}
-        </Button>
+        {onEdit ? (
+          <Button size="sm" aria-label={`${editLabel} ${title}`} onClick={onEdit}>
+            {editLabel}
+          </Button>
+        ) : null}
+        {onDelete ? (
+          <Button
+            size="sm"
+            tier="destructive"
+            armed={deleteArmed}
+            aria-label={deleteArmed ? `Delete ${title}?` : `Delete ${title}`}
+            onClick={onDelete}
+          >
+            {deleteArmed ? `Delete ${title}?` : "Delete"}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

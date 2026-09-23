@@ -1,4 +1,11 @@
-import type { Plan, PlanBlock } from "@meditaur/domain";
+import {
+  DEFAULT_PLAN_DISPLAY,
+  INTENTION_STAGES,
+  copyStages,
+  type Plan,
+  type PlanBlock,
+  type PlanBlockStage,
+} from "@meditaur/domain";
 
 export const PLAN_ERRORS = {
   keepOne: "Keep at least one plan",
@@ -7,7 +14,7 @@ export const PLAN_ERRORS = {
 } as const;
 
 export const FOCUS_SESSION_PLAN_ID = "01900000-0000-7000-8000-000000000060";
-export const FOCUS_SESSION_PLAN_NAME = "Focus session";
+export const MEDITATION_SESSION_PLAN_NAME = "Meditation session";
 
 const NEW_SESSION = "New session";
 
@@ -47,37 +54,38 @@ export function makeStarterPlan(input: {
   workspaceId: string;
   name: string;
   autoAdvance: boolean;
-  focusBlockId: string;
-  cooloffBlockId: string;
-  focusPointId: string | null;
+  /** The reader's own default for a new plan's alarm switch (§12.4). */
+  alarmEnabled: boolean;
+  /** The one block's id, and the meditation it runs. */
+  meditationBlockId: string;
+  meditationId: string | null;
   binauralPresetId: string | null;
-  tableViewId: string | null;
+  /**
+   * The stages the one meditation block runs.
+   *
+   * The caller knows the meditation and its type, so it passes the materialised
+   * template in; the default is a chakra's three stages, so a starter session built
+   * without one still runs rather than opening on an empty block.
+   */
+  stages?: PlanBlockStage[];
 }): Plan {
-  const focus: PlanBlock = {
-    id: input.focusBlockId,
+  // **One block, and it is a meditation.** The owner's round 15 deleted cool-off, so
+  // the one-tap session no longer closes with a silent timer block: the meditation's
+  // own last stage is the ending.
+  const meditation: PlanBlock = {
+    id: input.meditationBlockId,
     sortOrder: 0,
-    type: "focus",
-    durationMs: 120_000,
-    focusPointId: input.focusPointId,
+    meditationId: input.meditationId,
+    stages: copyStages(input.stages ?? INTENTION_STAGES),
     symbolId: null,
     symbolScope: "rotate",
     binauralPresetId: input.binauralPresetId,
-    tableViewId: input.tableViewId,
     ambientAssetId: null,
     alarmAssetId: null,
-  };
-  const cooloff: PlanBlock = {
-    id: input.cooloffBlockId,
-    sortOrder: 1,
-    type: "cooloff",
-    durationMs: 30_000,
-    focusPointId: null,
-    symbolId: null,
-    symbolScope: "rotate",
-    binauralPresetId: null,
-    tableViewId: null,
-    ambientAssetId: null,
-    alarmAssetId: null,
+    // Both `null`: the block has no answer of its own yet, so the plan's stands —
+    // and a one-tap session is one block, whose editor is where either changes.
+    alarmEnabled: null,
+    display: null,
   };
   return {
     id: input.id,
@@ -86,8 +94,12 @@ export function makeStarterPlan(input: {
     cycleCount: 1,
     cycleUntilStopped: false,
     autoAdvance: input.autoAdvance,
+    alarmEnabled: input.alarmEnabled,
     binauralEnabled: true,
     revision: 0,
-    blocks: [focus, cooloff],
+    // A copy of the default, not the constant itself: a plan owns its display, and
+    // editing one must not edit every other plan that starts from it.
+    display: { columns: [...DEFAULT_PLAN_DISPLAY.columns] },
+    blocks: [meditation],
   };
 }

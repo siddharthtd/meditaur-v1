@@ -15,7 +15,7 @@ Workspace packages (`@meditaur/*`) are not third-party.
 | `next` | App router / PWA host. | `@meditaur/web` |
 | `dexie` | Local IndexedDB. Domain stays SQL-free. | `@meditaur/db` |
 | `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities` | Drag reorder: the planner's block strip, and the library editors' symbol and intention lists. Do not add another DnD kit. | `@meditaur/web` (Planner + Library only) |
-| `@supabase/supabase-js` | Auth and preferences only, behind `AuthPort` / `PreferencesRepository`. Supabase Inc. maintains it and the platform is already the pinned backend. **Exactly one module may import it** — `packages/db/src/supabase.ts`, the Supabase module: the client and every adapter that needs it — which the integrity test enforces. | `@meditaur/db` |
+| `@supabase/supabase-js` | Auth, preferences **and client-error events**, behind `AuthPort` / `PreferencesRepository` / `EventPort`. Supabase Inc. maintains it and the platform is already the pinned backend. **Exactly one module may import it** — `packages/db/src/supabase.ts`, the Supabase module: the client and every adapter that needs it — which the integrity test enforces. | `@meditaur/db` |
 
 `@supabase/supabase-js` is **in as of 2026-09-15** (`2.116.0`, first resolved at
 `^2.116.0`): the `AuthPort` adapter imports it, which is the condition this file
@@ -27,6 +27,16 @@ used by the browser and never reaches the bundle.
 Analytics is first-party — a domain event port plus an `events` table. No
 analytics SDK (PostHog, Plausible, Segment, …) is allowed without an allowlist
 change here and in the integrity test.
+
+**The `close-account` Edge Function is a deploy surface, not a package**, and it
+is the repo's only server-side code: it holds the service-role key — injected
+into it by Supabase, never committed — so it can remove the `auth.users` row,
+which no browser may do. It carries **no imports at all**, on purpose: three
+`fetch` calls, because the one-module rule above is about importers and a
+function is a second runtime rather than a second importer. It is deployed by
+`./scripts/meditaur cloud --yes`, after the migrations and against the same
+project. `ALLOWED_ORIGINS` is the optional and tightening setting: unset, any
+origin may call it, which is the closed beta's default.
 
 ## Toolchain (dev / CI / Docker — not product UI)
 
@@ -46,7 +56,7 @@ change here and in the integrity test.
 | Node | `24.20.0` in `.nvmrc` and Docker. `engines.node` is `24.x` (Vercel major only). Do not put a patch in `engines`. Vercel **Project Settings → Node.js Version** must be **24.x**. |
 | pnpm | `10.17.1` (`packageManager`, Corepack) |
 | Docker `FROM` | `node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e` (multi-arch index digest). Bump digest in the same change as `.nvmrc`. |
-| GitHub Actions | SHA-pinned, version in a comment: `actions/checkout@3d3c42e5…` (v7.0.1), `actions/setup-node@82076278…` (v7.0.0), `pnpm/action-setup@ea17c68d…` (v6.1.0), `docker/setup-buildx-action@37fe6310…` (v4.3.0), `docker/build-push-action@53b7df96…` (v7.3.0). Do not use floating `@vN`. `ubuntu-latest` is unpinned. |
+| GitHub Actions | SHA-pinned, version in a comment: `actions/checkout@3d3c42e5…` (v7.0.1), `actions/setup-node@82076278…` (v7.0.0), `pnpm/action-setup@ea17c68d…` (v6.1.0), `docker/setup-buildx-action@f87e5991…` (v4.4.1), `docker/build-push-action@c3c9e263…` (v7.4.0). Do not use floating `@vN`. `ubuntu-latest` is unpinned. **Dependabot raises these, and this row is the only place the versions are written down** — a merged bump that leaves this line behind is a stale doc, so move it in the same pass |
 | Markdown skip | Not an agent rule. Every workflow `pull_request`/`push` sets `paths-ignore: "**.md"`. `vercel.json` `ignoreCommand` is `sh $(git rev-parse --show-toplevel)/scripts/skip-build-if-md-only.sh || exit 1` (cwd is Vercel Root Directory, often `apps/web`). Docker contexts exclude `**/*.md`. Integrity test enumerates `.github/workflows` and pins the command. |
 | Dependabot | `.github/dependabot.yml` — `github-actions` only, weekly. Not npm, not Docker Hub. |
 | `.npmrc` hoist | `shamefully-hoist=true`. Tried `false`; `next build` failed (`@meditaur/ui` has no `react` types). Keep true. |
@@ -105,9 +115,11 @@ These issues need attacker-controlled CSS at PostCSS process time (typically `ne
 Fixed 2026-09-15: `vitest ^3.2.4` → **`^4.1.11`** (paths `.>vitest`,
 `.>vitest>@vitest/mocker`). V4 is the maintained line and the patched floor;
 `5.0.0` is `latest` but was deliberately not taken while closing an advisory —
-bump to it later, on purpose. Verified after the bump: 112 unit tests, the live
+bump to it later, on purpose. Verified at the time: 112 unit tests, the live
 RLS integration test, the build, and 17/17 e2e all pass, and `pnpm audit` no
-longer reports the pair.
+longer reports the pair. Read those as a 2026-09-15 record rather than a current
+count — the suite has grown a good deal since, and what matters is that
+`./scripts/meditaur check:full` is green.
 
 ## ESLint (current)
 

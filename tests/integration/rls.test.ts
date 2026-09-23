@@ -149,14 +149,14 @@ describe(`rls (${target?.name ?? "no target configured"})`, () => {
       });
       expect(members.status, JSON.stringify(members.json)).toBeLessThan(300);
 
-      const focus = await request("/rest/v1/focus_points", {
+      const focus = await request("/rest/v1/meditations", {
         method: "POST",
         key: serviceKey,
         body: {
           id: focusA,
           workspace_id: workspaceA,
           name: "Secret root",
-          kind: "custom",
+          type_id: null,
           location_text: "",
         },
         headers: { Prefer: "return=minimal" },
@@ -166,21 +166,21 @@ describe(`rls (${target?.name ?? "no target configured"})`, () => {
       const jwtA = await signIn(emailA);
       const jwtB = await signIn(emailB);
 
-      const asA = await request("/rest/v1/focus_points?select=id,name", {
+      const asA = await request("/rest/v1/meditations?select=id,name", {
         key: anonKey,
         token: jwtA,
       });
       expect(asA.status).toBe(200);
       expect(asA.json).toEqual([{ id: focusA, name: "Secret root" }]);
 
-      const asB = await request("/rest/v1/focus_points?select=id,name", {
+      const asB = await request("/rest/v1/meditations?select=id,name", {
         key: anonKey,
         token: jwtB,
       });
       expect(asB.status).toBe(200);
       expect(asB.json).toEqual([]);
 
-      const steal = await request("/rest/v1/focus_points", {
+      const steal = await request("/rest/v1/meditations", {
         method: "POST",
         key: anonKey,
         token: jwtB,
@@ -188,14 +188,14 @@ describe(`rls (${target?.name ?? "no target configured"})`, () => {
           id: crypto.randomUUID(),
           workspace_id: workspaceA,
           name: "Stolen",
-          kind: "custom",
+          type_id: null,
           location_text: "",
         },
         headers: { Prefer: "return=minimal" },
       });
       expect(steal.status).toBeGreaterThanOrEqual(400);
     } finally {
-      await request(`/rest/v1/focus_points?id=eq.${focusA}`, {
+      await request(`/rest/v1/meditations?id=eq.${focusA}`, {
         method: "DELETE",
         key: serviceKey,
         headers: { Prefer: "return=minimal" },
@@ -293,6 +293,307 @@ describe(`rls (${target?.name ?? "no target configured"})`, () => {
         headers: { Prefer: "return=minimal" },
       });
       await request(`/rest/v1/workspaces?id=eq.${workspaceA}`, {
+        method: "DELETE",
+        key: serviceKey,
+        headers: { Prefer: "return=minimal" },
+      });
+      for (const id of userIds) {
+        await deleteUser(id);
+      }
+    }
+  });
+
+  it.skipIf(!live)("keeps the Entries table and a column's options inside their workspace", async () => {
+    // §13 of the Database plan names these two tables specifically: `entries` and
+    // `field_options` are the ones the tab added, and the RLS policies that guard
+    // them are per-workspace like every other synced row.
+    const stamp = crypto.randomUUID();
+    const emailA = `entries-a-${stamp}@example.test`;
+    const emailB = `entries-b-${stamp}@example.test`;
+    const workspaceA = crypto.randomUUID();
+    const workspaceB = crypto.randomUUID();
+    const focusA = crypto.randomUUID();
+    const symbolA = crypto.randomUUID();
+    const entryA = crypto.randomUUID();
+    const fieldDefA = crypto.randomUUID();
+    const optionA = crypto.randomUUID();
+    const userIds: string[] = [];
+
+    try {
+      const idA = await createUser(emailA);
+      const idB = await createUser(emailB);
+      userIds.push(idA, idB);
+
+      const seed = await request("/rest/v1/workspaces", {
+        method: "POST",
+        key: serviceKey,
+        body: [
+          { id: workspaceA, type: "personal", name: "Entries A" },
+          { id: workspaceB, type: "personal", name: "Entries B" },
+        ],
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(seed.status, JSON.stringify(seed.json)).toBeLessThan(300);
+
+      const members = await request("/rest/v1/workspace_members", {
+        method: "POST",
+        key: serviceKey,
+        body: [
+          { workspace_id: workspaceA, user_id: idA, role: "owner" },
+          { workspace_id: workspaceB, user_id: idB, role: "owner" },
+        ],
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(members.status, JSON.stringify(members.json)).toBeLessThan(300);
+
+      // One chakra, one symbol, and the row that pairs them — written as the
+      // member, so the policies are what lets these through.
+      const jwtA = await signIn(emailA);
+      const jwtB = await signIn(emailB);
+      const records = await request("/rest/v1/meditations", {
+        method: "POST",
+        key: anonKey,
+        token: jwtA,
+        body: [
+          {
+            id: focusA,
+            workspace_id: workspaceA,
+            name: "Root",
+            type_id: null,
+            location_text: "",
+          },
+        ],
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(records.status, JSON.stringify(records.json)).toBeLessThan(300);
+      const symbol = await request("/rest/v1/symbols", {
+        method: "POST",
+        key: anonKey,
+        token: jwtA,
+        body: {
+          id: symbolA,
+          workspace_id: workspaceA,
+          name: "Lam",
+          description: "",
+          usage: "",
+        },
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(symbol.status, JSON.stringify(symbol.json)).toBeLessThan(300);
+
+      const entry = await request("/rest/v1/entries", {
+        method: "POST",
+        key: anonKey,
+        token: jwtA,
+        body: {
+          id: entryA,
+          workspace_id: workspaceA,
+          meditation_id: focusA,
+          symbol_id: symbolA,
+          sort_order: 0,
+        },
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(entry.status, JSON.stringify(entry.json)).toBeLessThan(300);
+
+      const def = await request("/rest/v1/field_defs", {
+        method: "POST",
+        key: anonKey,
+        token: jwtA,
+        body: {
+          id: fieldDefA,
+          workspace_id: workspaceA,
+          scope: "symbol",
+          cell_type: "select",
+          key: "element",
+          label: "Element",
+          description: "",
+          sort_order: 0,
+        },
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(def.status, JSON.stringify(def.json)).toBeLessThan(300);
+
+      const option = await request("/rest/v1/field_options", {
+        method: "POST",
+        key: anonKey,
+        token: jwtA,
+        body: {
+          id: optionA,
+          workspace_id: workspaceA,
+          field_def_id: fieldDefA,
+          label: "Earth",
+          sort_order: 0,
+        },
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(option.status, JSON.stringify(option.json)).toBeLessThan(300);
+
+      const asA = await request("/rest/v1/entries?select=id,meditation_id,symbol_id", {
+        key: anonKey,
+        token: jwtA,
+      });
+      expect(asA.status).toBe(200);
+      expect(asA.json).toEqual([
+        { id: entryA, meditation_id: focusA, symbol_id: symbolA },
+      ]);
+      const optionsAsA = await request("/rest/v1/field_options?select=id,label", {
+        key: anonKey,
+        token: jwtA,
+      });
+      expect(optionsAsA.status).toBe(200);
+      expect(optionsAsA.json).toEqual([{ id: optionA, label: "Earth" }]);
+
+      // The other reader sees neither, and cannot write into A's workspace.
+      const asB = await request("/rest/v1/entries?select=id", {
+        key: anonKey,
+        token: jwtB,
+      });
+      expect(asB.status).toBe(200);
+      expect(asB.json).toEqual([]);
+      const optionsAsB = await request("/rest/v1/field_options?select=id", {
+        key: anonKey,
+        token: jwtB,
+      });
+      expect(optionsAsB.status).toBe(200);
+      expect(optionsAsB.json).toEqual([]);
+      const steal = await request("/rest/v1/entries", {
+        method: "POST",
+        key: anonKey,
+        token: jwtB,
+        body: {
+          id: crypto.randomUUID(),
+          workspace_id: workspaceA,
+          meditation_id: focusA,
+          sort_order: 1,
+        },
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(steal.status, JSON.stringify(steal.json)).toBeGreaterThanOrEqual(400);
+
+      // …and a row that points at nothing is refused by the table itself.
+      const orphan = await request("/rest/v1/entries", {
+        method: "POST",
+        key: anonKey,
+        token: jwtA,
+        body: { id: crypto.randomUUID(), workspace_id: workspaceA, sort_order: 2 },
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(orphan.status, JSON.stringify(orphan.json)).toBeGreaterThanOrEqual(400);
+    } finally {
+      await request(`/rest/v1/entries?id=eq.${entryA}`, { method: "DELETE", key: serviceKey });
+      await request(`/rest/v1/field_options?id=eq.${optionA}`, {
+        method: "DELETE",
+        key: serviceKey,
+      });
+      await request(`/rest/v1/field_defs?id=eq.${fieldDefA}`, { method: "DELETE", key: serviceKey });
+      await request(`/rest/v1/symbols?id=eq.${symbolA}`, { method: "DELETE", key: serviceKey });
+      await request(`/rest/v1/meditations?id=eq.${focusA}`, { method: "DELETE", key: serviceKey });
+      await request(`/rest/v1/workspace_members?workspace_id=in.(${workspaceA},${workspaceB})`, {
+        method: "DELETE",
+        key: serviceKey,
+      });
+      await request(`/rest/v1/workspaces?id=in.(${workspaceA},${workspaceB})`, {
+        method: "DELETE",
+        key: serviceKey,
+      });
+      for (const id of userIds) {
+        await deleteUser(id);
+      }
+    }
+  });
+
+  it.skipIf(!live)("deletes a user's own data, keeps what they shared, and touches nobody else", async () => {
+    const stamp = crypto.randomUUID();
+    const emailSolo = `del-solo-${stamp}@example.test`;
+    const emailOther = `del-other-${stamp}@example.test`;
+    const solo = crypto.randomUUID();
+    const shared = crypto.randomUUID();
+    const other = crypto.randomUUID();
+    const userIds: string[] = [];
+
+    try {
+      const soloId = await createUser(emailSolo);
+      const otherId = await createUser(emailOther);
+      userIds.push(soloId, otherId);
+      const soloJwt = await signIn(emailSolo);
+      const otherJwt = await signIn(emailOther);
+
+      // One workspace of their own, one they share, and one belonging to
+      // somebody else that nothing here is allowed to reach.
+      for (const [ws, name, type, jwt] of [
+        [solo, "Solo", "personal", soloJwt],
+        [shared, "Shared", "org", soloJwt],
+        [other, "Other", "personal", otherJwt],
+      ] as const) {
+        const created = await request("/rest/v1/rpc/create_workspace", {
+          method: "POST",
+          key: anonKey,
+          token: jwt,
+          body: { ws_id: ws, ws_name: name, ws_type: type },
+        });
+        expect(created.status, JSON.stringify(created.json)).toBeLessThan(300);
+      }
+      const invited = await request("/rest/v1/workspace_members", {
+        method: "POST",
+        key: serviceKey,
+        body: { workspace_id: shared, user_id: otherId, role: "editor" },
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(invited.status, JSON.stringify(invited.json)).toBeLessThan(300);
+
+      const wiped = await request("/rest/v1/rpc/delete_my_data", {
+        method: "POST",
+        key: anonKey,
+        token: soloJwt,
+        body: {},
+      });
+      expect(wiped.status, JSON.stringify(wiped.json)).toBeLessThan(300);
+      // Exactly one: the shared workspace is not theirs to delete.
+      expect(wiped.json).toBe(1);
+
+      const gone = await request(`/rest/v1/workspaces?id=eq.${solo}&select=id`, {
+        key: serviceKey,
+      });
+      expect(gone.json).toEqual([]);
+      const soloMembership = await request(
+        `/rest/v1/workspace_members?workspace_id=eq.${solo}&select=user_id`,
+        { key: serviceKey },
+      );
+      expect(soloMembership.json).toEqual([]);
+
+      // The shared workspace survives with its other member; the caller's
+      // membership of it does not.
+      const kept = await request(
+        `/rest/v1/workspaces?id=in.(${shared},${other})&select=id`,
+        { key: serviceKey },
+      );
+      expect((kept.json as { id: string }[]).map((row) => row.id).sort()).toEqual(
+        [shared, other].sort(),
+      );
+      const sharedMembers = await request(
+        `/rest/v1/workspace_members?workspace_id=eq.${shared}&select=user_id`,
+        { key: serviceKey },
+      );
+      expect(sharedMembers.json).toEqual([{ user_id: otherId }]);
+
+      // Running it again is a clean no-op, not an error at somebody who is
+      // already erased.
+      const again = await request("/rest/v1/rpc/delete_my_data", {
+        method: "POST",
+        key: anonKey,
+        token: soloJwt,
+        body: {},
+      });
+      expect(again.status, JSON.stringify(again.json)).toBeLessThan(300);
+      expect(again.json).toBe(0);
+    } finally {
+      await request(`/rest/v1/workspace_members?workspace_id=in.(${solo},${shared},${other})`, {
+        method: "DELETE",
+        key: serviceKey,
+        headers: { Prefer: "return=minimal" },
+      });
+      await request(`/rest/v1/workspaces?id=in.(${solo},${shared},${other})`, {
         method: "DELETE",
         key: serviceKey,
         headers: { Prefer: "return=minimal" },

@@ -48,7 +48,7 @@ const BANDS = [
  * open tuner, just have the tuner right below the name […] the buttons inside
  * tuner are also shaby, can you bring them up to the spec?" Bringing the tuner
  * into the preset editor made three screens show the same controls — the preset
- * editor, a focus point's binaural config, and `/tuner` — and two of them had
+ * editor, a meditation's binaural config, and `/tuner` — and two of them had
  * drifted: the config screen passed an EQ band's *index* where the domain helper
  * wants its *frequency*, so dragging one band could move another. One body fixes
  * that by construction.

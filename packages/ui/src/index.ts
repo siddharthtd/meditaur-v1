@@ -13,7 +13,7 @@ export { Button } from "./Button.tsx";
 export type { ButtonProps, ButtonSize, ButtonTier } from "./Button.tsx";
 export {
   NEUTRAL_ACCENT,
-  accentForFocusPoint,
+  accentForMeditation,
   accentForName,
   accentStyle,
 } from "./accents.ts";

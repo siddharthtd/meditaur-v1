@@ -60,14 +60,14 @@ export async function startSession(
   return snapshot.instanceId;
 }
 
-export async function startSessionFromFocus(
+export async function startSessionFromMeditation(
   userId: string,
   workspaceId: string,
-  focusId: string,
+  meditationId: string,
 ): Promise<string> {
   const liveId = liveSessionInstanceId();
   if (liveId) return liveId;
-  const snapshot = await app.startSessionFromFocus(userId, workspaceId, focusId);
+  const snapshot = await app.startSessionFromMeditation(userId, workspaceId, meditationId);
   getEngine().load(snapshot);
   return snapshot.instanceId;
 }

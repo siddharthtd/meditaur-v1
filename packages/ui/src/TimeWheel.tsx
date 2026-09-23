@@ -14,6 +14,9 @@ import {
   wheelOffsetFor,
   wheelPadPx,
   wheelValueAt,
+  wheelWrappedOffsetFor,
+  wheelWrappedStep,
+  wheelWrappedValueAt,
 } from "./wheel-math.ts";
 
 /**
@@ -100,6 +103,8 @@ export function TimeWheel({
   onChange,
   size = "md",
   band = true,
+  wrap = false,
+  captions = true,
 }: {
   /** The column's name, e.g. `Minutes`. Its accessible name and its caption. */
   label: string;
@@ -110,6 +115,26 @@ export function TimeWheel({
   size?: TimeWheelSize;
   /** Off when a parent draws one band across several columns (`TimeWheels`). */
   band?: boolean;
+  /**
+   * The column counts in circles: past `max` comes `min` again.
+   *
+   * The owner's round 19, on the session screen's clock: *"the timers' seconds should
+   * wrap around, after 59, it should again become 0, minute wheel stays the same"*.
+   * A wrapping column also **carries nothing**: a seconds column that rolled into its
+   * neighbour would be doing arithmetic the reader did not ask for, and the pair's own
+   * rule (`durationFromParts`) is what bounds a duration.
+   */
+  wrap?: boolean;
+  /**
+   * The `Minutes` / `Seconds` caption under the window.
+   *
+   * Off inside the session screen's stage cards (the owner's round 19, item 2: *"it is
+   * imperative that we reduce the height"*): the words cost a line of height under
+   * every pair, and a stage's card already says what the pair is for. The columns keep
+   * their accessible names either way — the caption is decoration, the `aria-label`
+   * is the name.
+   */
+  captions?: boolean;
 }): ReactNode {
   const spec = SIZES[size];
   const { rowPx } = spec;
@@ -136,20 +161,27 @@ export function TimeWheel({
   const valueRef = useRef(value);
   valueRef.current = value;
 
-  const rows: number[] = [];
-  for (let n = min; n <= max; n += 1) rows.push(n);
+  // The rows the column draws: its values, and — for a wrapping column — one value
+  // beyond each end, so a scroll that leaves the range lands on a real row instead of
+  // stopping at the last one.
+  const values: number[] = [];
+  for (let n = min; n <= max; n += 1) values.push(n);
+  const rows = wrap ? [max, ...values, min] : values;
 
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
-  const step = (delta: number) => onChange(clamp(value + delta));
+  const step = (delta: number) =>
+    onChange(wrap ? wheelWrappedStep(value, delta, min, max) : clamp(value + delta));
 
   /** Put the column on the row the value names, if it is not already there. */
   const placeOnValue = useCallback(() => {
     const node = scroller.current;
     if (!node) return;
-    const top = wheelOffsetFor(valueRef.current, rowPx, min);
+    const top = wrap
+      ? wheelWrappedOffsetFor(valueRef.current, rowPx, min)
+      : wheelOffsetFor(valueRef.current, rowPx, min);
     if (Math.abs(node.scrollTop - top) < 1) return;
     node.scrollTop = top;
-  }, [rowPx, min]);
+  }, [rowPx, min, wrap]);
 
   // Keep the wheel where the value is. The value also changes from outside — the
   // screen it sits on, the minutes column moving the seconds, a typed value — so
@@ -198,7 +230,9 @@ export function TimeWheel({
     turning.current = true;
     if (restTimer.current !== null) window.clearTimeout(restTimer.current);
     restTimer.current = window.setTimeout(rest, SETTLE_MS);
-    const next = wheelValueAt(node.scrollTop, rowPx, min, max);
+    const next = wrap
+      ? wheelWrappedValueAt(node.scrollTop, rowPx, min, max)
+      : wheelValueAt(node.scrollTop, rowPx, min, max);
     if (next !== value) onChange(next);
   };
 
@@ -231,8 +265,12 @@ export function TimeWheel({
     if (!node || !current?.moved) return;
     // Land on a row: a wheel rests between values only while it is being turned.
     justDragged.current = true;
-    const landed = wheelValueAt(node.scrollTop, rowPx, min, max);
-    node.scrollTop = wheelOffsetFor(landed, rowPx, min);
+    const landed = wrap
+      ? wheelWrappedValueAt(node.scrollTop, rowPx, min, max)
+      : wheelValueAt(node.scrollTop, rowPx, min, max);
+    node.scrollTop = wrap
+      ? wheelWrappedOffsetFor(landed, rowPx, min)
+      : wheelOffsetFor(landed, rowPx, min);
     if (landed !== value) onChange(landed);
   };
 
@@ -250,10 +288,18 @@ export function TimeWheel({
     const parsed = Number.parseInt(typed.trim(), 10);
     setEditing(false);
     if (Number.isNaN(parsed)) return;
-    onChange(clamp(parsed));
+    onChange(wrap ? wheelWrappedStep(parsed, 0, min, max) : clamp(parsed));
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // While the text box is open it owns the keyboard. This handler sits on the
+    // box's *parent*, so every key the box does not stop reaches it — and the
+    // branch below reads `Enter` (and `" "`) as "open the editor". Pressing Enter
+    // therefore committed the value and then re-opened the box over it, holding
+    // the *stale* text, so the next blur — clicking anything at all — committed
+    // the old number back and the reader's value silently reverted. Arrows are
+    // the same story: in the box they move the caret, not the wheel.
+    if (editing) return;
     if (event.key === "ArrowUp") step(1);
     else if (event.key === "ArrowDown") step(-1);
     else if (event.key === "PageUp") step(5);
@@ -314,9 +360,11 @@ export function TimeWheel({
           onScroll={onScroll}
         >
           <div style={{ height: wheelPadPx(rowPx) }} />
-          {rows.map((row) => (
+          {rows.map((row, index) => (
             <div
-              key={row}
+              // Keyed by position, not by value: a wrapping column holds `max` and
+              // `min` twice.
+              key={`${index}:${row}`}
               className={`flex snap-center items-center justify-center tabular-nums ${
                 spec.value
               } ${row === value ? "text-text" : "text-muted"}`}
@@ -353,20 +401,74 @@ export function TimeWheel({
           />
         ) : null}
       </div>
-      <span className={`${spec.caption} text-muted`}>{label}</span>
+      {captions ? <span className={`${spec.caption} text-muted`}>{label}</span> : null}
+    </div>
+  );
+}
+
+/**
+ * One column of a duration, as a reading.
+ *
+ * The band and the column are the wheel's own geometry — same width, same row
+ * height, same window — so a stage's timer does not move, resize or change type
+ * size when the session starts and it stops being editable. What is *not* here is
+ * everything that made it a control: no scroller, no spinbutton role, no keyboard
+ * handler and no text box, so there is nothing to turn, nothing to type into and
+ * nothing for a screen reader to offer as adjustable.
+ */
+function StaticWheel({
+  label,
+  value,
+  size,
+  captions = true,
+}: {
+  label: string;
+  value: number;
+  size: TimeWheelSize;
+  captions?: boolean;
+}): ReactNode {
+  const spec = SIZES[size];
+  const { rowPx } = spec;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className={`relative flex items-center justify-center ${spec.column}`}
+        style={{ height: rowPx * TIME_WHEEL_ROWS }}
+      >
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 rounded-xl bg-surface-raised"
+          style={{ top: wheelBandTopPx(rowPx), height: rowPx }}
+        />
+        <span
+          className={`relative tabular-nums text-text ${spec.value}`}
+          style={{ height: rowPx, lineHeight: `${rowPx}px` }}
+        >
+          {value}
+        </span>
+      </div>
+      {captions ? <span className={`${spec.caption} text-muted`}>{label}</span> : null}
     </div>
   );
 }
 
 /**
  * Minutes and seconds, side by side under one highlight band — the pair every
- * duration in the app is set with (a plan block's length, a focus point's
+ * duration in the app is set with (a plan block's length, a meditation's
  * default, the run screen's clock before it starts).
  *
  * There is no `:` between them: the owner's round 7, "you can remove the : from
  * the middle". Two columns inside one band, each captioned, read as a single
  * value — the way Android's time picker does it — and the colon was taking the
  * width a digit of the pair needed.
+ *
+ * `readOnly` draws the same pair as **a reading** rather than a control (the owner's
+ * round 17): the digits sit in the same band, at the same size, in the same place,
+ * with nothing to turn and nothing to type. That is what a run screen's stage timers
+ * become once the session starts — *"these can become read-only (no more
+ * modification) and display the decreasing time in the same place"* — so the number
+ * the reader was setting is the number they watch, without the pair jumping
+ * somewhere else on the screen the moment they press Start.
  */
 export function TimeWheels({
   minutes,
@@ -375,6 +477,9 @@ export function TimeWheels({
   onSeconds,
   size = "md",
   minuteMax = 180,
+  readOnly = false,
+  wrapSeconds = false,
+  captions = true,
 }: {
   minutes: number;
   seconds: number;
@@ -382,8 +487,24 @@ export function TimeWheels({
   onSeconds: (next: number) => void;
   size?: TimeWheelSize;
   minuteMax?: number;
+  readOnly?: boolean;
+  /**
+   * The seconds column counts in circles (see `TimeWheel`'s `wrap`); the minutes
+   * column never does — *"minute wheel stays the same"*.
+   */
+  wrapSeconds?: boolean;
+  /** Off in the session screen's stage cards, where a line of height is the ask. */
+  captions?: boolean;
 }): ReactNode {
   const { rowPx } = SIZES[size];
+  if (readOnly) {
+    return (
+      <div className="flex items-start gap-1" role="timer" aria-label="Time remaining">
+        <StaticWheel label="Minutes" value={minutes} size={size} captions={captions} />
+        <StaticWheel label="Seconds" value={seconds} size={size} captions={captions} />
+      </div>
+    );
+  }
   return (
     <div className="relative flex items-start gap-1">
       {/* One band across both columns, lined up with the middle row of each. */}
@@ -400,6 +521,7 @@ export function TimeWheels({
         onChange={onMinutes}
         size={size}
         band={false}
+        captions={captions}
       />
       <TimeWheel
         label="Seconds"
@@ -409,6 +531,8 @@ export function TimeWheels({
         onChange={onSeconds}
         size={size}
         band={false}
+        wrap={wrapSeconds}
+        captions={captions}
       />
     </div>
   );

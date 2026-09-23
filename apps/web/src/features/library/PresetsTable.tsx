@@ -4,7 +4,7 @@ import { BinauralBody } from "../binaural/BinauralBody";
 import { CatalogCard } from "./CatalogCard";
 import { DeleteButton } from "./DeleteButton";
 import { EditorChrome } from "./EditorChrome";
-import type { Screen } from "./library-model";
+import type { PresetDraft } from "./MeditationTable";
 
 /**
  * A preset, with its sound under its name.
@@ -29,7 +29,7 @@ export function PresetEditor({
   onSave,
   onDelete,
 }: {
-  screen: Extract<Screen, { type: "preset" }>;
+  screen: PresetDraft;
   deleteArmed: boolean;
   /** What else the delete would take with it, while armed. */
   deleteImpact?: string | null;

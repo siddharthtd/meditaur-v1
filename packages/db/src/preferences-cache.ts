@@ -3,7 +3,7 @@ import type { LocalPreferences } from "./ports.ts";
 
 /**
  * Preferences from the cloud when there is a cloud, with Dexie kept as the
- * offline copy — Phase 2's read-through bootstrap.
+ * offline copy — the read-through bootstrap.
  *
  * **Read** goes to the cloud and writes what it finds into the local copy on the
  * way through, so a read with no network still has the reader's settings. If the

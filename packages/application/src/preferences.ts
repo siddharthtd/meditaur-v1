@@ -2,7 +2,7 @@ import { fail } from "@meditaur/domain";
 import type { UserPreferences } from "@meditaur/domain";
 
 /**
- * Preferences are versioned the way plans are (review M11: `savePreferences`
+ * Preferences are versioned the way plans are (the review, 2026-09-15: `savePreferences`
  * used to store whatever the caller happened to hold, so the last writer won and
  * the earlier change vanished without a word). A save carries the revision it
  * read; if the store has moved on, the write is refused and the caller sees why.

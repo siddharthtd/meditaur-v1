@@ -17,19 +17,28 @@
  * are the real source.
  */
 
-/** Button — sizes and the focus ring. */
+/** Button — sizes and the focus ring. Every metric is a literal px, so a control
+ *  keeps its size whatever the reader's text size is. The last four are the
+ *  icon-only squares (`iconOnly`), which the round-19 transport uses. */
 const BUTTON_SIZES =
-  "h-9 rounded-xl px-3 text-sm h-11 rounded-xl px-4 text-base h-14 rounded-2xl px-6 text-lg min-h-16";
+  "h-[40px] rounded-[14px] px-[14px] text-[16px] " +
+  "h-[50px] rounded-[14px] px-[18px] text-[18px] " +
+  "h-[63px] rounded-[18px] px-[27px] text-[20px] " +
+  "min-h-[72px] rounded-[18px] px-[27px] text-[20px] " +
+  "h-[40px] min-w-[40px] max-w-[40px] rounded-[14px] px-0 text-[16px] " +
+  "h-[50px] min-w-[50px] max-w-[50px] rounded-[14px] px-0 text-[18px] " +
+  "h-[63px] min-w-[63px] max-w-[63px] rounded-[18px] px-0 text-[20px] " +
+  "h-[64px] min-w-[64px] max-w-[64px] rounded-[18px] px-0 text-[20px]";
 
 /** Button — base, tiers, the trash icon, and the armed destructive fill. */
 const BUTTON_TIERS =
-  "inline-flex w-fit items-center justify-center gap-2 whitespace-nowrap " +
+  "inline-flex w-fit items-center justify-center gap-[9px] whitespace-nowrap " +
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
   "disabled:pointer-events-none disabled:opacity-50 " +
   "font-medium bg-transparent text-accent hover:text-text " +
   "border border-destructive text-destructive bg-destructive/20 " +
   "active:bg-destructive active:text-text " +
-  "h-4 w-4 shrink-0 fill-none stroke-current stroke-[1.5]";
+  "h-[18px] w-[18px] shrink-0 fill-none stroke-current stroke-[1.5]";
 
 /** Every control answers a press: Button, LatchButton, Stepper, TileGrid. */
 const PRESS =
@@ -90,7 +99,7 @@ const TIME_WHEEL =
   "top-1/2 -translate-y-1/2 px-1 text-center";
 
 /** TileGrid — a small fixed set of choices, full size (`md`) and the compact row
- *  a control inside a form uses (`sm`, the focus point's `Kind`). The two
+ *  a control inside a form uses (`sm`, the meditation's `Kind`). The two
  *  containers differ: `md` is a grid, `sm` a wrapping row. */
 const TILE_GRID =
   "grid grid-cols-2 gap-3 sm:grid-cols-3 flex flex-wrap gap-2 " +

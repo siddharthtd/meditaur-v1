@@ -63,6 +63,18 @@ function fakeTable(input: { rows?: UserPreferences[]; failWith?: string } = {}) 
       rows.set(String(where.user_id), next);
       return [next];
     },
+    // The pull's two reads. `user_preferences` is read by user id, so this table
+    // has neither a range nor an `in` of its own; they are here because the
+    // interface the sync adapter widens requires them (P2 · 3). Logged rather
+    // than silent, so a future caller of them shows up in `calls`.
+    async selectRange() {
+      calls.push("selectRange");
+      return [];
+    },
+    async selectIn() {
+      calls.push("selectIn");
+      return [];
+    },
     async insert(table, values) {
       calls.push(`insert ${table}`);
       guard();

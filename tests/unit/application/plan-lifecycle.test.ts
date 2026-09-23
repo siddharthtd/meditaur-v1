@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clonePlan, copyPlanName, makeStarterPlan, nextPlanName } from "@meditaur/application";
+import { stageFixture } from "../../fixtures/library.ts";
 
 describe("nextPlanName", () => {
   it("uses New session, then numbers through collisions", () => {
@@ -28,11 +29,10 @@ describe("clonePlan", () => {
       workspaceId: "ws1",
       name: "Starter session",
       autoAdvance: true,
-      focusBlockId: "b1",
-      cooloffBlockId: "b2",
-      focusPointId: "fp1",
+      alarmEnabled: true,
+      meditationBlockId: "b1",
+      meditationId: "fp1",
       binauralPresetId: "preset1",
-      tableViewId: "view1",
     });
     source.revision = 4;
     let n = 0;
@@ -44,41 +44,37 @@ describe("clonePlan", () => {
     expect(copy.id).toBe("p2");
     expect(copy.name).toBe("Starter session copy");
     expect(copy.revision).toBe(0);
-    expect(copy.blocks.map((b) => b.id)).toEqual(["c1", "c2"]);
+    expect(copy.blocks.map((b) => b.id)).toEqual(["c1"]);
     expect(copy.blocks[0]).toMatchObject({
-      type: "focus",
-      focusPointId: "fp1",
+      meditationId: "fp1",
       binauralPresetId: "preset1",
     });
-    expect(source.blocks.map((b) => b.id)).toEqual(["b1", "b2"]);
+    expect(source.blocks.map((b) => b.id)).toEqual(["b1"]);
     expect(source.revision).toBe(4);
   });
 });
 
 describe("makeStarterPlan", () => {
-  it("builds one focus block and one cool-off", () => {
+  it("builds one meditation block, with the meditation's own stages", () => {
     const plan = makeStarterPlan({
       id: "p1",
       workspaceId: "ws1",
       name: "New session",
       autoAdvance: true,
-      focusBlockId: "b1",
-      cooloffBlockId: "b2",
-      focusPointId: "fp1",
+      alarmEnabled: true,
+      meditationBlockId: "b1",
+      meditationId: "fp1",
       binauralPresetId: "preset1",
-      tableViewId: "view1",
+      stages: [stageFixture(120_000, { key: "intentions", kind: "intentions" })],
     });
-    expect(plan.blocks).toHaveLength(2);
+    // One block, and it is a meditation: the owner's round 15 deleted cool-off, so
+    // the one-tap session no longer closes with a silent timer.
+    expect(plan.blocks).toHaveLength(1);
     expect(plan.blocks[0]).toMatchObject({
-      type: "focus",
-      focusPointId: "fp1",
+      meditationId: "fp1",
       symbolId: null,
     });
-    expect(plan.blocks[1]).toMatchObject({
-      type: "cooloff",
-      focusPointId: null,
-      binauralPresetId: null,
-    });
+    expect(plan.blocks[0]?.stages.map((stage) => stage.key)).toEqual(["intentions"]);
     expect(plan.revision).toBe(0);
   });
 });

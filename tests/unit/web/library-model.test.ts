@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  assocModeOf,
   binauralDraftKey,
-  FOCUS_BUILTIN_COLUMNS,
+  MEDITATION_BUILTIN_COLUMNS,
   poolColumns,
   pruneBinauralDrafts,
   resolveColumns,
@@ -18,27 +17,19 @@ describe("library model helpers", () => {
     expect(sortSymbolsForPicker(rows).map((s) => s.name)).toEqual(["Halu", "Rama", "Zonar"]);
   });
 
-  it("derives the association mode from the ids", () => {
-    const base = { id: "i1", workspaceId: "ws1", sortOrder: 0, text: "x" };
-    expect(assocModeOf({ ...base, focusPointId: null, symbolId: null })).toBe("none");
-    expect(assocModeOf({ ...base, focusPointId: "fp1", symbolId: null })).toBe("focus");
-    expect(assocModeOf({ ...base, focusPointId: null, symbolId: "s1" })).toBe("symbol");
-    expect(assocModeOf({ ...base, focusPointId: "fp1", symbolId: "s1" })).toBe("both");
-  });
-
   it("keeps the custom field pools separate", () => {
     const defs = [
-      makeFieldDef({ id: "fd1", entityType: "symbol", key: "seed", label: "Seed", sortOrder: 1 }),
+      makeFieldDef({ id: "fd1", scope: "symbol", key: "seed", label: "Seed", sortOrder: 1 }),
       makeFieldDef({
         id: "fd2",
-        entityType: "focusPoint",
+        scope: "meditation",
         key: "mantra",
         label: "Mantra",
         sortOrder: 0,
       }),
     ];
-    expect(poolColumns(FOCUS_BUILTIN_COLUMNS, defs, "focusPoint").map((c) => c.key)).toEqual([
-      ...FOCUS_BUILTIN_COLUMNS.map((c) => c.key),
+    expect(poolColumns(MEDITATION_BUILTIN_COLUMNS, defs, "meditation").map((c) => c.key)).toEqual([
+      ...MEDITATION_BUILTIN_COLUMNS.map((c) => c.key),
       "mantra",
     ]);
     expect(poolColumns(SYMBOL_BUILTIN_COLUMNS, defs, "symbol").map((c) => c.key)).toEqual([
@@ -47,7 +38,40 @@ describe("library model helpers", () => {
     ]);
   });
 
-  it("drops binaural drafts whose focus point is gone, and keeps the rest", () => {
+  it("leaves an archived column out of a table's columns", () => {
+    const defs = [
+      makeFieldDef({ id: "fd1", scope: "symbol", key: "seed", label: "Seed" }),
+      makeFieldDef({ id: "fd2", scope: "symbol", key: "gone", label: "Gone", archivedAt: 5 }),
+    ];
+    expect(poolColumns(SYMBOL_BUILTIN_COLUMNS, defs, "symbol").map((c) => c.key)).toEqual([
+      ...SYMBOL_BUILTIN_COLUMNS.map((c) => c.key),
+      "seed",
+    ]);
+  });
+
+  it("keeps one type's columns out of another type's pool, and the shared ones in", () => {
+    const defs = [
+      makeFieldDef({ id: "fd1", scope: "meditation", key: "governs", label: "Governs", typeId: "ct1" }),
+      makeFieldDef({ id: "fd2", scope: "meditation", key: "affirm", label: "Affirmations", typeId: "ct2" }),
+      makeFieldDef({ id: "fd3", scope: "meditation", key: "notes", label: "Notes" }),
+    ];
+    const keys = (typeId: string | null) =>
+      poolColumns(MEDITATION_BUILTIN_COLUMNS, defs, "meditation", typeId).map((c) => c.key);
+
+    // §12.4: a Thanks Giving column cannot leak onto a Protection row, and a
+    // chakra's own column cannot leak the other way.
+    expect(keys("ct1")).toContain("governs");
+    expect(keys("ct1")).not.toContain("affirm");
+    expect(keys("ct2")).toContain("affirm");
+    expect(keys("ct2")).not.toContain("governs");
+    // `typeId: null` is the reader's own column: it is in every type's pool.
+    expect(keys("ct1")).toContain("notes");
+    expect(keys("ct2")).toContain("notes");
+    // A pool that is not a type's — Symbols, Entries — draws the shared ones only.
+    expect(keys(null)).toEqual([...MEDITATION_BUILTIN_COLUMNS.map((c) => c.key), "notes"]);
+  });
+
+  it("drops binaural drafts whose meditation is gone, and keeps the rest", () => {
     const store = new Map<string, string>([
       [binauralDraftKey("fp1"), "{}"],
       [binauralDraftKey("fp-deleted"), "{}"],

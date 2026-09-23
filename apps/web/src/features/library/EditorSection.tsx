@@ -9,7 +9,7 @@ import type { ReactNode } from "react";
  * The app's editors had drifted into two shapes — some stacked a bare label and
  * control per field, others had sections — and the owner's round 6 asked for one
  * of them: "clean up the buttons and the layout, I want the small buttons like
- * there are in the rest of the application", for the focus point, the symbol and
+ * there are in the rest of the application", for the meditation, the symbol and
  * the intention editors alike. This is that shape, in one place so a new editor
  * cannot invent a fourth.
  *
@@ -53,7 +53,7 @@ export function EditorField({ label, children }: { label: string; children: Reac
 /**
  * The custom fields of one entity, as the editor for that entity shows them.
  *
- * The same section on the focus point's editor and the symbol's editor, because
+ * The same section on the meditation's editor and the symbol's editor, because
  * the owner asked for exactly that ("Same behavior with the chakra/focuspoint"),
  * and because the symbol's editor had none at all: "Symbol edit doesn't have any
  * input for custom fields, but the view UI shows custom fields."

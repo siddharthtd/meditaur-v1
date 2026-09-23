@@ -12,3 +12,11 @@ services:
     environment:
       CI: "1"
       NEXT_PUBLIC_E2E: "1"
+      # How many workers the suite uses. The config defaults to
+      # `min(6, max(3, cores/2))`, which is right on an idle machine and wrong on a
+      # busy one: six browsers against a host that is also building or running
+      # something else turns ordinary navigations into 30-second timeouts, and the
+      # suite reports failures that no source change explains. Forwarding the
+      # variable lets a run say how much of the machine it may take —
+      # `PLAYWRIGHT_WORKERS=3 ./scripts/meditaur e2e`. Empty means "the default".
+      PLAYWRIGHT_WORKERS: "${PLAYWRIGHT_WORKERS:-}"

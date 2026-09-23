@@ -102,6 +102,13 @@ fi
 echo "--- supabase db push ---"
 supabase db push
 
+echo "--- supabase functions deploy ---"
+# `close-account` is the repo's only server-side code, and the app calls it to
+# remove the `auth.users` row — the half no browser may do. It is deployed with
+# the schema it runs against, so a release cannot ship a caller without its other
+# half. The platform verifies the JWT before it runs (no `--no-verify-jwt`).
+supabase functions deploy close-account
+
 echo "--- live integration tests against ${ref} ---"
 # Explicit: the suite must not decide by accident which database it hits.
 export SUPABASE_TARGET=hosted

@@ -1,4 +1,4 @@
-import { type Plan } from "@meditaur/domain";
+import { DEFAULT_ALARM_ENABLED, type Plan } from "@meditaur/domain";
 import { buildDefaultWorkspace, DEFAULT_PLAN_ID } from "./default-workspace.ts";
 import { db } from "./schema.ts";
 
@@ -19,6 +19,19 @@ export function ensureSeed(): Promise<{ userId: string; workspaceId: string }> {
   return seedInFlight;
 }
 
+/**
+ * Forget the in-flight seed.
+ *
+ * `ensureSeed` caches its promise for the life of the page, which is what every
+ * caller wants except one: wiping the device deletes the rows that promise is
+ * about. Without this, the next `bootstrap()` is handed the workspace id of a
+ * database that no longer exists — no error, just an app that reads nothing and
+ * never re-seeds.
+ */
+export function resetSeed(): void {
+  seedInFlight = null;
+}
+
 async function seedWorkspace(): Promise<{ userId: string; workspaceId: string }> {
   const legacy = await db.workspaces.get(LEGACY_WS);
   if (legacy) {
@@ -36,11 +49,13 @@ async function seedWorkspace(): Promise<{ userId: string; workspaceId: string }>
       db.workspaces,
       db.members,
       db.preferences,
-      db.focusPoints,
+      db.meditationTypes,
+      db.meditations,
       db.symbols,
-      db.focusSymbolBindings,
+      db.entries,
       db.intentions,
-      db.tableViews,
+      db.fieldDefs,
+      db.fieldOptions,
       db.presets,
       db.plans,
     ],
@@ -51,23 +66,27 @@ async function seedWorkspace(): Promise<{ userId: string; workspaceId: string }>
         userId: LOCAL_USER,
         stopBinauralOnAlarm: true,
         autoAdvance: true,
+        alarmEnabled: DEFAULT_ALARM_ENABLED,
         masterVolume: 0.7,
         alarmVolume: 0.6,
         ttsEnabled: false,
-        textSize: "lg",
+        textSize: "md",
         lastPlanId: DEFAULT_PLAN_ID,
         revision: 0,
         updatedAt: Date.now(),
       });
-      await db.focusPoints.bulkAdd(catalog.focusPoints);
+      await db.meditationTypes.bulkAdd(catalog.meditationTypes);
+      await db.meditations.bulkAdd(catalog.meditations);
       await db.symbols.bulkAdd(catalog.symbols);
-      await db.focusSymbolBindings.bulkAdd(catalog.bindings);
+      await db.entries.bulkAdd(catalog.entries);
       await db.intentions.bulkAdd(catalog.intentions);
-      await db.tableViews.bulkAdd(catalog.tableViews);
+      await db.fieldDefs.bulkAdd(catalog.fieldDefs);
+      await db.fieldOptions.bulkAdd(catalog.fieldOptions);
       await db.presets.bulkAdd(catalog.presets);
       await db.plans.add({
         ...plan,
         blocksJson: JSON.stringify(plan.blocks),
+        displayJson: JSON.stringify(plan.display),
         updatedAt: Date.now(),
       });
     },

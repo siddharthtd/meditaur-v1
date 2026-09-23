@@ -32,11 +32,14 @@ function migrations(): string {
 
 /**
  * Reads a union either as an alias (`export type SymbolFilter = "a" | "b";`)
- * or as an object field (`textSize: "md" | "lg" | "xl";`), so the caller names
- * whichever the domain uses.
+ * or as an object field (`textSize: "sm" | "md" | "lg" | "xl";`), so the caller
+ * names whichever the domain uses.
  */
 function unionValues(source: string, name: string): string[] {
-  const pattern = `(?:export type ${name}\\s*=|[\\.\\s]${name}\\s*:)\\s*((?:"[^"]+"\\s*\\|?\\s*)+)`;
+  // A leading `|` is allowed because a long union is written one value per line
+  // (`export type CellType =\n  | "text"\n  | ...`), and the guard should read the
+  // domain as it is rather than dictate how it is laid out.
+  const pattern = `(?:export type ${name}\\s*=|[\\.\\s]${name}\\s*:)\\s*\\|?\\s*((?:"[^"]+"\\s*\\|?\\s*)+)`;
   const match = new RegExp(pattern).exec(source);
   if (!match) throw new Error(`no union found for ${name} in the domain models`);
   return [...match[1].matchAll(/"([^"]+)"/g)].map(([, value]) => value);
@@ -65,17 +68,42 @@ function expectConstrained(column: string, values: string[]): void {
 describe("schema unions", () => {
   it("constrains every union column to the values the domain allows", () => {
     expectConstrained("text_size", unionValues(models, "textSize"));
-    expectConstrained("symbol_filter", unionValues(models, "SymbolFilter"));
-    expectConstrained("entity_type", unionValues(models, "FieldEntityType"));
+    expectConstrained("scope", unionValues(models, "FieldScope"));
+    expectConstrained("cell_type", unionValues(models, "CellType"));
+    expectConstrained("ref_kind", unionValues(models, "RefKind"));
     expectConstrained("kind", unionValues(models, "MediaKind"));
+    // The owner's round 16 added the systems a symbol can belong to, and the column
+    // is nullable on purpose: a symbol the reader adds names none, which is what
+    // keeps it out of the flag's reach (`isSymbolSystemEnabled`).
+    expectConstrained("reiki_system", unionValues(models, "ReikiSystem"));
   });
 
   it("reads the unions it is asserting on", () => {
     // A typo in a name would otherwise make the helper throw at import time with
     // no clue which check stopped working.
-    expect(unionValues(models, "textSize")).toEqual(["md", "lg", "xl"]);
-    expect(unionValues(models, "SymbolFilter")).toEqual(["block", "focusPoint", "all"]);
-    expect(unionValues(models, "FieldEntityType")).toEqual(["symbol", "focusPoint"]);
+    expect(unionValues(models, "textSize")).toEqual(["sm", "md", "lg", "xl"]);
     expect(unionValues(models, "MediaKind")).toEqual(["ambient", "alarm", "image"]);
+    expect(unionValues(models, "FieldScope")).toEqual([
+      "entry",
+      "meditation",
+      "symbol",
+      "affirmation",
+    ]);
+    expect(unionValues(models, "RefKind")).toEqual(["meditation", "symbol", "preset"]);
+    expect(unionValues(models, "ReikiSystem")).toEqual([
+      "karuna_reiki",
+      "usui_reiki",
+      "reiki_master",
+    ]);
+    expect(unionValues(models, "CellType")).toEqual([
+      "text",
+      "longText",
+      "number",
+      "duration",
+      "date",
+      "image",
+      "reference",
+      "select",
+    ]);
   });
 });

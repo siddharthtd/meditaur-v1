@@ -1,18 +1,18 @@
 # Meditaur — UI/UX Design Direction (v1)
 
-**Status:** Direction brief for Phase 4 (the UI redesign). This is the starting
-point the implementation builds from — a visual and layout pass, not a rebuild,
-and not a pixel-perfect spec. It supersedes the earlier `meditaur-design-direction-v1.md`
-draft and folds in the owner's decisions.
-
-> **Implemented — and finished 2026-09-16.** Stages 1–5 of the order in §7 all
-> landed (commits `9c4ba74`, `207517b`, `4c4ff46`, `2b2052f`), green on
-> `check:full` + e2e. The two items this doc left open are also in: the column
-> picker is a toolbar action (`9c30207`) and the run screen shows each symbol's
-> picture in its merged cell (`aab43f7`) — §7 records both. Nothing in this doc is
-> outstanding. The binding rules that came out of it live in
-> [IMPLEMENTATION.md](./IMPLEMENTATION.md#ui-rules-from-the-2026-09-15-redesign),
-> and §7 is kept as the order it was built in.
+**Status:** living. The design pass of 2026-09-15 is finished — stages
+1–5 of §7 landed (`9c4ba74`, `207517b`, `4c4ff46`, `2b2052f`), the column picker
+became a toolbar action (`9c30207`) and the run screen shows each symbol's picture
+(`aab43f7`). The owner's rounds 13–16 then replaced parts of what this doc first
+described: the library browses and a **Database** (`/database`) holds the store, the
+plan page is the session's settings page, and **§2 is three regions** — a fixed
+meditation panel, a symbol panel that updates in place, and one auto-scrolling
+intentions column — instead of one table. §2 is the current run-screen rule; the
+rest of the doc holds for the tokens, buttons, wheels, key-claiming and shells. The
+binding half of all of it is in
+[IMPLEMENTATION.md](./IMPLEMENTATION.md#ui-rules-from-the-2026-09-15-redesign), and
+the owner's calls behind it are in [DECISIONS.md](./DECISIONS.md). §7 is kept as the
+order the redesign was built in.
 
 **Scope:** design tokens (color, type, buttons, toggles, scrollbars), the
 session/run screen layout, the library page layout, and a cross-page consistency
@@ -92,7 +92,7 @@ background wash.
 | Third Eye (Ajna) | `#5B5C99` | Muted indigo |
 | Crown (Sahasrara) | `#8A6BAF` | Muted violet |
 
-Point and Custom focus points use a neutral accent — `#D8C9A8` (warm cream, not
+Point and Custom meditations use a neutral accent — `#D8C9A8` (warm cream, not
 one of the seven chakra hues) — since they have no inherent colour association.
 
 **Destructive** actions get their own distinct hue: `#C0392B` (a clearly cooler,
@@ -100,15 +100,15 @@ more saturated red than Root's terracotta). Because colour alone must never carr
 a safety-critical signal, destructive actions always pair the hue with a trash
 icon and a confirm step.
 
-**How the mapping lives.** There is no chakra→colour data today (`FocusPoint.colour`
+**How the mapping lives.** There is no chakra→colour data today (`Meditation.colour`
 is a free-text field, `null` in every seed). The redesign uses a **static
 name→hue map in `packages/ui`** keyed by the seven canonical chakra names, with
-the user-editable `FocusPoint.colour` field as an optional override. No schema or
+the user-editable `Meditation.colour` field as an optional override. No schema or
 seed change is required.
 
 ### 1.3 Typography
 
-- **Fraunces** (weight 500) for headings and focus-point titles — a warm, slightly
+- **Fraunces** (weight 500) for headings and meditation titles — a warm, slightly
   organic serif that gives the app a point of view instead of reading as generic
   UI chrome.
 - **Manrope** (weights 400/500) for everything else — body text, buttons, table
@@ -117,6 +117,12 @@ seed change is required.
 
 Two families, one job each: Fraunces announces "you're on the Heart chakra page";
 Manrope does the reading and doing.
+
+**The reading scale** is the reader's `Text size` — `html[data-text-size=…]` in
+`apps/web/src/app/globals.css`, four steps and no more: `Small` 16px, `Medium`
+**18px, the default and the size everything here was designed against**, `Large`
+20px and `XL` 22px. It is the one thing on the page that scales type: a button is
+pinned out of it (§1.4).
 
 Loading: via `next/font/google` (built into Next — **no npm package**, so
 `docs/DEPENDENCIES.md` needs no change). The fonts are mapped as
@@ -147,15 +153,23 @@ and dims while held, because a button with no press state reads as a broken one.
 
 | Size | Height | Where it is used |
 |---|---|---|
-| `sm` | 36px | Table rows, tight inline groups |
-| `md` | 44px | Toolbars, secondary actions inline with content |
-| `lg` | 52–56px | Only a screen's single page-level primary (sticky bottom bar) and full-screen form CTAs. A secondary button sitting *beside* the primary takes the same size — two buttons in a row must be the same shape (`/plan`'s `Save` + `Start session`, 2026-09-16); the fill, not the height, says which one is primary. |
+| `sm` | 40px | Table rows, tight inline groups, the library's toolbars |
+| `md` | 50px | Toolbars, secondary actions inline with content |
+| `lg` | 63px | Only a screen's single page-level primary (sticky bottom bar) and full-screen form CTAs. A secondary button sitting *beside* the primary takes the same size — two buttons in a row must be the same shape (`/plan`'s `Save` + `Start session`, 2026-09-16); the fill, not the height, says which one is primary. |
+| `xl` | 72px | The run screen's transport — Pause / Skip / Stop |
 
 Size is chosen by **layout context, not by tier**: compact `sm`/`md` in rows,
 toolbars, and inline with content; `lg` only where one action owns the screen.
 This replaces the current one-size-fits-all block (`min-h-16 rounded-2xl` reused
 ~30 times). Centralize in a new `Button` (`tier` + `size` props) in
 `packages/ui`.
+
+**A button is not text (owner's round 14).** Every one of those metrics — the
+label's own type size, the height, the padding, the radius, the gap and the icon
+beside the label — is a literal `px` in `Button`, never Tailwind's rem scale, so a
+control keeps its size whatever `Text size` is. The numbers are the ones the app's
+18px root produced, so nothing moved when the rule landed; what changed is that
+`Small` now shrinks the text *around* a button rather than the button itself.
 
 `Stepper` follows the same two-size rule (2026-09-16): `md` is the page-level
 numeric control, `sm` is the compact row inside a plan block card, where two
@@ -193,6 +207,13 @@ so all ten call sites are unaffected, and keep the outer tappable area at the
 existing 64px even though the visual switch itself is smaller, so the
 accessibility floor doesn't move.
 
+**`labelHidden`** (the owner's round 17, on the Chakras table's binaural column:
+*"there is no need for text in the binaural column's cells, only the toggle button
+is enough"*) draws the switch without its word for a cell whose **heading already
+says it**. The name is not dropped — it becomes the button's `aria-label` — so the
+control a screen reader announces is unchanged, and the `On`/`Off` word goes with
+it, because a cell that is one switch is not a row with three words in it.
+
 File: `packages/ui/src/LatchButton.tsx` (internals only).
 
 ### 1.6 Images — one frame everywhere
@@ -217,9 +238,55 @@ textbox. Use the same form in the cards on the plan screen."
 
 `TimeWheel`/`TimeWheels` (`packages/ui/src/TimeWheel.tsx`, wrapped for the app as
 `DurationSteppers`) replaced every `−`/`+` duration stepper: the plan's cards, a
-focus point's `Default duration`, and the run screen. Press a wheel without moving
+meditation's `Default duration`, and the run screen. Press a wheel without moving
 to type a number (`Enter` accepts, `Escape` reverts, a non-number does nothing),
 and the arrow keys, `PageUp`/`PageDown` and `Home`/`End` work when it has focus.
+
+**Round 15: a timer belongs to a stage, so the wheels come in rows.** A block runs
+one timer per stage, and the same row shape is
+drawn in both places the owner edits them (§12.7): on the plan card **and** on the
+run screen before Start. A row is the stage's `label` over its `M`/`S` wheels — the
+label above the wheels rather than beside them, because the card is a fixed 234px
+and "Minutes"/"Seconds" beside two columns of digits did not fit. `M` and `S` are
+the only time labels anywhere (§12.7). The per-stage `Binaural` and `Auto-scroll`
+switches sit with these rows, because a switch and its timer are one thing — and
+`autoScrollForKind` decides which rows get the second one, so a symbols or focus
+stage shows one switch rather than a switch that would do nothing.
+
+**Round 19: the row is a card, and the seconds column counts in circles.** The owner,
+on the session screen: *"the timers' seconds should wrap around, after 59, it should
+again become 0, minute wheel stays the same"* and *"The height of the stage cards
+determines how much space the main screen - intentions gets. So it is imperative that
+we reduce the height. The wheels can stay as they are, but the rest of it should take
+less height which could be accomplished by making them horizontally wider instead of
+more high."*
+
+- **The seconds column wraps; the minutes column does not.** A wrapping column draws
+  one value beyond each end of its range, so from `59` the next row down is `0`, and
+  above `0` sits `59` — the wheel turns both ways round the seam. `wheelWrappedRows`,
+  `wheelWrappedOffsetFor`, `wheelWrappedValueAt` and `wheelWrappedStep` are that
+  arithmetic, unit-tested beside the plain geometry. It **carries nothing**: a typed
+  `90` in a column of sixty lands on `30`, and no wrap ever moves the minutes. Every
+  seconds wheel in the app wraps (`DurationSteppers`' `wrapSeconds` defaults to true —
+  one control, one rule), and the read-only pair on a running session is untouched,
+  because a reading cannot wrap.
+- **The run screen's stage card is one line.** The binaural mark, the stage's name, its
+  two wheels and its own `↺` sit **beside** each other rather than above and below, and
+  the `Minutes`/`Seconds` captions are off there and nowhere else (`captions`) — the
+  columns keep their accessible names, which are what a screen reader announces. A card
+  is now as tall as its wheel window and nothing more, which is ~70px returned to the
+  intentions. The editor's stage cards are taller on purpose (two switches and a
+  `Remove`), and they are a carousel of their own (§1.12).
+
+**The alarm is a block's, with the plan's answer behind it, and it is off until the
+reader asks for it** (the owner's round 17, 2026-09-21). `Alarm` is a `LatchButton`
+on the plan's latch row as the circuit's default, in the meditation editor where a
+block answers for itself, in the run screen's footer beside `Auto-advance`, and in
+Settings as the default a new plan is created with. `PlanBlock.alarmEnabled` is
+`null` for "the plan's answer", so one silent Thanks Giving can sit beside seven
+ringing chakras. The switch's *placement* still follows the old rule — wherever a
+binaural switch is — but its scope is the block's, and a flag repeated on up to nine
+stage rows would be nine controls for one answer.
 
 **Round 7: the wheel is a scroller, not a stack of numbers dressed as one.** The
 owner: "it is not scrollble on web, and, the minutes and seconds are not at the
@@ -299,9 +366,44 @@ cards, if we remove it, the width of the cards can be fixed") and library item 1
 ("just have the tuner right below the name […] the buttons inside tuner are also
 shabby").
 
-- The card's handle reads `Focus` / `Cool-off`, with the drag instruction in its
+- The card's handle read `Focus` / `Cool-off`, with the drag instruction in its
   `aria-label`, and the card is a fixed `w-52` (234px at the app's 18px root font
-  — down from 288px).
+  — down from 288px). **Round 15 replaced what the handle says**: the two block
+  kinds are gone, so it now reads the meditation's name with its type under it —
+  a card is a meditation block, and what the reader needs to know is *which*
+  meditation, which the old one-word handle never said.
+- **The card is a handle, and the press is the point** (the owner's round 17):
+  *"that card-view is become too cluttered, it doesn't even visibly show the chakra
+  name clearly, it is all truncated, so it is not at all usable … the information it
+  shows is read-only, so that is also useless … Whatever is meditation specific —
+  symbols, ambient, alarm, binaural, stages of meditation etc, all should be
+  updatable for that particular meditation … by clicking on the card."* So the five
+  picker fields and the per-stage rows are **gone**; what is left is the handle, the
+  meditation over its type, `Remove`, and one full-width `Edit` press that answers
+  the rest of the card (UI_DESIGN §1.12's "a card answers a press everywhere").
+  Everything the card used to print is editable one press away, in the app's editor
+  shape, and the Display panel now lives there too.
+- **The card carries one line of facts, and its controls sit on its foot** (the
+  owner's round 18): *"it is the card itself, along with what it opens, there should
+  be more beautiful way to represent that information. Smaller buttons, more
+  well-placed and easy to operate."* So the title-line `Remove` and the full-width
+  `Edit` band are gone. A card is the handle — the meditation over its type, the
+  type in the meditation's own accent — one muted line under it
+  (`<length> · <n> stages · <symbol>`), and a `sm` row on its foot holding `Edit`
+  and the armed `Remove`. Everything else on the card is the press: it opens that
+  meditation's editor. The line is a **body, not a picker** — the round-17 card was
+  criticised for truncating, so the summary names only what fits the fixed `w-52`.
+- **The Display is an editor section, and its switches are named once** (the owner's
+  round 18: *"the details section shouldn't be that collapsed hideous thing it is
+  today"*). It is an `EditorSection` like every other one — always open, no
+  `details` disclosure — and its body is a grid: a band per group (`Meditation`,
+  `Symbol`, `Entries`), then a row per column with the column's name and two
+  switches under the `Shown` and `Pin` headings that name them. A cell's switch is
+  `labelHidden` and named `<group> <column> shown|pinned`, so the words the cells
+  drop are the words a screen reader hears, and the two `Name` columns — one per
+  table — stay told apart. When the block has made the Display its own, the way back
+  to the plan's answer is an `sm` action on the section's heading line, the same
+  shape the `Alarm` section uses for its own inherited answer.
 - A preset's editor holds the sound under its name: name, then the shared
   `BinauralBody` — tones, fades, EQ. There is no `Open tuner` button, no
   `L1/R1 tones` heading, and `Back` returns to the list, because the screen is
@@ -335,8 +437,14 @@ size, so the page read as one set of buttons doing one kind of thing.
 
 - A **focus tile** is a shortcut that starts a session: a loose, accent-filled
   button only as wide as its name, in a wrapping row under its group heading.
-  The groups are `Chakras`, `Points` and `Custom` — plural, because each heading
-  names a group of them.
+  There are three group headings and they are the owner's own words (round 16,
+  §8): `Chakras`, `Points` and `Other meditation blocks` — plural, because each
+  heading names a group of them. Only a chakra's and a point's tiles keep a
+  heading of their own; the third collects every other live type — Protection,
+  Thanks Giving, and whatever the reader adds later — so a type holding one block
+  does not repeat a name the block card's handle already carries. The first two
+  headings are their type row's own name, as the library's tabs and the Database's
+  tables are, so renaming a type moves its heading and nothing else.
 - A **plan tool** switches which plan you are editing: a compact `sm` outline
   button, all four (`Switch plan`, `New plan`, `Duplicate plan`, `Delete plan`)
   inside one bordered strip on `bg-surface`. The strip is the chrome for the plan
@@ -347,13 +455,29 @@ shapes, not two sizes of the same shape.
 
 ### 1.12 One editor shape, and no dead band on a card (owner's round 6)
 
-- **Editors are sections.** The focus point's, the symbol's and the intention's
+- **Editors are sections.** The meditation's, the symbol's and the intention's
   editor are the same shape: `EditorSection` (a `text-xl` heading, with the
   section's own action on the heading line at `sm`) and `EditorField` (the app's
   label-over-control). The screen's one primary action stays `lg` in the sticky
   bottom bar. The owner asked for exactly this — "clean up the buttons and the
   layout, I want the small buttons like there are in the rest of the application"
   — after a screen whose management rows mixed `md` and `sm` actions with no rule.
+- **A block's editor: a carousel for what repeats, a row for what does not** (the
+  owner's round 19). The meditation editor's `Stages` are cards in a horizontal strip —
+  the circuit's own recipe one level down (drag sideways with the y half of the
+  transform dropped, the `distance: 6` activation, `arrayMove` written optimistically,
+  an armed `Remove` on each card) — with `Add stage` as the last thing **in** that
+  strip, because the ask was to add stages "inside" it; the press opens the same
+  `PickerPage` every other *which one?* in the app uses. A block's stages are a list, so
+  a list is what they are drawn as. What does *not* repeat is a row: a `FieldButton` is
+  44px with its name on the left and its value on the right, `Sound`'s two fields sit
+  side by side, and a single switch belongs on the section's heading line (`Alarm`).
+  The plan screen's own five settings are one bordered strip, the shape its toolbar
+  above already uses — *"settings on the plan page don't need big bars for single
+  settings, make them compact and better usable."*
+- **The alarm's switch still says which answer it is showing** (round 17) now that it
+  is compact: `Alarm (the plan's answer)` / `Alarm (this meditation)`, with
+  `Use the plan's answer` beside it once the block has an answer of its own.
 - **A custom field is its own heading — in the editor too.** In the open
   (non-edit) views the owner asked to "remove that heading from the open
   (non-edit) view and replace the heading with the actual field heading": a field
@@ -365,7 +489,7 @@ shapes, not two sizes of the same shape.
   anywhere, and the description is not drawn here — it is the field's note, and
   it belongs to the Fields tab's card and the open views. `Add custom fields` is
   one line at the foot of the fields rather than a section action, and it is the
-  same component on the focus point's editor and the symbol's (the symbol's had
+  same component on the meditation's editor and the symbol's (the symbol's had
   no custom fields at all while its open view promised them).
 - **A card answers a press everywhere.** The action row paints above the card's
   open target, so the bottom band was the one part of a card that did nothing:
@@ -379,104 +503,173 @@ shapes, not two sizes of the same shape.
 
 ---
 
-## 2. Run screen — the grouped intentions table takes the space
+## 2. Run screen — three regions, one viewport
 
-One focus point is active at a time (the staggered-timer model in `SessionEngine`
+One meditation is active at a time (the staggered-timer model in `SessionEngine`
 does not change) — but the space allocation flips. The clock shrinks to a
 compact, always-visible element, and the remaining space goes to the
-**intentions**, rendered as a real table rather than a bulleted list. Intentions
-are what actually get read during a session, not the symbol artwork.
+**intentions**.
 
-No new data pipeline is needed: `CompiledBlock.focusIntentions` and
-`CompiledBlock.symbolGroups` already carry exactly the intentions text and their
-symbol association for the active block (`packages/domain/src/models.ts`,
-populated by `compile-plan.ts`). This is a rendering change to the run screen
-(`Runner.tsx`), not a compile-plan change.
+No new data pipeline is needed: `CompiledBlock.focusIntentions`,
+`CompiledBlock.symbolGroups` and `CompiledBlock.meditationFacts` already carry
+exactly the lines, their symbol association and the meditation's own columns for the
+active block (`packages/domain/src/models.ts`, populated by `compile-plan.ts`). This
+is a rendering change to the run screen (`Runner.tsx`,
+`features/runner/SessionRegions.tsx`), not a compile-plan change.
 
-### 2.1 Table layout
+### 2.1 Three regions (owner's round 15 §6, landed 2026-09-19)
 
-- **Top section — focus-level intentions** (`focusIntentions`): intentions bound
-  to the chakra itself, with **no symbol column**. Plain rows of intention text.
-- **Then one section per symbol** (`symbolGroups`): the symbol identity — its
-  **name now, its picture later** — is a **merged cell spanning that symbol's
-  intention rows**. The symbol's `description` and `usage` are shown once, inside
-  the merged cell. Each intention is its own row. If a symbol has four
-  intentions, the symbol cell appears once, spanning all four rows.
-- **Missing values** render an elegant `-` (e.g. a symbol with no description or
-  usage).
-- **All symbols for the active chakra appear on one screen.**
-- **Dynamic**: the table reflects library edits automatically — intentions and
+**Round 14's one table is gone; this replaces it.** The table still stacked a row per
+symbol, and the owner's round 15 §6 wanted the *screen* to stop being a document: one
+meditation is active at a time, so the screen paints that meditation, the symbol in
+play, and its lines. The three regions:
+
+1. **The meditation panel** (fixed) — the meditation's name, its **type** as an
+   eyebrow (`CompiledBlock.meditationTypeName`), and the meditation's own Display
+   columns below (`meditationFacts`). This is the ask the owner recorded in round 15
+   item 1 rather than building ("no place for it, the current screen is already
+   crowded") and it landed here.
+2. **The symbol panel** (fixed, updates **in place**) — the pair whose lines are at
+   the top of the column: its picture (`alt="<name> symbol"`), its name as the
+   region's heading, and `facts` + `entryFacts`. As the reader's position crosses
+   into another symbol's lines, the panel's *contents* change and nothing on screen
+   moves. A block with no symbols says so rather than drawing an empty box.
+3. **The intentions column** (the one scroller) — every line of the block in order,
+   in one continuous list: the meditation's own lines first, then each pair's, which
+   is the order `compile-plan` already emits. An **affirmations** stage shows the
+   reader's sentences instead (`CompiledBlock.affirmations`), which is what Thanks
+   Giving is. An empty stage says `Nothing for this stage.`
+
+The rules the table carried still hold, because they were about the *Display*:
+
+- **The facts are the plan's Display, not a hard-coded four.** A column the reader
+  hides is gone from the screen exactly as before — the `Display` panel keeps its
+  meaning; only the shape it paints changed.
+- **Missing values** render an elegant `-`.
+- **A pinned fact stays put.** `Display`'s `Pin` keeps its meaning on this screen: a
+  pinned fact is drawn in a band at the top of its panel, `position: sticky` inside
+  the panel, so it stays visible when the panel's own facts are taller than the room
+  and scroll under it. A plan that pins nothing draws exactly one `dl` as before.
+  Nothing pins horizontally any more — there is no sideways scroll to pin against.
+- **Dynamic**: the regions reflect library edits automatically — intentions and
   symbols flow through `compile-plan`, so no manual syncing exists to maintain.
+- **Nothing is per-line inside a cell any more.** The list *is* the column, which is
+  the point of §12.20.
 
-Suggested columns: symbol identity (merged) + intention text. The symbol tag is
-de-emphasised (smaller, muted) since intentions are the primary read.
+### 2.2 One viewport, and the column scrolls inside it
 
-### 2.2 Responsive behaviour
+- **`run/layout.tsx` is `h-[100dvh] overflow-hidden`** and `Runner`'s `<main>`
+  fills it, so the header, the regions and the transport bar are the only three rows
+  and the page itself can never scroll. `plans.spec.ts` asserts it as computed
+  style: the shell's `overflow-y` is `hidden`, its height is the viewport's, and the
+  last control is inside the fold without anything having been scrolled to reach it.
+- **The intentions column is the one scroller** — `overflow-y: auto` on a
+  `min-h-0 flex-1` box inside the region, so a block with more lines than fit scrolls
+  its own card and nothing else moves. The controls therefore never leave the bottom
+  edge. The assertions live in `plans.spec.ts` ("the session is three regions, and
+  the screen does not scroll"), beside the geometry ones.
+- **It walks itself down while the stage runs**, at a rate of **content ÷ the
+  stage's remaining time** (`features/runner/scroll-rate.ts`) — never a fixed px/s,
+  so a short block does not scroll and a long one finishes with the timer (§12.20).
+  Pausing holds it with the clock and resuming carries on. A **hand on the list
+  re-syncs** rather than being fought (§12.18): the position the app holds is
+  re-seeded from the element when the element moved away from what the app last
+  wrote. Reduced motion is the exception — a reader whose system asks for less
+  motion gets the column **still** until they press that stage's own `Auto-scroll`
+  (§6.3, §12.19).
+- **The grid is three columns on a wide screen**,
+  `lg:grid-cols-[minmax(13rem,18rem)_minmax(11rem,15rem)_minmax(0,1fr)]`: the panels
+  are bounded rather than fixed, and the intentions take what is left. A narrow
+  screen stacks the three (`grid-cols-1`) inside the same one viewport, so nothing
+  is pushed off the page.
+- **Landscape needs no rule of its own.** The layout is viewport-driven, so a wider
+  screen simply shows more of the intentions column; the earlier note asking for a
+  `@media (orientation: landscape)` override has been dropped rather than left
+  standing.
 
-- **Desktop / wide viewport**: render as much of the table as fits without
-  scrolling; the clock docks into a corner or a slim header bar rather than
-  taking centre stage.
-- **Laptop / narrower**: a compact clock area up top, with the table taking the
-  remaining space and scrolling vertically underneath.
-- **Landscape, including auto-rotate**: reflow the table to use the wider
-  horizontal space rather than staying in the narrow portrait shape. Implement
-  with a `@media (orientation: landscape)` query to start; this app already has
-  precedent for document-level adaptive state (the `textSize` attribute applied
-  to `<html>`), so the same pattern extends naturally. The Screen Orientation
-  API's `change` event is worth reaching for later only if JS needs to actively
-  recompute layout (e.g. how many rows fit) — not required for a first pass.
+Files: `apps/web/src/features/runner/SessionRegions.tsx` (the three regions),
+`apps/web/src/features/runner/scroll-rate.ts` (the scroll rule),
+`apps/web/src/features/runner/Runner.tsx` (the grid, the header and the footer) and
+`apps/web/src/app/run/layout.tsx` (the viewport box).
 
-File to change: `apps/web/src/features/runner/Runner.tsx` (`Runner` renders the grouped intentions table itself).
+### 2.3 The strip is the clock, and a stage is a control (owner's round 17)
 
-### 2.3 Wireframes
+- **The wheels are the clock, and the header has none.** *"rather than the timer on
+  top of the page, I would want to see the actual wheels for the 3 stages decrementing
+  automatically (once the session starts, these can become read-only (no more
+  modification) and display the decreasing time in the same place for each block)."*
+  Each stage's wheel reads what **that** stage has left — `0:00` for the stages
+  already walked, the remainder for the one on screen, its own length for the ones to
+  come — so before Start the strip is exactly the block's set times and nothing moves
+  when the session begins. `TimeWheels`' `readOnly` mode draws the same two columns on
+  the wheel's own geometry, with no scroller, no spinbutton role and no text box: the
+  number the reader set is the number they watch, in the same place.
+- **A stage is pickable.** *"clicking on the stage highlights it, and should be able
+  to press Space or Start button to start from that stage onwards."* The stage's own
+  name is a button; the press seeks, which highlights it and holds the session there.
+  A control press that lands on the wheel is the wheel's, and one that lands on the
+  mark is the mark's.
+- **Two restarts, and they mean the same thing.** *"a restart button for each of the
+  stages (a small button below the binaural beats button at each stage) … Another
+  restart button for the entire meditation."* The `↺` on each stage's own line resets
+  that stage. The whole meditation's restart is the fourth of the footer's transport
+  squares (round 19): *"the restart button for whole meditation restart is for the
+  complete meditation, so it stays on the bottom"*, *"restart should be just the
+  circular arrow besides these buttons"* — so it stands with `Pause`/`Skip`/`Stop`, and
+  it is not drawn while the alarm holds, because `seek` refuses there. Both restarts are
+  `seek`: they clear the clock and wait for Start rather than resuming a remainder.
+- **The transport is four squares of one size** (round 19). `Button`'s `iconOnly` shape
+  is the same tiers at the same heights, square and without a label's padding — `xl` is
+  the 64px floor exactly. Pause/Skip/Stop carry drawn glyphs and an `aria-label` rather
+  than a word: *"make pause-skip-stop buttons all of same size, no text only symbols of
+  pause, skip, stop so that they take up less space."* The three session latches are the
+  compact `sm` switch, named `Alarm`, `Scroll` and `Advance`: *"need to be of the same
+  size, smaller, give them smaller names so that they take up less space."* This is the
+  deliberate exception to the 64px run-mode floor (§1.5), which covers the primary
+  controls and no longer the three secondary ones.
+- **The legend is two keys.** *"all the instructions that you have coded at the bottom
+  are taking up more space than I can offer, only retain Esc and Space."* The arrow keys
+  still step a stage and a meditation — the bullet below is unchanged — they are simply
+  no longer advertised on the page.
+- **The arrow keys step, and they never start.** `→` next stage, `→→` next
+  meditation; `←` restart this stage, `←←` previous stage, `←←←` previous meditation —
+  each inside two seconds. The `KeyHints` legend says so, and says it only while the
+  arrows do something (§1.8), which excludes the alarm hold.
+- **A `symbols` stage shows symbols.** *"The symbol stage doesn't need to show me the
+  intentions, only symbols"* — its main region is a sheet of the block's symbols,
+  pictures where a symbol has one and names until then, and the panel beside it follows
+  the **clock**, because a sheet has nothing to scroll. An intentions or affirmations
+  stage whose column has run out of travel falls back to the clock too: *"it should be
+  updated with time even though the scrolling stops."*
+
+### 2.4 Wireframe
 
 ```
-RUN — desktop / wide (clock docked, full table):
-┌───────────────────────────────────────────────────────────────┐
-│ ◂ back      Root · cycle 1                     ⏱ 12:34  (clock)│
-├───────────────────────────────────────────────────────────────┤
-│ INTENTIONS                                                     │
-│ ┌───────────────────────────────────────────────────────────┐  │
-│ │ I sit grounded and still                 (no symbol)      │  │  focus-level intentions,
-│ │ I notice the breath                                       │  │  no symbol column
-│ ├─────────────────┬─────────────────────────────────────────┤  │
-│ │ ● Root symbol   │ intention 1                             │  │  merged symbol cell
-│ │   description   │ intention 2                             │  │  (name now, image later)
-│ │   usage         │ intention 3                             │  │  spans all its intentions
-│ │                 │ intention 4                             │  │
-│ ├─────────────────┼─────────────────────────────────────────┤  │
-│ │ ● Hara symbol   │ …                                       │  │
-│ └─────────────────┴─────────────────────────────────────────┘  │
-│ ⏯ pause   ⏭ skip   ⏹ stop        [auto-advance ⚪──●]          │
-└───────────────────────────────────────────────────────────────┘
-
-RUN — laptop / narrow (compact clock, table scrolls below):
-┌───────────────────────┐
-│ ◂ back                │
-│        12:34  ⏱       │  compact clock
-│    Root · cycle 1     │
-├───────────────────────┤
-│ INTENTIONS (scrolls)  │
-│ ┌───────────────────┐ │
-│ │ (no symbol)       │ │
-│ │   intention…      │ │
-│ ├─────────┬─────────┤ │
-│ │ ● symbol│ intent  │ │
-│ │         │ intent  │ │
-│ │         │ intent  │ │
-│ └─────────┴─────────┘ │
-│          ⋮            │
-├───────────────────────┤
-│ ⏯  ⏭  ⏹   [auto ⚪●] │
-└───────────────────────┘
-
-RUN — landscape / auto-rotate (reflow wider):
-┌──────────────────────────────────────────────────────────┐
-│ ◂ back      12:34        Root · cycle 1                  │
-│ ┌──────────────┬─────────────────────────────────────────┐│
-│ │ ● symbol     │ intention · intention · intention (wrap) ││
-│ └──────────────┴─────────────────────────────────────────┘│
-└──────────────────────────────────────────────────────────┘
+RUN — one viewport; the intentions column is the only thing that scrolls:
+┌───────────────────────────────────────────────────────────────────┐
+│ ◂ back   Third-Eye Chakra · cycle 1                               │
+│ ┌───────────────────────────┐ ┌─────────────────┐ ┌────────────┐  │
+│ │ ♪ Intentions ↺            │ │ ♪ Symbols    ↺  │ │ ♪ Focus ↺  │  │
+│ │  0 : 12  (a wheel)        │ │  1 : 00         │ │  6 : 00    │  │
+│ └───────────────────────────┘ └─────────────────┘ └────────────┘  │
+│                                                     ↺ Restart     │
+├──────────────┬────────────┬───────────────────────────────────────┤
+│ Third-Eye    │ ⟨picture⟩  │ INTENTIONS                            │
+│ Chakra       │ Harth      │                                       │
+│ CHAKRAS      │            │ I am completely protected against …   │
+│              │ Description│ My past traumas have been identified… │
+│ Location     │ All of my  │ I trust myself and have become …      │
+│ Between the  │ fear and … │ I always radiate beauty, grace and …  │
+│ eyebrows     │            │                                       │
+│              │ Usage      │ I am completely grounded, stable …    │
+│ Element      │ Love,      │ I have mastered unbreakable …         │
+│ Light        │ compassion │                                       │
+│              │ have been  │  ← this column scrolls; nothing else  │
+├──────────────┴────────────┴───────────────────────────────────────┤
+│ ⏯ pause   ⏭ skip   ⏹ stop        [Alarm ⚪──●] [auto-advance ⚪──●] │  always on screen
+└───────────────────────────────────────────────────────────────────┘
+   fixed panels, facts = the plan's Display      the symbol swaps in place as the
+                                                 top of the column crosses a pair
 ```
 
 ---
@@ -486,16 +679,33 @@ RUN — landscape / auto-rotate (reflow wider):
 The library is one client component (`apps/web/src/features/library/Library.tsx`)
 driven by an in-memory `Screen` state machine plus the `TableId` union
 (`apps/web/src/features/library/library-model.ts`). The `TableId` union has
-**nine** sections, in this order: Focus points, Symbols, Intentions, Fields,
-Audio files, Presets, Views, Plans, History. The last-viewed section is already
-remembered in `sessionStorage` under `meditaur:libraryTable`.
+**seven** sections, in this order: Meditations, Symbols, Archive, Audio files,
+Presets, Plans, History. The last-viewed section is remembered in `sessionStorage`
+under `meditaur:libraryTable`. The **Database** is no longer one of them: since
+2026-09-19 it is a nav destination of its own (`/database`, between `Library` and
+`Settings`), because it is the one screen in this app that writes.
+
+**Round 15 landed 2026-09-19 and supersedes the list above wherever it disagrees.**
+The strip is **generated**: one tab per live meditation type, in the type rows'
+order, then the six fixed ones — Symbols, Archive, Audio files, Presets, Plans,
+History. The old `Focus points` tab is gone: `Chakras`, `Points`,
+`Protection` and `Thanks Giving` are the seeded rows a reader sees, and a type the
+reader adds gets its own tab, its own Database table and its own columns with
+nothing to register. A type's tab shows only that type's meditations — a filter
+over the one list, not a second store — and its `Add` says just `Add`, because the
+tab above it already names the type. Tab ids are namespaced (`type:<id>`), so a
+rename moves the label and nothing else: the remembered section and the scroll
+memory survive it. The round's plan (retired 2026-09-21; the amounts that stayed are
+in [DECISIONS.md](./DECISIONS.md)) is the authority on the round; §12 of it is the
+owner's own answers.
 
 ### 3.1 Tabs
 
-A persistent top tab strip mirroring the nine `TableId` values exactly, with the
+A persistent top tab strip mirroring the `TableId` values exactly, with the
 content pane below swapping per selected tab. This is a chrome change, not a data
 change — the underlying section-switching logic and the remembered-last-section
-behaviour stay exactly as they are.
+behaviour stay exactly as they are. The strip wraps today (`flex-wrap`); when a
+tab is added for every meditation type it scrolls sideways instead (round 15).
 
 **Swipeable on mobile**: native horizontal scroll + scroll-snap on the strip;
 tap selects. Content-pane swipe between tabs is progressive enhancement, not a
@@ -508,18 +718,26 @@ When this was written the list screen stacked a full `CatalogBackupPanel`, a
 The arrangement below replaced that, and is what the app does now:
 
 1. **Sticky tab strip** at the top.
-2. **Per-table toolbar row** — section title on the left, the **Add** action
-   (secondary tier) top-right in a fixed spot.
-3. **One `Table` switch** (cards / table) in a section that has both views, and
-   the **`LibraryColumnPicker`** beside it — the column filter appears with the
-   table it belongs to, and the `Columns` button reads as selected while its
-   panel is open. (2026-09-16: this replaced a two-button `ListModeToggle`, which
-   read as navigation rather than a view setting.)
+2. **Per-table toolbar row** — the **Add** action leads it on the left, and
+   everything that is a *setting for the list* goes to its right edge. (Round 14:
+   the Add action used to sit on the right with the view switch beside it, which
+   read the switch as an action on the section rather than a setting for its
+   list — "meditations being arranged as table/cards should be to the right-most
+   of the page instead of beside the add meditation button".)
+3. **One `Table` switch** (cards / table) in a section that has both views, at the
+   right edge, with the **`LibraryColumnPicker`** beside it — the column filter
+   appears with the table it belongs to, and the `Columns` button reads as
+   selected while its panel is open. (2026-09-16: this replaced a two-button
+   `ListModeToggle`, which read as navigation rather than a view setting.)
 4. **Backup/restore** stays visible (export visibility is a hard guardrail). It
    moved to the **foot of the page** on 2026-09-16 and then to the **top row**, in
    the place the `Library` heading held, on the same day: the owner's point is
    that these two act on the whole library, so they belong to the page and must
    not read as belonging to the section whose view switch sits beside them.
+   **Both halves are `Button`s in one row** (round 14). `Restore` was a `<label>`
+   wrapping its own file input, and a label in the page's column flex stretches —
+   it drew a full-width bordered bar under the last list, "like a divider between
+   different displays".
 5. **Destructive** actions stay bottom-of-row, with the in-app arm/confirm step
    (extending the existing `deleteArmed` pattern — no native `confirm()`). Every
    card carries its own `Edit` and `Delete`. Since 2026-09-16 the arm is visible
@@ -562,7 +780,7 @@ any entity that grows an open view:
   rather send an error message." So: typing filters as you go (labels *and*
   hints), `Choose`/Enter commits an exact name or the one remaining option, an
   unmatched name chooses nothing and says `Nothing matches “…”`, and the option
-  list stays for browsing. One shape for every picker in the app — focus points,
+  list stays for browsing. One shape for every picker in the app — meditations,
   symbols, presets, tables, ambient, alarm.
 - **Option rows truncate.** The owner's "the text overflows and looks shabby" was
   the Button base's `whitespace-nowrap` fighting multi-line hints; the label and
@@ -573,7 +791,7 @@ any entity that grows an open view:
   `text-xl` heading, the four assoc tiles, and one field row per association —
   the app's field language (small-caps field name over the value, `Choose` when
   empty, full width), the same row the planner's block cards and the focus
-  point's `Default sound` use. A button labelled `Pick focus point` did not say
+  point's `Default sound` use. A button labelled `Pick meditation` did not say
   what the intention currently held.
 
 Button sizing follows §1.4: `sm`/`md` in the toolbar, `lg` only for full-screen
@@ -585,15 +803,166 @@ the list components (`FocusList`/`SymbolsList` in `FocusTable.tsx`,
 `ViewsList`, `AudioList`) to move **Add** out of the
 list tail into the toolbar, and `CatalogBackupPanel.tsx` (compact action).
 
+### 3.2c The Database's grid (2026-09-18, owner's round 13)
+
+The owner's review of the built tab: *"I was hoping to get a table like view and
+when something new is added, it shouldn't look like a shitty visual basic type
+interface … It doesn't look like notion at all!"* The data model and the
+interaction design were not the complaint — the **surface** was. Four things made
+it read as a form rather than as a table:
+
+1. **No table chrome at all.** The grid was bare `<td>`s directly on the page
+   background: no card, no header band, no rule between rows, no highlight under
+   the pointer. Nothing said where a row began or which column a value belonged
+   to.
+2. **Every cell was an outlined box.** The cell input carried
+   `border border-line` in its resting state, so a 35-row grid drew 70 visible
+   boxes. A cell must *read as text* and become a control only when it has the
+   press (§3.2a's rule, applied to the grid).
+3. **Rows were 198px.** Every intention line was a `min-h-16` (72px) input, and
+   the Intentions cell held a nested `max-h-40` scroller. The input is one line
+   either way — the height bought nothing.
+4. **Every control was on at once.** The leading cell stacked six of them
+   (`⠿`, a `↑↓` pair, two full-width chips, `×`, `＋`), and the heading `+`, the
+   row `+` and `Add` were permanently visible.
+
+The treatment, which is the rule from here on:
+
+- **One card.** The grid is a `rounded-2xl border border-line bg-surface` surface
+  with `overflow-hidden`; the scroll container lives inside it.
+- **A header band.** `text-xs uppercase tracking-wide text-muted` labels over a
+  `border-b border-line`, with the add-column `＋` at the far right.
+- **A hairline under every row**, `border-line/50`, and a hover fill
+  (`bg-surface-raised`) that the **pinned** lead cell follows — `bg-inherit` on
+  that cell, so it can never show scrolled content through it. The pinned column
+  also carries a `border-r` hairline, which is §15.15's "reads as stuck, not just
+  first".
+- **Cells are text.** Borderless and unpainted at rest; on focus they paint
+  `bg-bg` and a `ring-2 ring-accent/40`. A record's `Name` is the one cell in
+  `font-medium`.
+- **Quiet controls.** `REVEAL` in `DatabaseCells.tsx` is
+  `opacity-100` plus `pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100
+  pointer-fine:group-focus-within:opacity-100` — hidden until the pointer or the
+  keyboard is there *on a device that has a hover*; a phone draws them always,
+  which is what §12.33's one-time hint exists to offset. `opacity`, never
+  `display`: the row's geometry must not move under a gesture, and the grid's e2e
+  drags read a handle's box before it is hovered.
+- **One line for the pair.** `Chakra × symbol` is the heading, so on a computer
+  the two chips share a line (`sm:flex-row`) with a `×` between them; on a phone
+  they stay stacked, because a pinned cell wide enough for both at once would
+  leave nothing to scroll (§12.27).
+- **`+ New` at the foot**, full width and quiet, instead of a stray `＋` in an
+  empty cell. A phone's Intentions cell says `☰ N intentions` and opens the
+  focused editor (§6.3) unchanged. The invitation names its noun — `New row`,
+  `New symbol`, `New affirmation` — and its accessible name is `Add a row`, `Add a
+  symbol`, `Add an affirmation` (`withArticle` picks the article, so the copy reads
+  as English whatever the noun).
+- **A record's `Open` is drawn only where a page exists** (round 15, 2026-09-19). A meditation, a
+  symbol and a preset have a record page; a **type** is edited in the grid and an
+  **affirmation** *is* its sentence, so neither shows a control that cannot act.
+- **An affirmation's one column is its `Name` cell, labelled `Affirmation`.**
+  Every record table's leading cell is the row's `name` in the draft — the one a
+  reader types into, the one that takes the caret when the row arrives, and the one
+  a save reads the record out of — so the Affirmations table uses that key rather
+  than a `text` cell of its own. A `text`-keyed cell would write `builtins.text`,
+  which nothing reads, and the saved row would be dropped for having no name. Its
+  width comes from a `width` on the column (`min-w-[28rem]`: a sentence needs the
+  room) rather than from `BUILTIN_WIDTH`'s per-key table.
+- **The Add-column form is a form**: `Heading` and `Description` labels over
+  their controls, `Type` and `Points at` under `TileGrid`s, `Add column` as the
+  one action and `Cancel` on the heading line.
+- **A filter per table, over the row's key** (the owner's round 17: *"Add filter
+  functionality to all the tabs in the database based on the key. So, for chakras,
+  there should be a chakra key searching for that chakra should filter"*). The box
+  sits in a toolbar under the table switcher and matches what a row **is** — a
+  record's name, a sentence's words, a Karuna row's pair — never a cell and never a
+  column, so the reader does not have to guess which column it searches. It is one
+  sentence applied where each table reads its rows (`recordRows`, `sentenceList`,
+  `karunaVisible`), which is why no tab can be left without one — Karuna had been
+  (*"There is no filter functionality in Karuna table in database"*). A heading goes
+  once nothing under it matches; a heading the filter names is kept whole. The filter
+  belongs to the tab it was typed in and is cleared when the tab changes.
+- **`Edit table`, and a column that leaves the view** (the same round: *"Columns
+  should be able to be removed (Add an edit table button which should enable x button
+  next to every column heading which removes the column where-ever not required by
+  the user)"*). One press on the toolbar puts an `×` on every heading; the press takes
+  the column out of the **view** and not the store, so it is safe on a builtin like
+  `Location` as well as on a column the reader added — the column still holds its
+  values and a plan's Display can still name it. It is remembered per table in
+  `sessionStorage` (`DATABASE_COLUMNS_KEY`, the shape `DATABASE_TABLE_KEY` already
+  had), and `Show N hidden columns` is the way back. It is deliberately **not** a
+  `DraftState` field: that would make the screen dirty for a change `Save` has
+  nothing to write, and leaving would silently lose it.
+- **A switch whose heading already said the word** (the same round, on the binaural
+  column): `LatchButton`'s `labelHidden`, §1.5.
+
+Two sizing notes worth keeping:
+
+- **Widths are hints, never `width: 100%`.** In an auto-layout table a column with
+  `w-full` resolves against the table's own width and the table grew to
+  **500000px**. The wide column (the entries' Intentions, a record's `Name`) is
+  left to take what is left after the others are named (`BUILTIN_WIDTH`).
+- **`min-w-[40rem]`, not `min-w-max`.** A max-content floor kept the grid wider
+  than a 1024-wide laptop, so it scrolled sideways with room to spare. The
+  sideways scroll is still there on a phone, where it is the point.
+
+### 3.2d Adds happen in the grid (2026-09-18, owner's round 14)
+
+The owner's second review of the tab: *"the new column or new row still opens a
+form like structure, it is absolutely iky. I need adds to be there itself, like
+adding a column should literally add a column, header should look like a textbox
+and the cells below should also look like text boxes that I can fill. No need for
+a new menu at the bottom of the page."* And, of the library: *"I wanted that
+button to take the user to the database where they'd be able to just update stuff
+in the cell itself."*
+
+- **A column is added where it will live.** `＋` (on a heading, or trailing)
+  inserts the column *now*, with an empty heading and cells under it. The heading
+  is a text box that takes the keyboard on arrival; the column's type, what a
+  reference points at, and what it is for sit behind a small chip on that same
+  heading line. Nothing is collected before the column exists, and nothing appears
+  at the foot of the page.
+- **An unnamed column is not stored**, the same rule as a row with nothing to
+  point at. A column's `key` is derived from the first heading written and never
+  moves again, so a later rename cannot strand a plan's pinned column.
+- **A row is added where it lives.** A type tab's `Add`, `Add symbol` in the
+  library, and a browse sheet's `Edit`, land in the Database's grid with the caret
+  in the row's name — there is no new-record page. Only a **preset** keeps its own
+  page: the sound is the point of a preset, and the owner asked for presets to be
+  made and edited there.
+- **A chakra's own settings are columns**, which is the owner's answer to where
+  they live now that the page is gone: `Picture`, `Default sound` (a preset chip,
+  with `Tune` beside it — the control sits with the sound it tunes) and `Binaural`
+  (the app's switch and nothing else, the owner's round 16: *"binaural column …
+  doesn't need this much text, just the toggle button should be good enough"*).
+  Symbols gained `Picture` too. A record view still exists behind a row's `Open` for
+  whatever a table has no column for.
+- **A table's leading name is pinned, and its header cell paints.** The name stays
+  put while the columns beside it scroll, which needs two things: the pinned pair's
+  width as **both** clamps (`w-32 min-w-32`, since a lone `w-*` is only a maximum and
+  these tables lay out at their minimums), and a **fill** on the pinned header cell —
+  a transparent sticky cell at `z-20` lets the columns travelling under it draw
+  through it, which is how a text box came to be painted over `Tune` (round 16, item
+  6). `BODY_LEAD` had `bg-inherit`; `HEAD_LEAD` did not.
+- **`Tune` writes the draft first.** It is the one door out of the Database that is
+  not leaving, so the grid's draft is saved on the way through rather than
+  discarded — the rule `saveDraftThen` keeps everywhere else.
+- **A floating panel is one at a time, and looking away puts it down.** Opening a
+  second chip or column menu closes the first; a press anywhere else closes it and
+  blurs the cell with the caret, because a grid that keeps a caret in a cell the
+  reader has moved on from shows two live places at once; and `Escape` is handled
+  by the panel in the capture phase, so the same press can never also mean "leave
+  the Database" (§12.25). The owner reported all three.
+
 ### 3.3 Wireframes
 
 ```
 LIBRARY — list:
 ┌──────────────────────────────────────────────────────────┐
-│ ◂ back   Library                        [+ Add focus point]│ toolbar (Add = secondary, top-right)
-│ [Focus][Symbols][Intent][Fields][Audio][Presets][Views][Plans][History] │ swipeable tab strip
+│ ◂ back   Library                                     [+ Add]│ toolbar (Add = secondary, top-right)
+│ [Chakras][Points][Protection][Thanks Giving][Symbols][Archive][Audio]… │ tab strip
 ├──────────────────────────────────────────────────────────┤
-│ Focus points        [Table ⚪] [☰ columns]               │ per-table toolbar (compact actions)
+│ Chakras            [Table ⚪] [☰ columns]               │ per-table toolbar (compact actions)
 │ ┌──────────────────────────────────────────────────────┐ │
 │ │ row / card …                                        │ │
 │ │ row / card …                               [🗑]     │ │ destructive bottom-of-row
@@ -621,7 +990,7 @@ new pages get added.
 ```
 LIBRARY — editor (shared shell):
 ┌──────────────────────────────────────┐
-│ ◂ back (tertiary)     Edit focus point│ top bar
+│ ◂ back (tertiary)     Edit meditation│ top bar
 ├──────────────────────────────────────┤
 │ form fields (scrolls)                │
 ├──────────────────────────────────────┤
@@ -665,7 +1034,7 @@ LIBRARY — editor (shared shell):
 
 ---
 
-## 7. How this drives Phase 4
+## 7. The order the redesign was built in
 
 The implementation order as built. **Stages 1–5 all landed 2026-09-15**, each
 green on `./scripts/meditaur check:full` + e2e:
@@ -707,8 +1076,9 @@ focus tile, which is the only path that proves it travels in the snapshot.
 
 ## Open questions (for the next iteration)
 
-- Run-screen table columns: settle the exact merged-cell contents (name now /
-  image later) once the symbol picture lands.
+- ~~Run-screen table columns: settle the exact merged-cell contents (name now /
+  image later) once the symbol picture lands.~~ **Answered:** the symbol's picture
+  sits beside its name in the merged cell (`aab43f7`).
 - Should the library content pane also swipe between tabs on mobile, or is the
   tab-strip swipe enough?
 - ~~Confirm whether `next/font/google`'s build-time fetch is acceptable, or
@@ -716,6 +1086,7 @@ focus tile, which is the only path that proves it travels in the snapshot.
   through `next/font/google`, so no npm package is added and the dependency
   allowlist is untouched. If that build-time fetch ever has to go, self-host the
   same WOFF2 families instead of adding a font package.
-- The column picker as a toolbar action: settle whether it becomes a collapsed
+- ~~The column picker as a toolbar action: settle whether it becomes a collapsed
   popover (and update the e2e that clicks a visible column toggle), or stays
-  inline and the doc's §3.2 item 3 is dropped.
+  inline and the doc's §3.2 item 3 is dropped.~~ **Answered:** it stayed in the
+  toolbar as a disclosure, and shows itself selected while open (`9c30207`).

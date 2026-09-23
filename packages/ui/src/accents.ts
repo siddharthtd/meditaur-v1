@@ -7,9 +7,9 @@ import type { CSSProperties } from "react";
  * canonical chakra names the app seeds ("Root Chakra", "Hara Chakra", "Solar
  * Plexus", "Heart Chakra", "Throat Chakra", "Third-Eye Chakra", "Crown
  * Chakra"). There is no chakra→colour data in the workspace and no schema
- * change is wanted, so a focus point is tinted by looking its name up here.
- * `FocusPoint.colour` stays an optional override on top (see
- * `accentForFocusPoint`).
+ * change is wanted, so a meditation is tinted by looking its name up here.
+ * `Meditation.colour` stays an optional override on top (see
+ * `accentForMeditation`).
  *
  * Every class string below is written out in full rather than composed at
  * runtime, so Tailwind can see it in the source and generate it.
@@ -27,7 +27,7 @@ export type Accent = {
   ring: string;
 };
 
-/** Point and Custom focus points: no chakra hue, so the neutral cream accent. */
+/** Point and Custom meditations: no chakra hue, so the neutral cream accent. */
 export const NEUTRAL_ACCENT: Accent = {
   key: "neutral",
   hex: "#d8c9a8",
@@ -134,7 +134,7 @@ function lookupKey(name: string | null | undefined): string | null {
 
 /**
  * The accent for a focus-point name. Anything that is not one of the seven
- * canonical centres — a Point, a Custom focus point, or a chakra whose name a
+ * canonical centres — a Point, a Custom meditation, or a chakra whose name a
  * reader rewrote — falls back to the neutral cream accent.
  */
 export function accentForName(name: string | null | undefined): Accent {
@@ -145,16 +145,16 @@ export function accentForName(name: string | null | undefined): Accent {
 const HEX_COLOUR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 
 /**
- * The accent for a focus point, honouring the reader's own `colour` when it is
+ * The accent for a meditation, honouring the reader's own `colour` when it is
  * a hex value. The override is carried as `hex`; paint it with `accentStyle`
  * (Tailwind cannot generate a utility for a colour it cannot see).
  */
-export function accentForFocusPoint(focusPoint: {
+export function accentForMeditation(meditation: {
   name: string;
   colour?: string | null;
 }): Accent {
-  const base = accentForName(focusPoint.name);
-  const custom = focusPoint.colour?.trim();
+  const base = accentForName(meditation.name);
+  const custom = meditation.colour?.trim();
   if (custom && HEX_COLOUR.test(custom)) {
     return { ...base, key: "custom", hex: custom };
   }

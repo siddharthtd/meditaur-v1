@@ -102,11 +102,12 @@ person would.
    and the next block should start on its own.
    - Did the alarm catch you by surprise? Was it too loud or too quiet?
 6. **Press the space bar twice.** It should pause, then resume.
-7. **Press the right arrow key.** It should skip to the next block.
+7. **Press the right arrow key.** It should move to the next stage and hold there,
+   waiting for `Start` (pressing it twice quickly moves to the next meditation).
 8. **Press Escape.** It should return you to the planner.
-9. **Open `Library`** from the top navigation. Press each of the nine section
-   tabs: `Focus points`, `Symbols`, `Intentions`, `Fields`, `Audio files`,
-   `Presets`, `Views`, `Plans`, `History`.
+9. **Open `Library`** from the top navigation. Press each of the eight section
+   tabs: `Meditations`, `Symbols`, `Database`, `Archive`, `Audio files`,
+   `Presets`, `Plans`, `History`.
    - Do not try to understand everything. Just notice whether you can figure out
      what each section is for.
 10. **Open `History`.** Your completed session should be there, with the plan's name
@@ -134,11 +135,12 @@ question attached. Skipping one is fine — say which you skipped, and why.
 **Do:** Build a short plan of your own and run it to the end.
 
 1. On `Plan`, press `New plan`.
-2. Press `Add focus`, then the card's `Focus` field (its value reads `Choose`),
-   and pick any focus point.
-3. Set the duration to something short — one or two minutes — with the `Minutes`
-   and `Seconds` steppers.
-4. Press `Add cool-off` and give it a short duration too.
+2. Press `Add meditation block`, type a few letters of a meditation's name in the
+   text bar and pick it.
+3. Set the stage lengths to something short — one or two minutes each — with the
+   `Minutes` and `Seconds` wheels on the stage rows in the block's editor. Press
+   `Edit` on a card to open it, and `Done` when you are finished.
+4. Add another block the same way if you want a longer session.
 5. Press `Start session`.
 
 **Watch for:** Did the plan behave the way you expected? When the session finished,
@@ -146,40 +148,46 @@ did you know it had finished? Did you know what to do next?
 
 ### Task 2 — Symbol choices
 
-**Do:** On the same plan, tap `Symbol:` on a focus block, and try `Rotate next`,
-`All symbols`, and one symbol by name. Then run a block with each.
+**Do:** On the same plan, open a block's editor — `Edit` on its card — and use its
+`Symbol` section to try `Rotate next`, `All symbols`, and one symbol by name. Then
+run a block with each.
 
 **Watch for:** Was it clear what each option would do *before* you chose it? Did
 the run screen show what you expected?
 
-### Task 3 — Focus point and symbol material
+### Task 3 — Meditation and symbol material
 
-**Do:** In `Library` → `Focus points`, open a focus point — that page only shows,
-so press `Edit` for the next two steps. Attach a symbol with `Add symbol`. Add an
-intention with `Add intention`. Then open that focus point's blocks in a plan and
-sit through one.
+**Do:** In `Library` → `Meditations`, open a meditation — that page only shows,
+so press `Edit` and finish in the Database (`Database` → `Karuna`, where a row is
+is a meditation, a symbol, or a pair of the two and the intentions are written inside
+it). Then open that meditation's blocks in a plan and sit through one.
 
 **Watch for:** How many steps did it take to get from "I want this on screen
 during my session" to actually seeing it? Was any step a surprise? On the run
-screen the intentions are grouped by symbol: the symbol's picture, name,
-description and usage appear once, in the left-hand cell, beside all of its
-intention lines at once. Did that grouping help you follow along, or did it read
-as clutter? And a symbol with no picture of its own shows only its name and a
-small dot — was that enough to tell the symbols apart while you were reading?
+screen the symbol in play gets a panel of its own — its picture and its name — that swaps as you scroll into the next group, while the intentions are one table with a hairline between its rows. Did that
+help you follow along, or did it read as clutter? And a symbol with no
+picture of its own shows only its name — was that enough to tell
+the symbols apart while you were reading?
 
 ### Task 4 — Your own words
 
-**Do:** In `Library` → `Intentions`, edit one of the starter intentions and
-replace it with something of your own that you are comfortable having in a test.
-Add one brand-new intention and attach it to `Both`.
+**Do:** In `Database` (the tab beside `Library`) → `Karuna`, edit one of the
+starter lines
+inside a row — that is an intention — and replace it with something of your own
+that you are comfortable having in a test. Add a brand-new line with `＋ Add`.
+Then press `Save`.
 
-**Watch for:** Was the `Associated with` choice clear? Did the intention appear
-where you expected during a session?
+**Watch for:** Was it obvious that a row is a chakra, a symbol, or a pair, and
+that the lines inside it belong to that pair? Did the line appear where you
+expected during a session? And the Database is the one screen that **throws away
+unsaved edits** when you leave it — did the `Unsaved changes` label and the
+question on the way out tell you that clearly enough?
 
 ### Task 5 — Sound of your own
 
 **Do:** In `Library` → `Audio files`, add a short audio file from your device as
-an alarm. Then set it on a block card with `Alarm:`. Run that block.
+an alarm. Then set it in that block's editor, under `Sound` → `Alarm`. Run that
+block.
 
 **Watch for:** Did the file upload straightforwardly? Did the block wait for your
 alarm to finish before moving on? (A longer alarm file should hold the block
@@ -187,7 +195,7 @@ open longer.)
 
 ### Task 6 — Binaural beats
 
-**Do:** Open `Library` → `Focus points` → any focus point → `Edit` →
+**Do:** Open `Library` → `Meditations` → any meditation → `Edit` →
 `Open binaural config`. Press `Try` to hear the sound. Press `Duplicate`. Change
 something — add a tone, move an EQ slider. Press `Try` again. Then press
 `Revert`, and finally `Save`.
@@ -202,8 +210,8 @@ you feel safe experimenting? Did the `Try` preview behave as you expected?
 ### Task 7 — Turning things off on purpose
 
 **Do:** On `Plan`, turn the `Binaural beats` master switch off and run a block.
-Turn it back on. Then, in the Library, open a focus point and turn *its*
-`Binaural beats` switch off, and run that focus point's block in a plan.
+Turn it back on. Then, in the Library, open a meditation and turn *its*
+`Binaural beats` switch off, and run that meditation's block in a plan.
 
 **Watch for:** Could you tell which switch was doing what? This is the part of
 Meditaur people find hardest, and we would like to know how it felt to you.
@@ -211,7 +219,7 @@ Meditaur people find hardest, and we would like to know how it felt to you.
 ### Task 8 — Backup and restore
 
 **Do:** Press `Download catalog` in the Library and keep the file. Make one
-visible change (add a focus point named `Beta test`). Then press `Restore
+visible change (add a meditation named `Beta test`). Then press `Restore
 catalog` and choose the file you downloaded. Check whether `Beta test` is still
 there, and whether anything looks duplicated.
 
@@ -242,9 +250,9 @@ order of usefulness to us:
 
 1. **Where you got stuck.** Anything that made you stop and think "what now?".
 2. **Where the words did not match your expectations.** Did "intention",
-   "symbol", "block", "cycle" or "focus point" mean what you assumed they meant?
-3. **The two binaural switches.** Did the plan-wide switch and the focus-point
-   switch make sense?
+   "symbol", "block", "cycle" or "meditation" mean what you assumed they meant?
+3. **The binaural switches.** Did the plan-wide switch, and the stage's own
+   `Binaural` switch, make sense?
 4. **Saving, and the fear of losing work.** Did you feel confident your work was
    safe? Did you know your material lives in this browser until you download a
    catalog file?
@@ -265,16 +273,18 @@ These are already on our list. Please do not spend your time on them, and do not
 let them spoil your test. If one of them bothers you more than you expected,
 that *is* worth telling us.
 
+- **`Erase this device's data` on the Account screen deletes everything, with no
+  undo and no export first.** It is meant for exactly that — it re-seeds the
+  starter content and signs you out — but `Download catalog` is the only way back,
+  so press that first if you are testing on material you care about.
 - **Some labels read like the insides of the app rather than English.** The run
-  screen labels the current block as `Root Chakra · cycle 1` (the focus point's
-  name, a middle dot, then the cycle), focus points show their kind as `chakra`,
-  `point` or `custom`, and the `Views` list shows a fragment such as
-  `3 columns · block`. This is cosmetic and known.
+  screen labels the current block as `Root Chakra · cycle 1` (the meditation's
+  name, a middle dot, then the cycle). This is cosmetic and known.
 - **You can ignore the `Account` button.** The welcome screen has one and you
   never need it: press `Continue locally` and everything works. If you would
   rather have your testing attached to an account you can create one there — an
   account carries your `Settings` between the devices you sign in on, while your
-  material (focus points, symbols, intentions, plans, sounds) stays in this
+  material (meditations, symbols, intentions, plans, sounds) stays in this
   browser. Changing a setting while signed in does need a connection; testing
   without an account works offline exactly as before.
 - **Clearing a custom field's box deletes that value** rather than saving an empty
@@ -285,17 +295,19 @@ that *is* worth telling us.
   through the plan's blocks, so a plan repeated three times appears with a shorter
   duration than it actually ran. The number of sessions is right; the duration is not.
 - **There is no undo anywhere**, and no trash can. `Download catalog` is the
-  safety net — and it matters more now: **deleting cascades**. Removing a focus
-  point, symbol, field, preset, view or audio file also removes or clears whatever
-  pointed at it, so a plan that used it changes too. The button tells you what it
-  will take (`This also removes 2 blocks from 1 plan and 1 intention.`, `1 place
-  that pointed at it is cleared.`) while it is armed — read that line before the
-  second press.
+  safety net — and it matters more now: **deleting cascades**. Removing a chakra,
+  symbol, preset, row or line also removes or clears whatever pointed at it, so a
+  plan that used it changes too. The press tells you what it will take
+  (`This also removes 2 plan blocks and 1 intention.`, `1 place that pointed at it
+  is cleared.`) — read that line before the second press. **Archiving is the
+  gentler half**: it hides the item and everything that depends on it — its rows,
+  their lines, and the plan blocks that used it — and `Restore`, on the Archive
+  page, brings all of it back exactly as it was.
 - **A session cannot be resumed after a reload.** It starts again from the beginning.
 - **`Delete plan` hides itself when you only have one plan**, with no explanation,
   and refuses the delete (`Keep at least one plan`). The same applies to your last
-  preset (`Keep at least one preset`) and your last view (`Keep at least one table
-  view`) — those three are the only deletes that refuse.
+  preset (`Keep at least one preset`) — those two are the only deletes that refuse.
+  (The last table view used to refuse too; a plan stores its own display now.)
 - **Every delete arms first** — press once to fill it and ask, press again to do
   it. The only remove that does not is `Remove tone` in the tuner and in a focus
   point's binaural page, where the row is an unsaved draft and `Revert` is the
@@ -340,7 +352,7 @@ What I was doing:
   (for example: "Adding an intention to the Heart Chakra")
 
 What I expected to happen:
-  (for example: "It would appear under that focus point")
+  (for example: "It would appear under that meditation")
 
 What actually happened:
   (for example: "Nothing appeared, and no message showed up")
@@ -351,7 +363,7 @@ How to make it happen again:
   3.
 
 Where I was:
-  (the screen name, for example: Library → Focus points → Heart Chakra)
+  (the screen name, for example: Library → Meditations → Heart Chakra)
 
 How much it got in my way:
   Blocker / Annoying / Minor / Just an idea
@@ -386,8 +398,8 @@ Use one of these four words for every report. It helps us sort them.
 
 **Useful:**
 
-> **Annoying** — I was building a plan and pressed `Add cool-off` twice by
-> accident, so now there are two rest blocks. I couldn't see any way to undo it,
+> **Annoying** — I was building a plan and pressed `Add meditation block` twice by
+> accident, so now there are two blocks I did not want. I couldn't see any way to undo it,
 > only `Remove` on each card, which felt a bit scary because I wasn't sure if it
 > would take something else with it. On a computer, Chrome, with headphones.
 
@@ -418,7 +430,11 @@ Worth knowing before you start writing your own material:
   record or upload is sent to us. An account is optional and stores one thing:
   your `Settings` (volumes, text size, and the rest), so they follow you between
   the devices you sign in on. No analytics, and no server holding your content.
-- **What that means practically:** your focus points, symbols, intentions, plans
+  **One exception is on its way:** the app can now send a crashed screen's message
+  and its stack to the project so it can be fixed, and the table that receives them
+  has been built — nothing sends one yet, and this guide will say so plainly on the
+  day something does.
+- **What that means practically:** your meditations, symbols, intentions, plans
   and uploaded sounds live only on the device and browser you are using — with or
   without an account. If you clear that browser's data, they are gone. If you open
   a different browser, you will see a fresh start; your settings are the one thing
@@ -460,7 +476,7 @@ way for you to take part.
 
 If you have one hour to give and want to spend it where it counts most: do
 [Task 1](#task-1--a-full-session-start-to-finish),
-[Task 3](#task-3--focus-point-and-symbol-material) and
+[Task 3](#task-3--meditation-and-symbol-material) and
 [Task 7](#task-7--turning-things-off-on-purpose) properly, and send us what
 happened. Those three teach us the most.
 
@@ -484,5 +500,5 @@ Keep this nearby while you test.
 | **Edit your material** | `Library` in the navigation bar |
 | **Back up everything** | `Library` → `Download catalog` |
 | **Whatever you do, before a big change** | `Download catalog` first |
-| **If binaural is silent** | Headphones? Pressed `Start`? Plan's `Binaural beats` on? Block's `Binaural:` not `None`? Focus point's `Binaural beats` on? `Master volume` above zero? |
+| **If binaural is silent** | Headphones? Pressed `Start`? Plan's `Binaural beats` on? Block's `Binaural:` not `None`? Meditation's `Binaural beats` on? `Master volume` above zero? |
 | **The full manual** | [USER_GUIDE.md](./USER_GUIDE.md) |

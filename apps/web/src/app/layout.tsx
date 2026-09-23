@@ -1,4 +1,5 @@
 import { SessionProvider } from "@/features/auth/SessionProvider";
+import { ServiceWorkerSync } from "@/features/pwa/ServiceWorkerSync";
 import { TextSizeSync } from "@/features/settings/TextSizeSync";
 import { TEXT_SIZE_BOOTSTRAP } from "@/lib/text-size";
 import type { Metadata } from "next";
@@ -22,17 +23,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
-      data-text-size="lg"
+      data-text-size="md"
       className={`${manrope.variable} ${fraunces.variable}`}
     >
       <head>
         {/* Paints the reader's last text size before the first paint, so the
-            document never renders at `lg` and jumps. The attribute above is
-            the no-JS default; TEXT_SIZE_BOOTSTRAP overrides it early. */}
+            document never renders at the default and jumps. The attribute above
+            is the no-JS default — the app's designed 18px — and
+            TEXT_SIZE_BOOTSTRAP overrides it early. */}
         <script dangerouslySetInnerHTML={{ __html: TEXT_SIZE_BOOTSTRAP }} />
       </head>
       <body className="min-h-screen bg-bg font-sans text-text antialiased">
         <SessionProvider>
+          <ServiceWorkerSync />
           <TextSizeSync />
           {children}
         </SessionProvider>

@@ -1,9 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   fail,
+  type AccountPort,
+  type AppEvent,
   type AuthPort,
   type AuthSession,
   type Clock,
+  type EventPort,
   type PreferencesRepository,
   type SignUpOutcome,
   type UserPreferences,
@@ -73,6 +76,35 @@ export type SupabaseDataLike = {
     value: string,
     columns: string,
   ): Promise<Record<string, unknown>[]>;
+  /**
+   * `columns` where `column > value`, oldest first, at most `limit` rows.
+   *
+   * A pull reads forward from a per-table watermark, so it needs a range rather
+   * than an equality. The bound is the other half: without it one table's answer
+   * is the whole table, and the watermark never advances past a first batch.
+   * Ordered by that same column, which is the one the pull's index carries
+   * (`20260921140000_sync_delete_marks.sql`).
+   */
+  selectRange(
+    table: string,
+    column: string,
+    value: string | number,
+    columns: string,
+    limit: number,
+  ): Promise<Record<string, unknown>[]>;
+  /**
+   * `columns` where `column` is one of `values`.
+   *
+   * `field_values` is scoped by the entity it hangs off rather than by a
+   * workspace, so pulling a workspace's rows means asking for it by entity id —
+   * the one read `select` (a single equality) cannot express.
+   */
+  selectIn(
+    table: string,
+    column: string,
+    values: string[],
+    columns: string,
+  ): Promise<Record<string, unknown>[]>;
   /** The rows the conditional update actually changed. */
   updateWhere(
     table: string,
@@ -92,6 +124,22 @@ function createSupabaseDataClient(client: SupabaseClient): SupabaseDataLike {
   return {
     async select(table, column, value, columns) {
       return unwrap(await client.from(table).select(columns).eq(column, value));
+    },
+    async selectRange(table, column, value, columns, limit) {
+      return unwrap(
+        await client
+          .from(table)
+          .select(columns)
+          .gt(column, value)
+          .order(column, { ascending: true })
+          .limit(limit),
+      );
+    },
+    async selectIn(table, column, values, columns) {
+      // An empty list is an empty answer. Asking for `in ()` would be a request
+      // that can only come back with nothing.
+      if (values.length === 0) return [];
+      return unwrap(await client.from(table).select(columns).in(column, values));
     },
     async updateWhere(table, values, where) {
       let query = client.from(table).update(values);
@@ -113,6 +161,16 @@ function createSupabaseDataClient(client: SupabaseClient): SupabaseDataLike {
 }
 
 /**
+ * The slice of `supabase.functions` this adapter uses: one call, by name.
+ */
+export type SupabaseFunctionsLike = {
+  invoke<T>(
+    name: string,
+    options?: { body?: unknown },
+  ): Promise<{ data: T | null; error: { message: string } | null }>;
+};
+
+/**
  * The one place the SDK is constructed. This module is the only importer of
  * `@supabase/supabase-js` in the repo; `tests/unit/architecture/integrity.test.ts`
  * enforces that.
@@ -125,9 +183,25 @@ function createSupabaseDataClient(client: SupabaseClient): SupabaseDataLike {
 export function createSupabaseClient(input: { url: string; anonKey: string }): {
   auth: SupabaseAuthLike;
   data: SupabaseDataLike;
+  functions: SupabaseFunctionsLike;
 } {
   const client = createClient(input.url, input.anonKey);
-  return { auth: client.auth, data: createSupabaseDataClient(client) };
+  return {
+    auth: client.auth,
+    data: createSupabaseDataClient(client),
+    functions: {
+      async invoke<T>(name: string, options?: { body?: unknown }) {
+        // The slice above is deliberately narrower than the SDK's own options
+        // type, and this call is the one place the two meet — so the cast lives
+        // here rather than leaking the SDK's types into the domain-facing port.
+        const { data, error } = await client.functions.invoke<T>(
+          name,
+          options as Parameters<typeof client.functions.invoke>[1],
+        );
+        return { data: data ?? null, error };
+      },
+    },
+  };
 }
 
 /**
@@ -245,6 +319,7 @@ function preferencesRow(prefs: UserPreferences): Record<string, unknown> {
     user_id: prefs.userId,
     stop_binaural_on_alarm: prefs.stopBinauralOnAlarm,
     auto_advance: prefs.autoAdvance,
+    alarm_enabled: prefs.alarmEnabled,
     master_volume: prefs.masterVolume,
     alarm_volume: prefs.alarmVolume,
     tts_enabled: prefs.ttsEnabled,
@@ -260,10 +335,13 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
     userId: row.user_id as string,
     stopBinauralOnAlarm: row.stop_binaural_on_alarm === true,
     autoAdvance: row.auto_advance !== false,
+    // Absent from a row written before the column existed, and the alarm was never
+    // optional: off has to be said out loud.
+    alarmEnabled: row.alarm_enabled !== false,
     masterVolume: (row.master_volume as number | undefined) ?? 0.7,
     alarmVolume: (row.alarm_volume as number | undefined) ?? 0.6,
     ttsEnabled: row.tts_enabled === true,
-    textSize: (row.text_size as UserPreferences["textSize"] | undefined) ?? "lg",
+    textSize: (row.text_size as UserPreferences["textSize"] | undefined) ?? "md",
     lastPlanId: (row.last_plan_id as string | null | undefined) ?? null,
     revision: (row.revision as number | undefined) ?? 0,
     updatedAt: row.updated_at ? Date.parse(row.updated_at as string) : 0,
@@ -277,13 +355,65 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
  * `revision` is part of the `where`, so a row that another device has already
  * moved past matches nothing and nothing is written. A read followed by an update
  * would be two round trips with a race between them — the same defect the plan
- * CAS had before review C4, and the reason the check belongs to the store.
+ * CAS had before the review's atomicity finding (2026-09-15), and the reason the check belongs to the store.
  *
  * RLS (`prefs_self`, from the baseline) is what keeps this to the signed-in
  * reader's own row; the `user_id` filter is the second half of that, not the
  * whole of it. The anon key is all the browser gets, and it never reaches
  * `auth.users` — a row can only be written for a user the session proves.
  */
+/**
+ * `EventPort` over the `events` table.
+ *
+ * One insert, and `received_at` is deliberately not sent: when the row landed is
+ * a fact only the server knows, and its column default is a better answer than
+ * the client's clock. `id` is the primary key, so a retry collides rather than
+ * duplicating — the application does not retry, and a collision is visible.
+ */
+export function createSupabaseEventsPort(input: { client: SupabaseDataLike }): EventPort {
+  return {
+    async append(event: AppEvent) {
+      await input.client.insert("events", {
+        id: event.id,
+        workspace_id: event.workspaceId,
+        user_id: event.userId,
+        event_type: event.eventType,
+        payload: event.payload,
+        occurred_at: new Date(event.occurredAt).toISOString(),
+      });
+    },
+  };
+}
+
+export const SUPABASE_ACCOUNT_ERRORS = {
+  closeFailed: "Could not close the account",
+} as const;
+
+/**
+ * `AccountPort` over the `close-account` function.
+ *
+ * The server half is the piece the browser cannot do — removing the `auth.users`
+ * row needs the service-role key, which by design never reaches this bundle — so
+ * this adapter's whole job is to call the function and turn its failure into the
+ * one sentence a reader sees. The function runs `delete_my_data()` as the caller
+ * before it removes the row, so RLS still decides what the purge may touch.
+ */
+export function createSupabaseAccountPort(input: {
+  functions: SupabaseFunctionsLike;
+}): AccountPort {
+  return {
+    isConfigured: () => true,
+    async closeAccount() {
+      const { error } = await input.functions.invoke<{ closed?: boolean }>("close-account", {
+        body: {},
+      });
+      if (error) {
+        fail("account.closeFailed", error.message || SUPABASE_ACCOUNT_ERRORS.closeFailed);
+      }
+    },
+  };
+}
+
 export function createSupabasePreferencesPort(input: {
   client: SupabaseDataLike;
 }): PreferencesRepository {

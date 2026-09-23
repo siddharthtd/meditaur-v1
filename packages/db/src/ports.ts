@@ -2,9 +2,10 @@ import {
   SESSION_LOG_LIST_LIMIT,
   type BlobStore,
   type BootstrapPort,
+  type EventPort,
   type CatalogRepository,
+  type Entry,
   type FieldValue,
-  type FocusSymbolBinding,
   type Intention,
   type Plan,
   type PlanRepository,
@@ -14,8 +15,7 @@ import {
   type SnapshotRepository,
   type Symbol,
   type UserPreferences,
-} from "@meditaur/domain";
-import Dexie from "dexie";
+} from "@meditaur/domain";import Dexie from "dexie";
 import { planFromRow, savePlan } from "./plan-mapper.ts";
 import { db, type PlanRow } from "./schema.ts";
 import { ensureSeed } from "./seed.ts";
@@ -24,18 +24,33 @@ function uniqueIds(items: Array<string | null | undefined>): string[] {
   return [...new Set(items.filter((id): id is string => Boolean(id)))];
 }
 
-async function bindingsForFocusIds(focusIds: string[]): Promise<FocusSymbolBinding[]> {
-  if (focusIds.length === 0) return [];
-  return db.focusSymbolBindings.where("focusPointId").anyOf(focusIds).toArray();
+/** The entries of a chakra, and the symbol-only entries of a symbol. */
+async function entriesForMeditationIds(meditationIds: string[]): Promise<Entry[]> {
+  if (meditationIds.length === 0) return [];
+  return db.entries.where("meditationId").anyOf(meditationIds).toArray();
+}
+
+async function entriesForSymbolIds(symbolIds: string[]): Promise<Entry[]> {
+  if (symbolIds.length === 0) return [];
+  return db.entries.where("symbolId").anyOf(symbolIds).toArray();
 }
 
 async function symbolsInWorkspace(workspaceId: string): Promise<Symbol[]> {
   return db.symbols.where("workspaceId").equals(workspaceId).toArray();
 }
 
-async function boundSymbols(focusIds: string[]): Promise<Symbol[]> {
-  const bindings = await bindingsForFocusIds(focusIds);
-  const ids = uniqueIds(bindings.map((row) => row.symbolId));
+/**
+ * The symbols a set of chakras is associated with, in the order the reader put
+ * the entries in.
+ *
+ * The association is an entry now, so this reads the rows directly instead of
+ * joining a bindings table: an entry that names both sides *is* the pairing.
+ */
+async function boundSymbols(meditationIds: string[]): Promise<Symbol[]> {
+  const entries = await entriesForMeditationIds(meditationIds);
+  const ids = uniqueIds(
+    entries.filter((row) => row.symbolId !== null).map((row) => row.symbolId),
+  );
   return rowsByIds((keys) => db.symbols.bulkGet(keys), ids);
 }
 
@@ -90,92 +105,111 @@ export const dexiePlans: PlanRepository = {
 
 export const dexieCatalog: CatalogRepository = {
   async loadCompileLibrary(workspaceId, plan?: Plan) {
-    const workspaceFocus = await db.focusPoints.where("workspaceId").equals(workspaceId).toArray();
+    const workspaceMeditations = await db.meditations.where("workspaceId").equals(workspaceId).toArray();
+    // The types come with every read, scoped or not: they are a handful of rows,
+    // and both the library and the Database ask which type a meditation is.
+    const meditationTypes = await db.meditationTypes
+      .where("workspaceId")
+      .equals(workspaceId)
+      .toArray();
     const fieldDefs = await db.fieldDefs.where("workspaceId").equals(workspaceId).toArray();
+    const fieldOptions = await db.fieldOptions.where("workspaceId").equals(workspaceId).toArray();
 
     if (!plan) {
-      const focusIds = workspaceFocus.map((fp) => fp.id);
+      const meditationIds = workspaceMeditations.map((fp) => fp.id);
       const symbols = await symbolsInWorkspace(workspaceId);
-      const entityIds = [...symbols.map((s) => s.id), ...focusIds];
-      const [bindings, intentions, fieldValues, tableViews, presets, mediaAssets] =
-        await Promise.all([
-          bindingsForFocusIds(focusIds),
-          intentionsForWorkspace(workspaceId),
-          fieldValuesForEntityIds(entityIds),
-          db.tableViews.where("workspaceId").equals(workspaceId).toArray(),
-          db.presets.where("workspaceId").equals(workspaceId).toArray(),
-          db.mediaAssets.where("workspaceId").equals(workspaceId).toArray(),
-        ]);
+      const entries = await db.entries.where("workspaceId").equals(workspaceId).toArray();
+      // A field value hangs off **any** entity, and the Entries table has custom
+      // columns of its own. Leaving the entry ids out made every one of those
+      // columns write-only: the value was stored, and the grid drew it blank
+      // again on the next read. The plan-scoped branch below always included
+      // them, which is why only the no-plan read was wrong.
+      const entityIds = [
+        ...symbols.map((s) => s.id),
+        ...meditationIds,
+        ...entries.map((e) => e.id),
+      ];
+      const [intentions, fieldValues, presets, mediaAssets] = await Promise.all([
+        intentionsForWorkspace(workspaceId),
+        fieldValuesForEntityIds(entityIds),
+        db.presets.where("workspaceId").equals(workspaceId).toArray(),
+        db.mediaAssets.where("workspaceId").equals(workspaceId).toArray(),
+      ]);
       return {
-        focusPoints: workspaceFocus,
+        meditationTypes,
+        meditations: workspaceMeditations,
         symbols,
-        bindings,
+        entries,
         intentions,
         fieldDefs,
+        fieldOptions,
         fieldValues,
-        tableViews,
         presets,
         mediaAssets,
       };
     }
 
-    const tableViewIds = uniqueIds(plan.blocks.map((b) => b.tableViewId));
-    const tableViews = await rowsByIds((ids) => db.tableViews.bulkGet(ids), tableViewIds);
-    const allSymbols = tableViews.some((view) => view.symbolFilter === "all");
-    const focusIds = allSymbols
-      ? workspaceFocus.map((fp) => fp.id)
-      : uniqueIds(plan.blocks.map((b) => b.focusPointId));
-    const focusPoints = allSymbols
-      ? workspaceFocus
-      : workspaceFocus.filter((fp) => focusIds.includes(fp.id));
+    // Scoped to the plan: starting a session should not read a catalogue that has
+    // nothing to do with it. Media and presets are read by id, because a block
+    // names what it uses; symbols come from the entries of the chakras the plan
+    // runs, plus any symbol a block names outright (a cool-off block may name one
+    // on its own).
+    const meditationIds = uniqueIds(plan.blocks.map((b) => b.meditationId));
+    const meditations = workspaceMeditations.filter((fp) => meditationIds.includes(fp.id));
     const explicitSymbolIds = uniqueIds(plan.blocks.map((b) => b.symbolId));
-    const [fromFocus, bindings] = await Promise.all([
-      boundSymbols(focusPoints.map((fp) => fp.id)),
-      bindingsForFocusIds(focusPoints.map((fp) => fp.id)),
+    const [fromMeditations, pairEntries, soloEntries] = await Promise.all([
+      boundSymbols(meditationIds),
+      entriesForMeditationIds(meditationIds),
+      entriesForSymbolIds(explicitSymbolIds),
     ]);
     const extra = await rowsByIds((ids) => db.symbols.bulkGet(ids), explicitSymbolIds);
-    const symbolsById = new Map(fromFocus.map((s) => [s.id, s]));
+    const symbolsById = new Map(fromMeditations.map((s) => [s.id, s]));
     for (const symbol of extra) symbolsById.set(symbol.id, symbol);
     const symbols = [...symbolsById.values()];
-    const entityIds = [...symbols.map((s) => s.id), ...focusPoints.map((fp) => fp.id)];
+    const entriesById = new Map<string, Entry>();
+    for (const entry of [...pairEntries, ...soloEntries]) entriesById.set(entry.id, entry);
+    const entityIds = [...symbols.map((s) => s.id), ...meditations.map((fp) => fp.id)];
     const presetIds = uniqueIds(plan.blocks.map((b) => b.binauralPresetId));
-    const mediaIds = uniqueIds(
-      plan.blocks.flatMap((b) => [b.ambientAssetId, b.alarmAssetId]),
-    );
+    const mediaIds = uniqueIds(plan.blocks.flatMap((b) => [b.ambientAssetId, b.alarmAssetId]));
+    // A pair's own columns hang on the entry, so those values are read by entry id
+    // as well as by record id.
     const [intentions, fieldValues, presets, mediaAssets] = await Promise.all([
       intentionsForWorkspace(workspaceId),
-      fieldValuesForEntityIds(entityIds),
+      fieldValuesForEntityIds([...entityIds, ...entriesById.keys()]),
       rowsByIds((ids) => db.presets.bulkGet(ids), presetIds),
       rowsByIds((ids) => db.mediaAssets.bulkGet(ids), mediaIds),
     ]);
     return {
-      focusPoints,
+      meditationTypes,
+      meditations,
       symbols,
-      bindings,
+      entries: [...entriesById.values()],
       intentions,
       fieldDefs,
+      fieldOptions,
       fieldValues,
-      tableViews,
       presets,
       mediaAssets,
     };
   },
-  listFocusPoints: (workspaceId) =>
-    db.focusPoints.where("workspaceId").equals(workspaceId).toArray(),
+  listMeditations: (workspaceId) =>
+    db.meditations.where("workspaceId").equals(workspaceId).toArray(),
+  listMeditationTypes: (workspaceId) =>
+    db.meditationTypes.where("workspaceId").equals(workspaceId).toArray(),
+  saveMeditationType: (row) => db.meditationTypes.put(row).then(() => undefined),
+  deleteMeditationType: (typeId) => db.meditationTypes.delete(typeId),
   listSymbols: symbolsInWorkspace,
-  async listBindings(workspaceId) {
-    const focusPoints = await db.focusPoints.where("workspaceId").equals(workspaceId).toArray();
-    return bindingsForFocusIds(focusPoints.map((fp) => fp.id));
-  },
-  listBindingsForFocus: (focusPointId) =>
-    db.focusSymbolBindings.where("focusPointId").equals(focusPointId).toArray(),
+  listEntries: (workspaceId) =>
+    db.entries.where("workspaceId").equals(workspaceId).toArray(),
   listIntentions: intentionsForWorkspace,
   listFieldValuesForEntityIds: fieldValuesForEntityIds,
-  saveFocusPoint: async (focus) => {
-    await db.focusPoints.put(focus);
+  listFieldOptions: (workspaceId) =>
+    db.fieldOptions.where("workspaceId").equals(workspaceId).toArray(),
+  saveMeditation: async (focus) => {
+    await db.meditations.put(focus);
   },
-  deleteFocusPoint: async (focusId) => {
-    await db.focusPoints.delete(focusId);
+  deleteMeditation: async (meditationId) => {
+    await db.meditations.delete(meditationId);
   },
   saveSymbol: async (symbol) => {
     await db.symbols.put(symbol);
@@ -183,11 +217,16 @@ export const dexieCatalog: CatalogRepository = {
   deleteSymbol: async (symbolId) => {
     await db.symbols.delete(symbolId);
   },
-  saveBinding: async (binding) => {
-    await db.focusSymbolBindings.put(binding);
+  saveEntry: async (entry) => {
+    await db.entries.put(entry);
   },
-  deleteBinding: async (focusPointId, symbolId) => {
-    await db.focusSymbolBindings.where("[focusPointId+symbolId]").equals([focusPointId, symbolId]).delete();
+  deleteEntry: async (entryId) => {
+    // A row's lines belong to it, which is what `on delete cascade` says in
+    // Postgres. Dexie has no cascades, so this is the one place that has to.
+    await db.transaction("rw", db.entries, db.intentions, async () => {
+      await db.intentions.where("entryId").equals(entryId).delete();
+      await db.entries.delete(entryId);
+    });
   },
   saveIntention: async (intention) => {
     await db.intentions.put(intention);
@@ -195,17 +234,22 @@ export const dexieCatalog: CatalogRepository = {
   deleteIntention: async (intentionId) => {
     await db.intentions.delete(intentionId);
   },
+  deleteIntentionsForEntry: async (entryId) => {
+    await db.intentions.where("entryId").equals(entryId).delete();
+  },
   saveMediaAsset: async (asset) => {
     await db.mediaAssets.put(asset);
   },
   deleteMediaAsset: async (assetId) => {
     await db.mediaAssets.delete(assetId);
   },
-  saveTableView: async (view) => {
-    await db.tableViews.put(view);
+  listMediaAssets: async (workspaceId) =>
+    db.mediaAssets.where("workspaceId").equals(workspaceId).toArray(),
+  saveFieldOption: async (option) => {
+    await db.fieldOptions.put(option);
   },
-  deleteTableView: async (viewId) => {
-    await db.tableViews.delete(viewId);
+  deleteFieldOption: async (optionId) => {
+    await db.fieldOptions.delete(optionId);
   },
   saveFieldDef: async (def) => {
     await db.fieldDefs.put(def);
@@ -319,9 +363,20 @@ export const dexieSnapshots: SnapshotRepository = {
   },
 };
 
+export const dexieEvents: EventPort = {
+  // `put`, not `add`: `id` is the idempotency key, so writing the same event
+  // twice is the same event rather than a primary-key collision.
+  append: async (event) => {
+    await db.events.put(event);
+  },
+};
+
 export const dexieLogs: SessionLogRepository = {
   append: async (log) => {
     await db.sessionLogs.add(log);
+  },
+  save: async (log) => {
+    await db.sessionLogs.put(log);
   },
   async listRecent(workspaceId, limit = SESSION_LOG_LIST_LIMIT) {
     return db.sessionLogs
@@ -350,13 +405,14 @@ export async function dexieRunInTransaction<T>(work: () => Promise<T>): Promise<
     "rw",
     [
       db.preferences,
-      db.focusPoints,
+      db.meditationTypes,
+      db.meditations,
       db.symbols,
-      db.focusSymbolBindings,
+      db.entries,
       db.intentions,
       db.fieldDefs,
+      db.fieldOptions,
       db.fieldValuesByEntity,
-      db.tableViews,
       db.presets,
       db.mediaAssets,
       db.mediaBlobs,

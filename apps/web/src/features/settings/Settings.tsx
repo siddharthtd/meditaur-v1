@@ -4,6 +4,7 @@ import { app } from "@/composition";
 import { useSession } from "@/features/auth/SessionProvider";
 import { applyTextSize } from "@/lib/text-size";
 import { errorText } from "@/lib/error-text";
+import { volumeFromTens, volumeToTens } from "@/lib/settings-volume";
 import type { UserPreferences } from "@meditaur/domain";
 import { LatchButton, Stepper, TileGrid } from "@meditaur/ui";
 import { useEffect, useRef, useState } from "react";
@@ -86,34 +87,44 @@ export function Settings() {
         pressed={prefs.autoAdvance}
         onChange={(autoAdvance) => save({ autoAdvance })}
       />
+      {/* The alarm's own switch. Session-level like the two above it, so what this
+          decides is the value a **new** plan is created with — an existing plan
+          carries its own, and the planner is where that one is set (§12.21). */}
+      <LatchButton
+        label="Alarm by default"
+        pressed={prefs.alarmEnabled}
+        onChange={(alarmEnabled) => save({ alarmEnabled })}
+      />
       <LatchButton
         label="Speak intentions (TTS)"
         pressed={prefs.ttsEnabled}
         onChange={(ttsEnabled) => save({ ttsEnabled })}
       />
+      {/* Volume is 0–10 in steps of 1 (the owner's round 16, §5.5), and the store
+          keeps its `0..1` gain: the two helpers are the whole of the conversion, so
+          the stepper's own numbers are the ones a reader reads and presses. A
+          stored value that is not a whole tenth — an older row stepped by `0.05` —
+          shows as the nearest number and is only rewritten by a press. */}
       <Stepper
         label="Alarm volume"
-        value={prefs.alarmVolume}
+        value={volumeToTens(prefs.alarmVolume)}
         min={0}
-        max={1}
-        step={0.05}
-        format={(n) => n.toFixed(2)}
-        onChange={(alarmVolume) => save({ alarmVolume })}
+        max={10}
+        onChange={(tens) => save({ alarmVolume: volumeFromTens(tens) })}
       />
       <Stepper
         label="Master volume"
-        value={prefs.masterVolume}
+        value={volumeToTens(prefs.masterVolume)}
         min={0}
-        max={1}
-        step={0.05}
-        format={(n) => n.toFixed(2)}
-        onChange={(masterVolume) => save({ masterVolume })}
+        max={10}
+        onChange={(tens) => save({ masterVolume: volumeFromTens(tens) })}
       />
       <p className="text-lg text-muted">Text size</p>
       <TileGrid
         value={prefs.textSize}
         onChange={(textSize) => save({ textSize })}
         tiles={[
+          { id: "sm", label: "Small" },
           { id: "md", label: "Medium" },
           { id: "lg", label: "Large" },
           { id: "xl", label: "XL" },

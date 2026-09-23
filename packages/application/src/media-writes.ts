@@ -62,6 +62,8 @@ export function mediaAssetFromUpload(input: {
   kind: MediaAsset["kind"];
   name: string;
   durationMs: number;
+  /** Where it goes in the list: after the last row, which the caller looks up. */
+  sortOrder: number;
 }): MediaAsset {
   return {
     id: input.id,
@@ -70,6 +72,7 @@ export function mediaAssetFromUpload(input: {
     name: requireMediaName(input.name),
     storagePath: input.id,
     durationMs: Math.max(0, Math.round(input.durationMs)),
+    sortOrder: input.sortOrder,
     // A brand new row starts unversioned; the write that stores it is what
     // stamps the first revision.
     revision: 0,

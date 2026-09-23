@@ -19,17 +19,30 @@ export function LatchButton({
   pressed,
   onChange,
   size = "md",
+  labelHidden = false,
 }: {
   label: string;
   pressed: boolean;
   onChange: (next: boolean) => void;
   size?: LatchSize;
+  /**
+   * Draws the switch without its word, for a cell whose heading already says it.
+   *
+   * The owner's round 17, on the Chakras table: *"there is no need for text in the
+   * binaural column's cells, only the toggle button is enough"* — the column is
+   * already headed `Binaural`, so the word was the same sentence twice and the cell
+   * was a word with a switch beside it rather than a switch. The name is not
+   * dropped, only hidden: it becomes the button's `aria-label`, so the control a
+   * screen reader announces is unchanged.
+   */
+  labelHidden?: boolean;
 }): ReactNode {
   const compact = size === "sm";
   return (
     <button
       type="button"
       aria-pressed={pressed}
+      aria-label={labelHidden ? label : undefined}
       onClick={() => onChange(!pressed)}
       className={
         compact
@@ -37,9 +50,9 @@ export function LatchButton({
           : "flex min-h-16 w-full items-center justify-between gap-4 rounded-2xl border border-line bg-surface px-4 py-4 text-left text-lg font-medium text-text transition active:opacity-80"
       }
     >
-      <span>{label}</span>
+      <span className={labelHidden ? "sr-only" : undefined}>{label}</span>
       <span className="flex shrink-0 items-center gap-3">
-        {compact ? null : (
+        {compact || labelHidden ? null : (
           <span className="text-sm text-muted">{pressed ? "On" : "Off"}</span>
         )}
         <span

@@ -1,4 +1,4 @@
-import type { FieldDef, FieldValue, FocusPoint, Symbol } from "@meditaur/domain";
+import type { FieldDef, FieldValue, Meditation, Symbol } from "@meditaur/domain";
 import { Button } from "@meditaur/ui";
 import { EditorChrome } from "./EditorChrome";
 import { ImageFrame } from "./ImageFrame";
@@ -11,7 +11,7 @@ import { ImageFrame } from "./ImageFrame";
  * Opening a card lands here, and everything that *changes* a symbol lives one
  * press away in its editor. So this screen holds no inputs, no switches and no
  * remove buttons: it answers "what is this, and where is it used?" and nothing
- * else. `FocusSheet` is the same shape for focus points.
+ * else. `MeditationSheet` is the same shape for meditations.
  */
 export function SymbolSheet({
   symbol,
@@ -27,14 +27,14 @@ export function SymbolSheet({
   imageUrl: string | null;
   fieldDefs: FieldDef[];
   fieldValues: FieldValue[];
-  /** The focus points this symbol is bound to, by name, in binding order. */
+  /** The meditations this symbol is bound to, by name, in binding order. */
   attachedTo: string[];
   error: string | null;
   onBack: () => void;
   onEdit: () => void;
 }) {
   const fields = [...fieldDefs]
-    .filter((def) => def.entityType === "symbol")
+    .filter((def) => def.archivedAt == null && def.scope === "symbol")
     .sort((a, b) => a.sortOrder - b.sortOrder);
   const valueOf = (def: FieldDef): string =>
     fieldValues.find((row) => row.entityId === symbol.id && row.fieldDefId === def.id)?.text ?? "";
@@ -76,7 +76,7 @@ export function SymbolSheet({
       <section className="flex flex-col gap-2">
         <h2 className="text-xl text-text">Attached to</h2>
         {attachedTo.length === 0 ? (
-          <p className="text-muted">Not attached to a focus point.</p>
+          <p className="text-muted">Not attached to a meditation.</p>
         ) : (
           attachedTo.map((name) => (
             <p key={name} className="text-lg">
@@ -89,15 +89,15 @@ export function SymbolSheet({
   );
 }
 
-/** The focus points a symbol is bound to, named and in binding order. */
-export function attachedFocusNames(
+/** The meditations a symbol is bound to, named and in binding order. */
+export function attachedMeditationNames(
   symbolId: string,
-  bindings: { symbolId: string; focusPointId: string; sortOrder: number }[],
-  focusPoints: FocusPoint[],
+  bindings: { symbolId: string; meditationId: string; sortOrder: number }[],
+  meditations: Meditation[],
 ): string[] {
   return bindings
     .filter((row) => row.symbolId === symbolId)
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((row) => focusPoints.find((fp) => fp.id === row.focusPointId)?.name)
+    .map((row) => meditations.find((fp) => fp.id === row.meditationId)?.name)
     .filter((name): name is string => Boolean(name));
 }

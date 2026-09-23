@@ -24,6 +24,11 @@ COPY --from=build /app/apps/web/package.json ./apps/web/package.json
 # next.config.ts is read by `next start` (redirects live there), so the preview
 # image must ship it next to the build output.
 COPY --from=build /app/apps/web/next.config.ts ./apps/web/next.config.ts
+# `public/` is served as-is by `next start` — `/sw.js`, and whatever a launcher
+# or a link preview asks for by name. Vercel serves it straight from the repo, so
+# omitting it here is the difference between the preview image and production:
+# the service worker would register when deployed and 404 in every container.
+COPY --from=build /app/apps/web/public ./apps/web/public
 # `next start` serves the build from the working directory. It must be the app
 # directory that owns .next, not the monorepo root.
 WORKDIR /app/apps/web

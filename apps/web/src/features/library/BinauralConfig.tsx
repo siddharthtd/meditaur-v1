@@ -4,7 +4,7 @@ import {
   createId,
   defaultEarEq,
   type BinauralPreset,
-  type FocusPoint,
+  type Meditation,
 } from "@meditaur/domain";
 import { Button, LatchButton } from "@meditaur/ui";
 import { BinauralBody, binauralMixPayload } from "../binaural/BinauralBody";
@@ -55,13 +55,13 @@ export function BinauralConfigScreen({
   onSavePreset,
   onToggleBinaural,
 }: {
-  focus: FocusPoint;
+  focus: Meditation;
   presets: BinauralPreset[];
   error: string | null;
   onBack: () => void;
   onError: (message: string | null) => void;
   onSavePreset: (preset: BinauralPreset) => Promise<void>;
-  onToggleBinaural: (enabled: boolean) => Promise<void>;
+  onToggleBinaural: (enabled: boolean) => void;
 }) {
   const assigned = focus.defaultBinauralPresetId
     ? presets.find((p) => p.id === focus.defaultBinauralPresetId) ?? null
@@ -138,6 +138,10 @@ export function BinauralConfigScreen({
         // The draft carries the revision of whatever preset it is editing (0 for
         // a new one), so a save moves the row on instead of restarting it.
         revision: draft.revision,
+        // A preset built here is new, so it starts at the top of the list and
+        // live; the Database's Presets table is where either is changed.
+        sortOrder: 0,
+        archivedAt: null,
         updatedAt: 0,
       };
       await onSavePreset(preset);
@@ -161,7 +165,7 @@ export function BinauralConfigScreen({
     >
       <LatchButton
         pressed={focus.binauralEnabled !== false}
-        onChange={(enabled) => void onToggleBinaural(enabled)}
+        onChange={(enabled) => onToggleBinaural(enabled)}
         label="Binaural beats"
       />
       <label className="flex flex-col gap-2">

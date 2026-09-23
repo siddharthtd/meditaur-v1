@@ -16,5 +16,5 @@ test("sign-in and sign-up both offer the local way through", async ({ page }) =>
   await page.goto("/signup");
   await expect(page.getByRole("heading", { name: "Create an account" })).toBeVisible();
   await page.getByRole("button", { name: "Continue locally" }).click();
-  await expect(page.getByRole("textbox", { name: "Plan name" })).toHaveValue("Circuit session");
+  await expect(page.getByRole("textbox", { name: "Plan name" })).toHaveValue("Chakra circuit");
 });

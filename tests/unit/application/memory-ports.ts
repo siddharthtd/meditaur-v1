@@ -3,7 +3,9 @@ import {
   FakeClock,
   SESSION_LOG_LIST_LIMIT,
   fail,
+  type AccountPort,
   type AuthPort,
+  type EventPort,
   type BinauralPreset,
   type CatalogRepository,
   type CompileLibrary,
@@ -11,6 +13,7 @@ import {
   type PlanRepository,
   type PreferencesRepository,
   type PresetRepository,
+  type MaintenancePort,
   type SessionContext,
   type SessionLog,
   type SessionLogRepository,
@@ -19,6 +22,7 @@ import {
   type UserPreferences,
   type WorkspaceRepository,
 } from "@meditaur/domain";
+import { createLocalAccountPort } from "../../../packages/db/src/account-local.ts";
 
 export function memoryPorts(input: {
   context: SessionContext;
@@ -27,7 +31,10 @@ export function memoryPorts(input: {
   presets: BinauralPreset[];
   prefs: UserPreferences | null;
   auth?: AuthPort;
+  account?: AccountPort;
+  events?: EventPort;
   workspaces?: WorkspaceRepository;
+  maintenance?: MaintenancePort;
   nextId?: () => string;
   clock?: FakeClock;
 }): AppPorts {
@@ -35,10 +42,14 @@ export function memoryPorts(input: {
   const snapshots = new Map<string, SessionSnapshot>();
   const logs: SessionLog[] = [];
   const presets = new Map(input.presets.map((p) => [p.id, structuredClone(p)]));
+  const meditationTypes = new Map(
+    (input.library.meditationTypes ?? []).map((row) => [row.id, structuredClone(row)]),
+  );
   let prefs = input.prefs ? structuredClone(input.prefs) : null;
   const library = structuredClone(input.library);
   if (!library.mediaAssets) library.mediaAssets = [];
-  if (!library.bindings) library.bindings = [];
+  if (!library.entries) library.entries = [];
+  if (!library.fieldOptions) library.fieldOptions = [];
   const blobs = new Map<string, { bytes: ArrayBuffer; mimeType: string }>();
   const clock = input.clock ?? new FakeClock();
 
@@ -81,17 +92,23 @@ export function memoryPorts(input: {
         presets: [...presets.values()].map((p) => structuredClone(p)),
       };
     },
-    async listFocusPoints(_workspaceId) {
-      return structuredClone(library.focusPoints);
+    async listMeditationTypes(_workspaceId) {
+      return structuredClone(library.meditationTypes ?? []);
+    },
+    async saveMeditationType(row) {
+      meditationTypes.set(row.id, structuredClone(row));
+    },
+    async deleteMeditationType(typeId) {
+      meditationTypes.delete(typeId);
+    },
+    async listMeditations(_workspaceId) {
+      return structuredClone(library.meditations);
     },
     async listSymbols(_workspaceId) {
       return structuredClone(library.symbols);
     },
-    async listBindings(_workspaceId) {
-      return structuredClone(library.bindings);
-    },
-    async listBindingsForFocus(focusPointId) {
-      return structuredClone(library.bindings.filter((row) => row.focusPointId === focusPointId));
+    async listEntries(_workspaceId) {
+      return structuredClone(library.entries);
     },
     async listIntentions(_workspaceId) {
       return structuredClone(library.intentions);
@@ -101,35 +118,41 @@ export function memoryPorts(input: {
         library.fieldValues.filter((row) => entityIds.includes(row.entityId)),
       );
     },
-    async saveFocusPoint(focus) {
-      upsertById(library.focusPoints, focus);
+    async listFieldOptions(_workspaceId) {
+      return structuredClone(library.fieldOptions);
     },
-    async deleteFocusPoint(focusId) {
-      library.focusPoints = library.focusPoints.filter((fp) => fp.id !== focusId);
+    async saveMeditation(focus) {
+      upsertById(library.meditations, focus);
+    },
+    async deleteMeditation(meditationId) {
+      library.meditations = library.meditations.filter((fp) => fp.id !== meditationId);
     },
     async saveSymbol(symbol) {
       upsertById(library.symbols, symbol);
     },
     async deleteSymbol(symbolId) {
       library.symbols = library.symbols.filter((s) => s.id !== symbolId);
-      library.bindings = library.bindings.filter((row) => row.symbolId !== symbolId);
     },
-    async saveBinding(binding) {
-      library.bindings = library.bindings.filter(
-        (row) => !(row.focusPointId === binding.focusPointId && row.symbolId === binding.symbolId),
-      );
-      library.bindings.push(structuredClone(binding));
+    async saveEntry(entry) {
+      upsertById(library.entries, entry);
     },
-    async deleteBinding(focusPointId, symbolId) {
-      library.bindings = library.bindings.filter(
-        (row) => !(row.focusPointId === focusPointId && row.symbolId === symbolId),
-      );
+    async deleteEntry(entryId) {
+      // The lines go with the row: `on delete cascade` in Postgres, and the Dexie
+      // adapter does the same, so the double behaves the same way.
+      library.intentions = library.intentions.filter((row) => row.entryId !== entryId);
+      library.entries = library.entries.filter((row) => row.id !== entryId);
     },
     async saveIntention(intention) {
+      // The pair is a column, not part of the key, so an orphan (`entryId: null`)
+      // is stored by exactly the write every other sentence uses — which is what
+      // `saveLine` means when it allows one.
       upsertById(library.intentions, intention);
     },
     async deleteIntention(intentionId) {
       library.intentions = library.intentions.filter((a) => a.id !== intentionId);
+    },
+    async deleteIntentionsForEntry(entryId) {
+      library.intentions = library.intentions.filter((row) => row.entryId !== entryId);
     },
     async saveMediaAsset(asset) {
       upsertById(library.mediaAssets ?? [], asset);
@@ -137,17 +160,20 @@ export function memoryPorts(input: {
     async deleteMediaAsset(assetId) {
       library.mediaAssets = (library.mediaAssets ?? []).filter((a) => a.id !== assetId);
     },
-    async saveTableView(view) {
-      upsertById(library.tableViews, view);
-    },
-    async deleteTableView(viewId) {
-      library.tableViews = library.tableViews.filter((view) => view.id !== viewId);
+    async listMediaAssets() {
+      return structuredClone(library.mediaAssets ?? []);
     },
     async saveFieldDef(def) {
       upsertById(library.fieldDefs, def);
     },
     async deleteFieldDef(fieldDefId) {
       library.fieldDefs = library.fieldDefs.filter((def) => def.id !== fieldDefId);
+    },
+    async saveFieldOption(option) {
+      upsertById(library.fieldOptions, option);
+    },
+    async deleteFieldOption(optionId) {
+      library.fieldOptions = library.fieldOptions.filter((row) => row.id !== optionId);
     },
     async saveFieldValue(value) {
       library.fieldValues = library.fieldValues.filter(
@@ -212,6 +238,11 @@ export function memoryPorts(input: {
   const logRepo: SessionLogRepository = {
     async append(log) {
       logs.push(structuredClone(log));
+    },
+    async save(log) {
+      const at = logs.findIndex((row) => row.id === log.id);
+      if (at === -1) logs.push(structuredClone(log));
+      else logs[at] = structuredClone(log);
     },
     async listRecent(workspaceId, limit = SESSION_LOG_LIST_LIMIT) {
       return logs
@@ -278,6 +309,9 @@ export function memoryPorts(input: {
     preferences,
     snapshots: snapshotRepo,
     logs: logRepo,
+    account: input.account ?? createLocalAccountPort(),
+    events: input.events ?? { append: async () => {} },
+    maintenance: input.maintenance ?? { wipeLocalData: async () => {} },
     clock,
     runInTransaction: (work) => work(),
     nextId: input.nextId ?? (() => "snap-1"),

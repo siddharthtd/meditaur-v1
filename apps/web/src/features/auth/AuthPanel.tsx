@@ -109,7 +109,7 @@ export function AuthPanel({ mode }: { mode: AuthMode }) {
         <p className="text-lg text-muted">
           An account carries your Settings — volumes, text size and the rest —
           between the devices you sign in on. Everything else still lives in this
-          browser.
+          browser. <Link href="/privacy" className="underline">What that means</Link>
         </p>
       ) : null}
       <label className="flex flex-col gap-2">

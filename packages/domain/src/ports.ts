@@ -1,17 +1,19 @@
+import type { AppEvent } from "./events.ts";
 import type { CompileLibrary } from "./compile-plan.ts";
 import type {
   BinauralPreset,
+  Entry,
   FieldDef,
+  FieldOption,
   FieldValue,
-  FocusPoint,
-  FocusSymbolBinding,
+  Meditation,
   Intention,
   MediaAsset,
+  MeditationType,
   Plan,
   SessionLog,
   SessionSnapshot,
   Symbol,
-  TableView,
   UserPreferences,
 } from "./models.ts";
 
@@ -102,26 +104,51 @@ export type BlobStore = {
 
 export type CatalogRepository = {
   loadCompileLibrary(workspaceId: string, plan?: Plan): Promise<CompileLibrary>;
-  listFocusPoints(workspaceId: string): Promise<FocusPoint[]>;
+  /**
+   * Every meditation type, archived ones included — the Archive reads the same
+   * rows, and the visibility rule is what hides them everywhere else.
+   */
+  listMeditationTypes(workspaceId: string): Promise<MeditationType[]>;
+  saveMeditationType(row: MeditationType): Promise<void>;
+  deleteMeditationType(typeId: string): Promise<void>;
+  listMeditations(workspaceId: string): Promise<Meditation[]>;
   listSymbols(workspaceId: string): Promise<Symbol[]>;
-  listBindings(workspaceId: string): Promise<FocusSymbolBinding[]>;
-  listBindingsForFocus(focusPointId: string): Promise<FocusSymbolBinding[]>;
+  /**
+   * Every row of the Entries table, archived ones included.
+   *
+   * Archived rows are *in* this list on purpose: the Archive page reads the same
+   * rows, and the visibility rule — not a filter at the store — is what hides
+   * them everywhere else (`packages/domain/src/visibility.ts`).
+   */
+  listEntries(workspaceId: string): Promise<Entry[]>;
+
   listIntentions(workspaceId: string): Promise<Intention[]>;
   listFieldValuesForEntityIds(entityIds: string[]): Promise<FieldValue[]>;
-  saveFocusPoint(focus: FocusPoint): Promise<void>;
-  deleteFocusPoint(focusId: string): Promise<void>;
+  listFieldOptions(workspaceId: string): Promise<FieldOption[]>;
+  saveMeditation(focus: Meditation): Promise<void>;
+  deleteMeditation(meditationId: string): Promise<void>;
   saveSymbol(symbol: Symbol): Promise<void>;
   deleteSymbol(symbolId: string): Promise<void>;
-  saveBinding(binding: FocusSymbolBinding): Promise<void>;
-  deleteBinding(focusPointId: string, symbolId: string): Promise<void>;
+  saveEntry(entry: Entry): Promise<void>;
+  deleteEntry(entryId: string): Promise<void>;
   saveIntention(intention: Intention): Promise<void>;
   deleteIntention(intentionId: string): Promise<void>;
+  deleteIntentionsForEntry(entryId: string): Promise<void>;
   saveMediaAsset(asset: MediaAsset): Promise<void>;
   deleteMediaAsset(assetId: string): Promise<void>;
-  saveTableView(view: TableView): Promise<void>;
-  deleteTableView(viewId: string): Promise<void>;
+  /**
+   * Every picture and sound this workspace holds, in the store's own order.
+   *
+   * The one read an upload needs: the new row goes after the last one, so the
+   * application has to ask which orders the store has already handed out. It is
+   * deliberately not `loadCompileLibrary`, which is the whole catalogue — this is
+   * one table, read for the number and nothing else (`P2 · 4`).
+   */
+  listMediaAssets(workspaceId: string): Promise<MediaAsset[]>;
   saveFieldDef(def: FieldDef): Promise<void>;
   deleteFieldDef(fieldDefId: string): Promise<void>;
+  saveFieldOption(option: FieldOption): Promise<void>;
+  deleteFieldOption(optionId: string): Promise<void>;
   saveFieldValue(value: FieldValue): Promise<void>;
   deleteFieldValue(entityId: string, fieldDefId: string): Promise<void>;
 };
@@ -155,8 +182,66 @@ export type SnapshotRepository = {
 };
 
 export type SessionLogRepository = {
+  /** Record a finished session. The id is minted for this run, so a collision is a bug. */
   append(log: SessionLog): Promise<void>;
+  /**
+   * Write a log by id, replacing any row that already carries it.
+   *
+   * `append` is the live path, where the id belongs to the session that just
+   * ended. This is the restore path: a backup merges by id, so restoring the
+   * same file twice has to leave one row, not fail on the second run.
+   */
+  save(log: SessionLog): Promise<void>;
   listRecent(workspaceId: string, limit?: number): Promise<SessionLog[]>;
   prune(workspaceId: string, keep: number): Promise<void>;
   deleteForPlan(planId: string): Promise<void>;
+};
+
+/**
+ * Erasing what this device holds.
+ *
+ * One method, and deliberately not a repository: wiping is about the store
+ * itself rather than any row in it. What it must never do is sign anybody out —
+ * the account and the device are separate erasures, and the app says so to the
+ * reader's face rather than leaving them to guess.
+ */
+export type MaintenancePort = {
+  /** Delete every row this device holds, so the next load starts from a seed. */
+  wipeLocalData(): Promise<void>;
+};
+
+/**
+ * Closing the account itself — the reader's identity and everything stored
+ * against it, rather than one of the two.
+ *
+ * Deliberately not a method on `MaintenancePort`. That one erases what this
+ * *device* holds and has to keep working on a build with no account at all;
+ * this one cannot do anything without one. Two different erasures, two names,
+ * so nobody has to guess which one just happened.
+ *
+ * One method, because it is one erasure. Removing the `auth.users` row needs
+ * the service-role key, which by design never reaches the browser, so an
+ * implementation reaches a server surface that holds it; the caller-scoped
+ * `delete_my_data()` can run in the browser and is the half of the same job
+ * that RLS can do.
+ *
+ * `isConfigured()` is false on a build with no cloud pair — the same rule
+ * `AuthPort` follows, so a screen can ask before offering the affordance
+ * rather than after the reader has pressed it.
+ */
+export type AccountPort = {
+  isConfigured(): boolean;
+  /** Remove the reader's data and their identity. */
+  closeAccount(): Promise<void>;
+};
+
+/**
+ * Where an event the app records about itself is written.
+ *
+ * Append-only by design: nothing reads these back into the product, they are
+ * read by whoever is looking after the deployment. `append` is idempotent on
+ * `event.id`, so a retry is the same event rather than a second one.
+ */
+export type EventPort = {
+  append(event: AppEvent): Promise<void>;
 };

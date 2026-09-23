@@ -13,7 +13,7 @@
     "build": "turbo build",
     "typecheck": "turbo typecheck",
     "typecheck:tests": "tsc --noEmit -p tests/tsconfig.json",
-    "lint": "turbo lint && eslint tests",
+    "lint": "turbo lint && eslint tests --cache",
     "dev": "pnpm --filter @meditaur/web dev",
     "test": "pnpm test:unit",
     "test:unit": "vitest run --config tests/unit/vitest.config.ts",

@@ -26,33 +26,74 @@ export {
   classicBinauralPair,
 } from "./tones.ts";
 export type { Tone } from "./tones.ts";
+export {
+  CHAKRA_TYPE_ID,
+  POINT_TYPE_ID,
+  PROTECTION_TYPE_ID,
+  THANKS_GIVING_TYPE_ID,
+  SEEDED_MEDITATION_TYPES,
+} from "./meditation-types.ts";
+export {
+  DEFAULT_REIKI_SYSTEM,
+  ENABLED_REIKI_SYSTEMS,
+  REIKI_SYSTEMS,
+  SEEDED_REIKI_SYMBOLS,
+  isSymbolSystemEnabled,
+} from "./reiki-systems.ts";
+export {
+  STAGE_KINDS,
+  STAGE_KIND_LABELS,
+  STAGE_KIND_DEFAULT_MS,
+  INTENTION_STAGES,
+  PROTECTION_STAGES,
+  AFFIRMATION_STAGES,
+  autoScrollForKind,
+  binauralForKind,
+  copyStages,
+  defaultStage,
+  stage,
+  stageByKey,
+  stagesDurationMs,
+  blockStages,
+  stagesForMeditation,
+  withAutoScroll,
+} from "./stages.ts";
 export type {
   WorkspaceType,
   MemberRole,
-  FocusKind,
-  BlockType,
   SymbolScope,
-  SymbolFilter,
-  FieldEntityType,
+  CellType,
+  FieldScope,
+  RefKind,
   MediaKind,
+  ReikiSystem,
   Versioned,
+  Archived,
   Workspace,
   WorkspaceMember,
   UserPreferences,
   SessionLog,
-  FocusPoint,
+  MeditationType,
+  Meditation,
+  StageKind,
+  StageTemplate,
+  PlanBlockStage,
+  CompiledStage,
   Symbol,
-  FocusSymbolBinding,
+  Entry,
   Intention,
   FieldDef,
+  FieldOption,
   FieldValue,
-  TableView,
   BinauralPreset,
   MediaAsset,
   PlanBlock,
+  PlanDisplay,
+  PlanDisplayArea,
+  PlanDisplayColumn,
   Plan,
   CompiledBinaural,
-  CompiledTable,
+  CompiledFact,
   CompiledSymbolGroup,
   CompiledBlock,
   SessionSnapshot,
@@ -80,18 +121,40 @@ export type {
   SnapshotRepository,
   BlobStore,
   StoredBlob,
+  MaintenancePort,
+  AccountPort,
+  EventPort,
   WorkspaceRepository,
 } from "./ports.ts";
+export type { AppEvent, AppEventType, ClientErrorPayload } from "./events.ts";
 export {
   compilePlan,
   SNAPSHOT_SCHEMA_VERSION,
   SNAPSHOT_KEEP_PER_PLAN,
   SESSION_LOG_LIST_LIMIT,
-  BUILTIN_COLUMNS,
-  BUILTIN_COLUMN_KEYS,
 } from "./compile-plan.ts";
 export type { CompileLibrary, CompileOptions } from "./compile-plan.ts";
-export { parsePlanBlocks, PLAN_BLOCK_ERRORS } from "./plan-blocks.ts";
+export {
+  AREA_OF_SCOPE,
+  BUILTIN_AREA_COLUMNS,
+  DEFAULT_PLAN_DISPLAY,
+  availableDisplayColumns,
+  isAppDefaultDisplay,
+  normalizePlanDisplay,
+  setDisplayColumn,
+} from "./plan-display.ts";
+export {
+  entryIsVisible,
+  isLive,
+  lineIsVisible,
+  liveIds,
+  livenessOf,
+  visibleEntries,
+  visibleEntryIds,
+  visibleLines,
+} from "./visibility.ts";
+export type { ArchivedRow, Liveness } from "./visibility.ts";
+export { parsePlanBlocks, PLAN_BLOCK_ERRORS, DEFAULT_ALARM_ENABLED } from "./plan-blocks.ts";
 export { SessionEngine, sessionIsLive } from "./session-engine.ts";
 export type {
   SessionStatus,

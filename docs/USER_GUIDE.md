@@ -42,7 +42,7 @@ Meditaur is a guided-timer app for meditation practice. It does three things:
 - **It can generate binaural beats** (a low humming tone) that play underneath a
   block, using tone settings you control.
 - **It shows you your own material while you sit** — the symbols, lines of
-  intention, and tables you have written for each focus point.
+  intention, and tables you have written for each meditation.
 
 Meditaur is a **wellness tool, not a medical device**. It does not diagnose,
 treat, or cure anything, and it makes no medical claims. If you have a health
@@ -84,17 +84,17 @@ Meditaur has three jobs, and each one has its own area of the app.
 
 ```mermaid
 flowchart LR
-    A["Library<br/>your material<br/>focus points, symbols,<br/>intentions, sounds"] --> B["Plan<br/>your sequence<br/>focus and cool-off blocks,<br/>how many times it repeats"]
+    A["Library<br/>your material<br/>meditations, symbols,<br/>intentions, sounds"] --> B["Plan<br/>your sequence<br/>meditation blocks,<br/>how many times it repeats"]
     B --> C["Run<br/>the session itself<br/>timer, tone, alarm,<br/>your words on screen"]
     C -.->|"finished sessions appear in"| D["History"]
     D -.->|"open the plan again"| B
 ```
 
-- **The Library** is where you keep everything: your focus points, your symbols,
+- **The Library** is where you keep everything: your meditations, your symbols,
   your lines of intention, your sound presets, your audio files, and your tables.
   It is your content, and it is reusable.
-- **The Plan** is the running order. It says: focus here for 7 minutes, rest for
-  3, focus there for 7 minutes, and repeat the whole thing once.
+- **The Plan** is the running order. It says: intentions for 2 minutes, symbols
+  for 1, focus for 6, then the next meditation — and repeat the whole thing once.
 - **The session** is what happens when you press `Start`. Meditaur counts down,
   plays the tone, rings the alarm at the end of each block, and moves to the next
   part by itself.
@@ -116,17 +116,19 @@ some other meditation apps.
 
 | Word | What it means in Meditaur |
 | --- | --- |
-| **Focus point** | The place you put your attention. Every chakra, every body point, and every custom entry is a *focus point*. Examples that come with the app: `Third-Eye Chakra`, `Root Chakra`, `Liver`, `Kidneys`, `Protection`. |
-| **Kind** | What *type* of focus point it is. There are exactly three: **Chakra**, **Point**, and **Custom**. Chakra entries can carry extra details (description, what it governs, colour, element, and a picture). Point and Custom entries use your own [fields](#94-fields-your-own-columns) instead. |
-| **Symbol** | A drawing or glyph you meditate on *for* a focus point. Symbols live in one shared library, and you attach them to focus points. The app ships with eight examples: `Rama`, `Zonar`, `Halu`, `Harth`, `Gnosa`, `Iava`, `Kriya`, and `Shanti`. One symbol can be attached to many focus points. |
-| **Intention** | A short line of text you say or hold in mind. An intention can be attached to a focus point, to a symbol, to both, or to nothing at all. (Older versions of the app called these "affirmations"; that is the same thing.) |
-| **Field** | Your own extra column. If you want to track something the app does not have a box for — a colour, a note, a reference number — you add a field and it appears on that kind of entry. |
+| **Meditation** | The place you put your attention. Every chakra, every body point, and everything else you add is a *meditation*. Examples that come with the app: `Third-Eye Chakra`, `Root Chakra`, `Liver`, `Kidneys`, `Protection`, `Thanks Giving`. |
+| **Type** | What kind of meditation it is — the row it sits under. The app ships with four: **Chakras**, **Points**, **Protection** and **Thanks Giving**, and you can add your own. A type is a row of its own in the Database, so it gets a tab in the Library, a table in the Database and a group of tiles in the planner. |
+| **Symbol** | A drawing or glyph you meditate on *for* a meditation. Symbols live in one shared library, and you attach them to meditations. The app ships with eight examples: `Rama`, `Zonar`, `Halu`, `Harth`, `Gnosa`, `Iava`, `Kriya`, and `Shanti`. One symbol can be attached to many meditations. |
+| **Row** | One line of the `Karuna` table: a meditation, a symbol, or a pair of the two. It is what carries the intentions — a row that names a chakra and a symbol is how that symbol is *attached* to that chakra. |
+| **Intention** | A short line of text you say or hold in mind. Intentions live inside a row, so a line can belong to a meditation, to a symbol, or to that pair. |
+| **Affirmation** | A sentence you write to repeat in your own words. Affirmations and intentions are one table of sentences — the `Affirmations` tab is where every sentence can be seen and edited with what it is associated with. |
+| **Column** | Your own extra field on one of the Database's tables. If you want to track something the app does not have a box for — a colour, a note, a reference number — you add a column and it appears on that table's records. |
 | **Preset** | A saved binaural sound: the tones in your left ear, the tones in your right ear, the fade in and out, and the EQ. |
-| **View** | A saved table layout, used to display rows of symbols (and their fields) on the run screen during a session. |
+| **Display** | A meditation's own list of which of the Database's columns are shown during a session, and which of those stay in place while you scroll. Each meditation in a plan has its own, and a plan's own answer is what an untouched meditation follows. It belongs to the meditation, not to the Database. |
 | **Plan** | Your running order: a list of blocks, plus how many times it repeats. |
-| **Block** | One step inside a plan. There are two kinds: a **focus block** (meditate on something) and a **cool-off** block (rest, or a pause between two focus blocks). |
+| **Block** | One step inside a plan: a **meditation block**, which runs one meditation through its stages. |
+| **Stage** | A part of a block, with its own length: `Intentions`, then `Symbols`, then `Focus`. A block rings its alarm **once**, at the end of its last stage. |
 | **Cycle** | One full pass through every block in the plan. A plan with 16 blocks and 3 cycles runs those 16 blocks three times. |
-| **Cool-off** | A rest block. It has a duration and can play a tone, but it has no focus point and no symbols — nothing to concentrate on. |
 | **Session** | One complete run of a plan, from the first block to the last. |
 | **Master volume** | The overall loudness of everything Meditaur plays. |
 | **Alarm volume** | The loudness of the sound that marks the end of a block. |
@@ -142,57 +144,65 @@ You do not need to create anything. The app arrives ready to use.
    an `Account` button beside them; you never need it.)
 2. **Put your headphones on**, and check your device volume.
 3. **Press `Start session`.** Meditaur takes the plan you used last (the one that comes
-   with the app is called `Circuit session`) and opens the run screen.
+   with the app is called `Chakra circuit`) and opens the run screen.
    - If you see `No plan to start. Open the planner first.`, there is no plan yet —
      open the planner and press `New plan`.
    - If you see `Still starting up. Try again in a moment.`, give it a second and
      press `Start session` again.
 4. **Look at what is on screen.** At the top left is `Back`. Beside it is the name
-   of the focus point, and on the right is **`Length of this block`** with the
-   minutes and seconds wheels, set to that focus point's usual length. Below that
-   is your material for the block, under the heading `Intentions`. Nothing is
-   playing yet.
-5. **Set the length if you want a different one** — scroll a wheel, drag it up or
+   of the meditation, with its type. Below that is the stage strip — `Intentions`,
+   `Symbols`, `Focus` — each with its own minutes and seconds wheels, set to that
+   meditation's usual lengths. That strip is also the clock once you begin. Below
+   it is your material for the block. Nothing is playing yet.
+5. **Set a length if you want a different one** — scroll a wheel, drag it up or
    down, or press it and type a number. See
-   [§8.1](#81-what-you-see-before-you-start) for how the wheels work. This
-   changes **this session only**; the focus point's own
-   default length lives in `Library → Focus points → Edit → Default duration`.
+   [§8.1](#81-what-you-see-before-you-start) for how the wheels work. Before the
+   session starts you can change **any** stage's length; once it is running the same
+   wheels are the countdown and stop taking edits, so a length is decided before you
+   begin. Changing one here changes **this session only**; the meditation's own
+   lengths live in `Library → Chakras → Edit` (a type's tab is the one named after
+   it — `Chakras`, `Points`, `Protection`, `Thanks Giving`).
 6. **Press `Start`** (the large button at the bottom), or press the **space bar**.
    The timer starts counting down, the tone fades in, and your intention lines
    are on screen in front of you.
 7. **Meditate.** You do not need to touch anything. When the block ends, the alarm
    sounds, there is a brief pause, and the next block begins on its own.
-7. **When the session finishes**, the screen shows `Start another session`, which returns you
+8. **When the session finishes**, the screen shows `Start another session`, which returns you
    to the planner. The session is now recorded in **Library → History**.
 
-If you want to stop early, press `Stop`, or press the **Escape** key. To skip
-ahead to the next block, press `Skip` or the **right arrow** key.
+If you want to stop early, press `Stop`, or press the **Escape** key. To move on
+without waiting, press the **right arrow** key for the next stage, or `Skip` to
+leave this meditation and go to the next block.
 
-The starter plan (`Circuit session`) is a 17-block circuit: focus blocks for six
-chakras, plus `Protection`, `Liver` and `Kidneys`, separated by cool-off rests of
-just over three minutes. Chakras are seven minutes each, `Protection` is
-eleven minutes, and `Liver` and `Kidneys` are five minutes each. That is a long
-session — if you want something shorter for your first attempt, open the planner and
-delete blocks, or change the durations. See the next sections.
+The starter plan (`Chakra circuit`) opens and closes with `Thanks Giving` — a
+silent block that reads out the affirmations you have written — and runs the seven
+chakras between them, in order from `Third-Eye` down to `Root` and on to `Crown`.
+Each chakra is three stages: intentions 2:00, symbols 1:00, focus 6:00 — nine
+minutes. That is a long session; if you want something shorter for your first
+attempt, open the planner and remove blocks or change the stage lengths. The tiles
+above the plan can start `Liver`, `Kidneys` or `Protection` on their own, which is
+a five-minute or eleven-minute session. See the next sections.
 
 ---
 
 ## 6. Finding your way around
 
-Meditaur has a welcome screen and four main areas, plus a full-screen run view.
+Meditaur has a welcome screen and five main areas, plus a full-screen run view.
 
 | Screen | What it is for |
 | --- | --- |
 | **Welcome** (`Start session`, `Open planner`) | The front door. Starts a session or opens the planner. |
 | **Plan** | Builds and edits your meditation sequence. |
-| **Library** | Holds all your material: focus points, symbols, intentions, fields, audio files, presets, views, plans and history. |
+| **Library** | Browses all your material: one tab per meditation type (Chakras, Points, Protection, Thanks Giving, and any you add), symbols, audio files, presets, plans and history. Reading only — everything you change lives in the Database. |
+| **Database** | The whole of your material in tables, and the only place anything is edited. |
 | **Run** | The full-screen session itself. |
 | **Settings** | Loudness, text size, the voice, and defaults for new plans. |
 | **Binaural tuner** | A live laboratory where you adjust tones and hear them immediately. A preset's editor has the same controls under its name, and `/tuner` opens one on its own. |
 
 (The welcome screen also has an `Account` button. You never need it.)
 
-**The navigation bar.** On `Plan`, `Library` and `Settings` there is a bar at the
+**The navigation bar.** On `Plan`, `Library`, `Database` and `Settings` there is a
+bar at the
 top with a link for each area, and the link for the area you are currently in is
 highlighted. Two exceptions:
 
@@ -220,8 +230,8 @@ Open `Plan` from the welcome screen (`Open planner`) or from the navigation bar.
 At the top of `Plan` you will see a row of **focus tiles**, grouped under the
 headings `Chakras`, `Points` and `Custom`. Each tile is a small button only as
 wide as the name inside it, and they wrap onto as many rows as they need, so a
-long list of focus points stays compact. These are shortcuts: tapping one starts
-a session immediately, using just that one focus point. They are quick, but they do
+long list of meditations stays compact. These are shortcuts: tapping one starts
+a session immediately, using just that one meditation. They are quick, but they do
 not ask for confirmation — see [§7.2](#72-a-warning-about-the-focus-tiles).
 
 Below the tiles is your plan, in this order:
@@ -231,12 +241,20 @@ Below the tiles is your plan, in this order:
   outlined strip, so "what starts a session" and "which plan am I editing" never
   read as one row of buttons.
 - The **plan name** in an editable box.
-- The **two add actions** — `Add focus` and `Add cool-off`. Nothing else sits
-  under the name.
+- The **one add action** — `Add meditation block`, which opens a text-filtered
+  picker over every meditation of every type. Nothing else sits under the name.
 - The **blocks**, as a row of cards you can scroll sideways.
 - The **plan-wide settings**: `Cycles`, `Repeat until stopped`, `Auto-advance`,
-  and `Binaural beats`. (`Stop binaural when alarm rings` is a [Settings](#12-settings-explained)
+  `Binaural beats`, and `Alarm`. (`Stop binaural when alarm rings` is a [Settings](#12-settings-explained)
   switch now, not a plan one — one setting, one place.)
+
+`Alarm` decides whether a block's end rings, and **it is off until you turn it on**.
+It belongs to the **block**, with the plan's switch as the answer a block inherits —
+so one silent Thanks Giving can sit in a circuit whose chakras ring — and the run
+screen has the same switch so it can be turned off for one sitting. Each **stage** has
+its own two switches beside its timer — `Binaural` and `Auto-scroll` — so a chakra's
+intentions can be silent and its focus can carry the tones.
+See [§8.1](#81-what-you-see-before-you-start).
 - The **buttons at the very bottom**: `Save` and `Start session`. They are the
   same size; `Start session` is the filled one, because starting the run is what
   the page is for.
@@ -253,45 +271,54 @@ the run screen (or press Escape), and you will be returned to the planner.
 
 ### 7.3 Adding your first block
 
-1. Press `Add focus`. A card appears.
-2. On the card, press the `Focus` field to pick which focus point this block is
-   about — the field's value reads `Choose` until you do. A picker opens; see
-   [§9.12](#912-the-picker-one-text-bar-everywhere) for how to use it. Tap the
-   focus point you want.
-3. Press the `Symbol` field to choose what you will look at during this block
-   (see [§7.5](#75-choosing-a-symbol)).
-4. Set the length with the `Minutes` and `Seconds` steppers.
-5. Press `Add cool-off` to add a rest block after it, and give it a length too.
+1. Press `Add meditation block`. A picker opens with a text bar; type a few letters
+   of a meditation's name and tap it — see
+   [§9.12](#912-the-picker-one-text-bar-everywhere). The card appears with that
+   meditation on it, and its stages already set from the meditation's type.
+2. Press `Edit` on the card. Everything about that one meditation is set in the
+   panel it opens — which meditation it is, its stages and their lengths, its
+   symbol, its sound and its Display — and it is one press away on the card, so
+   the card itself stays short.
+3. Inside the editor, press `Change` beside `Meditation` to change which
+   meditation this block is about. A picker opens; see
+   [§9.12](#912-the-picker-one-text-bar-everywhere) for how to use it. Changing it
+   keeps the block's place and gives it that meditation's stages.
+4. Set the lengths: one row per stage, each with its own wheels. Those same wheels
+   are the clock once the session is running — see
+   [§8.1](#81-what-you-see-before-you-start).
+5. Press `Done` when you are finished. There is nothing to save: the editor writes
+   as you go.
 
-That is already a workable plan: focus, rest, done.
+That is already a workable plan: one meditation, three stages, done.
 
-### 7.4 What each card shows
+### 7.4 What a card shows, and where everything else lives
 
-Every block card shows the same set of controls, top to bottom. Each field button
-reads the same way: the field's name in small capitals, centred above the value
-you have chosen.
+A card is deliberately short — four things, and nothing else:
 
 | On the card | What it does |
 | --- | --- |
-| `Focus` or `Cool-off` | The card's name, on its top line beside `Remove`. Press and hold it to slide the block left or right to reorder the plan — it is the drag handle. |
-| `Remove` | Sits beside the handle, not at the bottom, so every card lines up however many fields it has. Press it twice — the first press fills it and asks `Remove?` (see [§9.11](#911-deleting-rules-the-two-press-and-the-five-second-window)). |
-| `Minutes` / `Seconds` | The length of the block, as two wheels (see [§8.1](#81-what-you-see-before-you-start)). Minutes go up to 180; seconds from 0 to 59. |
-| `Focus` | Which focus point this block is about; the value reads `Choose` until you pick one. Focus blocks only. |
-| `Symbol` | Which symbol (or symbol rule) to show. Focus blocks only. |
-| `Binaural` | Which binaural sound plays during this block. `None` means silence. |
-| `Table` | Which table to show on screen during this block. `None` means no table. |
-| `Ambient` | A background audio file to play during this block. `None` means none. |
-| `Alarm` | The sound that marks the end of this block. `Beep` is the built-in alarm. |
+| The meditation's name, with its **type** under it | It says what the block is: `Root Chakra` over `Chakras`, or `Thanks Giving` when the block is a thanks-giving one. It reads `Choose` until a meditation is picked. It is also the card's **drag handle** — drag it sideways to reorder the plan, see [§7.6](#76-reordering-duplicating-and-removing-blocks). |
+| One line under the name | What the block runs: how long it is, how many stages that is, and the symbol it walks. It is a caption, not a control. |
+| A press on the card itself | Opens that meditation's editor. Almost the whole card is this press; only the handle and the two buttons are not. |
+| `Edit`, `Remove` | The card's own two buttons, together on its bottom line. `Remove` takes two presses — the first fills it and makes it read `Remove?` — see [§9.11](#911-deleting-rules-the-two-press-and-the-five-second-window). |
 
-Every card is the same height as the tallest one in the row, so the strip reads as
-one line of cards rather than a ragged set.
+Everything a card used to show as read-only text — which meditation it is, the
+symbol, the binaural and ambient sounds, the alarm, and a row of wheels per stage —
+is written in that editor instead, because there it can be changed rather than only
+read. The sections of the editor are:
 
-A cool-off block shows only the drag handle, the duration, `Binaural`, `Table`,
-`Ambient`, `Alarm` and `Remove`. It has no focus point and no symbols, because
-there is nothing to concentrate on.
+| Section | What you decide there |
+| --- | --- |
+| `Meditation` | Which meditation this block is about, with `Change` opening the picker. |
+| `Stages` | One row per stage: its length wheels, its `Binaural` switch, and `Auto-scroll` on the two kinds that scroll. |
+| `Symbol` | What you will look at: `Rotate next`, `All symbols`, one symbol by name, or `None` (see [§7.5](#75-choosing-a-symbol)). Hidden entirely when the meditation has no symbol rows. |
+| `Sound` | The block's `Binaural`, its `Ambient`, and its `Alarm` with the alarm's sound (see [§7.9](#79-the-sound-of-a-block)). |
+| `Display` | Which of the Database's columns this meditation shows during a session (see [§7.10](#710-the-display-panel-what-a-session-shows)). |
 
-A value longer than the card is shortened with an ellipsis (`Third-Eye Chakra`
-fits; an unusually long asset name does not). Open the field to see the full list.
+Every card is the same width, and the strip scrolls sideways, so the row never
+wraps into a pile of cards. A value longer than the card is shortened with an
+ellipsis (`Third-Eye Chakra` fits; an unusually long asset name does not); the
+editor always shows the full value.
 
 ### 7.5 Choosing a symbol
 
@@ -301,22 +328,25 @@ Tapping the `Symbol` field opens a small menu with three kinds of choice:
   point, one per block. If you have three symbols attached and three focus blocks
   for that point in your plan, you will see the first, then the second, then the
   third.
-- **`All symbols`** — the whole sheet. Every symbol attached to the focus point
+- **`All symbols`** — the whole sheet. Every symbol attached to the meditation
   is shown together, in one long list.
 - **A single symbol by name** — only that one symbol is shown.
 
-Only symbols that are attached to the chosen focus point appear in this list. If
-the list looks short or empty, the focus point needs symbols attached to it —
-that is done in the Library (see [§9.1](#91-focus-points)).
+Only symbols that are attached to the chosen meditation appear in this list. If
+the list looks short or empty, the meditation needs symbols attached to it —
+that is done in the Database, with a row that names both (see
+[§9.3](#93-the-database)).
 
 ### 7.6 Reordering, duplicating and removing blocks
 
-- **Reorder:** press and hold a card's drag handle and slide it left or right. The
-  other cards move out of your way. A card only ever moves sideways: the row
-  scrolls horizontally, never vertically, so a card can never drift out of the row.
-- **Remove:** press `Remove` on the card. This is immediate — there is no undo,
-  and no confirmation.
-- **Add:** `Add focus` and `Add cool-off` add new cards at the end.
+- **Reorder:** drag a card by its name. The card starts moving as soon as the
+  pointer moves a few pixels — there is nothing to hold still for. The other cards
+  move out of your way. A card only ever moves sideways: the row scrolls
+  horizontally, never vertically, so a card can never drift out of the row.
+- **Remove:** press `Remove` on the card. It arms itself and asks `Remove?` on the
+  first press, and the second press removes the card — see
+  [§9.11](#911-deleting-rules-the-two-press-and-the-five-second-window).
+- **Add:** `Add meditation block` adds a card at the end.
 
 ### 7.7 Repeats: cycles and "repeat until stopped"
 
@@ -342,7 +372,8 @@ The run screen tells you which cycle you are in — the label beside `Back` read
 
 ### 7.9 The sound of a block
 
-Each block can have up to three sounds, all chosen from the card:
+Each block can have up to three sounds, and all three are set in that block's
+editor — press `Edit` on the card, then look at its `Sound` section:
 
 - **`Binaural`** — the generated tone that plays *during* the block. Pick a
   preset, or `None` for silence. This is the hum you sit inside.
@@ -354,12 +385,38 @@ Each block can have up to three sounds, all chosen from the card:
 Ambient and alarm files are added in the Library, under `Audio files`. See
 [§9.5](#95-audio-files).
 
-### 7.10 Showing a table during a session
+### 7.10 The Display panel: what a session shows
 
-`Table:` lets you display a table on the run screen during a block. This is for
-symbols with lots of detail — for example, a table of every symbol with its
-description and its intentions. Build the tables first in
-**Library → `Views`** ([§9.7](#97-views)), then choose one per block here.
+`Display` is part of the meditation's editor — press `Edit` on the card, then scroll
+to its `Display` section. It is where you decide what the **run screen** shows while
+you meditate with that meditation. It lists the Database's columns, grouped by the
+table they belong to — `Meditation`, `Symbol`, and `Entries` (the pair) — and every
+column has two switches, under the two headings that name them:
+
+| Heading | The switch under it |
+| --- | --- |
+| `Shown` | Whether that column appears in the session at all. |
+| `Pin` | Whether it stays at the top of its panel while the panel's other columns scroll under it. A pinned column sits with the chakra's or the symbol's name. |
+
+A column cannot be pinned while it is hidden: pressing `Pin` on a hidden column
+shows it, so there is no invisible pin you cannot see.
+
+The settings belong to **this block**, not to the Database and not to the plan as a
+whole: each meditation in a plan carries its own answer, so a quiet Thanks Giving
+can show two columns while the chakras beside it show eight. There is no plan-wide
+Display panel any more — the block you are editing is the one you are deciding for.
+Changing a switch here is what gives this meditation its own Display; if you would
+rather it followed the plan again, the `Use the plan's Display` button on the
+section's heading line hands it back.
+
+The columns you can choose are the ones the Database has: `Name`, `Location`,
+`Description` and `Usage` are built in, and every column you added yourself
+([§9.7](#97-your-own-columns)) is offered the moment it exists, with nothing to
+register. A column you delete simply stops being offered. A column you *hide in the
+grid* ([§9.3](#93-the-database)) is a different thing, and is still offered here.
+
+The block's Display is saved with the plan, and the editor writes as you go, so
+there is nothing extra to press.
 
 ### 7.11 The plan-wide sound switches
 
@@ -374,8 +431,8 @@ At the bottom of `Plan` are two switches that apply to the whole plan:
 [Settings](#12-settings-explained) switch now — one setting, one place — and it
 is the one a session obeys.
 
-There is a fourth, subtler switch on each *focus point* in the Library, which can
-also silence tone for that focus point alone. See
+There is a fourth, subtler switch on each *meditation* in the Library, which can
+also silence tone for that meditation alone. See
 [§10.6](#106-the-two-onoff-switches).
 
 ### 7.12 Saving, switching, and copying plans
@@ -410,32 +467,56 @@ From top to bottom:
 
 1. **`Back`**, at the top left. It returns you to the planner — and it ends the
    session, so do not use it to pause.
-2. The **name of the focus point** you are on. A rest block reads `Cool-off`. If
+2. The **name of the meditation** you are on, with the block's stages under it. If
    the plan repeats more than once, the label says which repeat you are in
    (`Root Chakra · cycle 2 of 3`); a single-cycle session says nothing, because
    there is no second cycle to speak of.
-3. **`Length of this block`**, on the right, with two wheels — minutes and
-   seconds, sharing one highlighted band. Turn a wheel with the **scroll wheel**
-   of a mouse or with a trackpad, or **drag it up to increase** and **down to
-   decrease**; the neighbouring numbers stay visible above and below it, and the
-   minutes and seconds always line up. **Press a wheel without moving** and it
-   becomes a box you can type a number into; `Enter` accepts it, `Escape` puts
-   the old number back, and anything that is not a number changes nothing. The
-   arrow keys, `PageUp`/`PageDown` and `Home`/`End` work too when a wheel has
-   keyboard focus.
-   This is the round-up of the whole quick-session idea: tap a chakra on `Plan`,
-   set the length you actually have, press `Start`.
-4. **Your intentions**, under the heading `Intentions`. Lines attached to the
-   focus point itself come first, with no symbol column. Then each symbol gets a
-   group of rows: the symbol's picture (if you uploaded one), its name, its
-   description and its usage appear once, in the left-hand cell, and that cell
-   stretches down beside every intention line belonging to that symbol. A `-`
-   marks a description or usage you have not written.
-5. **The table**, if the block has one — the view's name as a heading, then its
-   rows.
-6. The **control bar**, pinned to the bottom: `Start` before you begin, then
-   `Pause`, `Skip` and `Stop` once it is running, with the `Auto-advance` switch
-   beside them.
+3. **The stage strip** — one row of the block's stages (`Intentions`, `Symbols`,
+   `Focus`), each with two wheels, minutes and seconds, sharing one highlighted
+   band. **This strip is the clock.** Each stage shows its own remaining time in
+   the same wheels you set it with, so there is no separate total timer above it,
+   and the strip wraps onto as many lines as the stages need.
+   Before the session starts, every stage's wheels are editable, and turning them
+   sets how long that stage runs. Turn a wheel with the **scroll wheel** of a mouse
+   or with a trackpad, or **drag it up to increase** and **down to decrease**; the
+   neighbouring numbers stay visible above and below it, and the minutes and seconds
+   always line up. **Press a wheel without moving** and it becomes a box you can
+   type a number into; `Enter` accepts it, `Escape` puts the old number back, and
+   anything that is not a number changes nothing. The arrow keys,
+   `PageUp`/`PageDown` and `Home`/`End` work too when a wheel has keyboard focus.
+   **Once `Start` is pressed, the same wheels become the countdown and stop taking
+   edits** — they stay where they were and only the numbers change, so what you set
+   is always in the place you set it, even after a stage is restarted. Each stage
+   also carries a `♪` beside its name, which is that stage's **binaural switch**, and
+   a small `↺` underneath it that restarts that stage from its own length; at the end
+   of the strip, `↺ Restart` restarts the whole meditation from its first stage.
+   This is the round-up of the whole quick-session idea: tap a chakra on `Plan`, set
+   the lengths and the switches you actually want, press `Start`.
+4. **Three regions side by side**, which are what a session is actually made of
+   (a phone stacks them; a wider screen puts them in a row):
+   - **The meditation** — your meditation's name, the **type** it belongs to under
+     it (`Chakras`, `Protection`), and the columns the plan's
+     [Display](#710-the-display-panel-what-a-session-shows) shows for that
+     meditation. A column you hide there is gone from here too.
+   - **The symbol** — the symbol you are currently reading: its picture (if you
+     uploaded one), its name, and the Display's columns for it. It **updates by
+     itself** as the intentions below move from one symbol's lines to the next, so
+     you always see the symbol whose lines are in front of you.
+   - **The intentions** — one column holding every line of the block in order: the
+     meditation's own lines first, then each symbol's. It is the only thing on this
+     screen that scrolls, and it **scrolls itself** at the pace of the timer, so the
+     last line arrives as the stage's clock runs out. A stage too short for its
+     lines does not scroll at all. If you are reading by hand, touching the column
+     takes over from there.
+   A **Thanks Giving** block shows your affirmations in that column instead of
+   intentions, because those are what it reads.
+5. The **control bar**, pinned to the bottom: `Start` before you begin, then
+   `Pause` / `Resume`, `Skip` and `Stop` once it is running, with the run screen's
+   own switches beside them. `Alarm` is the switch for the meditation on screen: it
+   turns that block's ring on or off for this run **without changing the plan**, so
+   the next session starts from the plan's own answer. `Auto-scroll` appears beside
+   it when the stage on screen is one that scrolls, and `Auto-advance` when there is
+   a next stage for it to act on, so a switch that cannot do anything is never drawn.
 7. A **keyboard legend** on wide screens, drawn as keys rather than as a
    sentence, and it only lists the keys that do something right now:
 
@@ -443,10 +524,14 @@ From top to bottom:
 | --- | --- | --- |
 | `Space` `start` | before you begin | Starts the session — the same as pressing `Start`. |
 | `Space` `pause` | while it runs | Pauses; presses again to resume. |
-| `→` `skip to the next block` | while it runs | Ends this block now and moves on. It is **not** offered before you start, because there is nothing to skip to yet. |
+| `→` `next stage · twice: next meditation` | while it runs | Once moves to the next stage; twice in quick succession moves to the next meditation. It is **not** offered before you start, because there is nothing to move to yet. |
+| `←` `restart stage · twice: previous · thrice: previous meditation` | while it runs | Once restarts the stage you are in; twice steps back a stage; three times steps back a meditation. |
 | `Esc` `end the session` | always | Ends the session and returns you to the planner. |
 
-Once the session is running, the length control is replaced by the countdown.
+A key that moves you — `→` or `←` — clears the clock and holds the session there:
+the tone stops and `Start` returns, so nothing begins until you say so. The same is
+true of pressing a stage in the strip or its `↺`.
+
 Nothing plays until you press `Start`.
 
 ### 8.2 Starting
@@ -465,8 +550,26 @@ somewhere else with a session in progress. Close or stop that one first.
 
 Nothing needs your attention. The countdown runs, the tone plays under it, the
 alarm marks the end of each block, and the next block begins by itself when
-`Auto-advance` is on. Your intentions and symbols stay on screen for the whole
-block.
+`Auto-advance` is on. The meditation, the symbol in play and the intentions stay on
+screen for the whole block: the symbol changes by itself as the intentions move from
+one symbol's lines to the next, and the intentions column scrolls at the pace of the
+stage you are in. If you scroll it by hand, it carries on from where you left it.
+
+A reader whose device asks for **less motion** gets a still column: the stage's own
+`Auto-scroll` switch is then the way to ask for it (see
+[§10.6](#106-the-two-onoff-switches) for the switches).
+
+**Where you are is the strip.** Each stage's wheels are showing that stage's own
+remaining time, so a glance at the strip answers "how long is left" and "which stage
+is this". A stage that is already behind shows `0:00`, and the stages still ahead
+show their full length. If a session has more minutes than you expected, the total
+is the sum of what the strip shows — there is no second number anywhere to compare
+against.
+
+**Pressing a stage holds the session there.** Press any stage's name, or its `↺`,
+and Meditaur sets that stage back to its full length and waits: the tone stops and
+`Start` comes back, so the session then runs on from that stage. It is the way to
+repeat a stage you were not ready for, and the same thing happens if you press `←`
 
 ### 8.4 Keys and buttons
 
@@ -477,14 +580,18 @@ block.
 | **space bar** while paused | Resumes. |
 | **`Pause`** | Pauses. The tone stops and the timer holds where it is. |
 | **`Resume`** | Continues from exactly where you paused. |
-| **`Skip`** or **right arrow** | Ends the current block immediately and moves to the next one. No alarm is played. |
+| **`Skip`** | Ends the whole block immediately and moves to the next one. No alarm is played. |
+| **right arrow** | Moves on: once for the next **stage**, twice within two seconds for the next meditation. The clock is cleared and the session holds until you press `Start`. |
+| **left arrow** | Once restarts the stage you are in, twice steps back a stage, three times steps back a meditation. Same rule: the clock is cleared and nothing starts on its own. |
 | **`Stop`** or **Escape** | Ends the whole session and returns you to the planner. |
 | **`Auto-advance`** | A switch on the run screen too. Changing it here affects only the current session — it does not change the plan itself. |
 | **`Start another session`** | Appears once the session is finished. Returns you to the planner so you can choose or build another one. |
 
 The legend at the bottom of the screen lists the keys that work at that moment,
-drawn as keys: `Space` `start` or `pause`, `→` `skip to the next block`, and
-`Esc` `end the session`.
+drawn as keys: `Space` `start` or `pause`, `→` `next stage` (twice for the next
+meditation), `←` `restart stage` (twice for the previous stage, three times for the
+previous meditation), and `Esc` `end the session`. Every one of those movement keys
+leaves the session held with the clock cleared, waiting for `Start`.
 
 Keyboard shortcuts work on a computer. On a phone or tablet, use the on-screen
 buttons.
@@ -537,105 +644,91 @@ Open it from the navigation bar.
 
 At the top of the Library you will find:
 
+- **The section tabs**, one per area of the Library: `Meditations`, `Symbols`,
+  `Database`, `Archive`, `Audio files`, `Presets`, `Plans`, `History`. The tab that
+  is lit up is the section you are in, so the page repeats no title of its own.
 - **`Download catalog`** and **`Restore catalog`** — the whole-library backup and
-  transfer tools, which is why they sit at the top of the page rather than inside
-  a section. See [§13](#13-your-data-backups-and-moving-devices).
-- **The section tabs**, one per area of the Library: `Focus points`, `Symbols`,
-  `Intentions`, `Fields`, `Audio files`, `Presets`, `Views`, `Plans`, `History`.
-  The tab that is lit up is the section you are in, so the page repeats no title
-  of its own.
-- The section's **`Add …` action** at the left of the row, with the **`Table`**
-  switch and **`Columns`** beside it — the view controls for the three sections
-  that offer both views. See
-  [§9.10](#910-cards-table-views-and-the-table-switch).
+  transfer tools. See [§13](#13-your-data-backups-and-moving-devices).
+- The section's **`Add …` action**, and — in the two sections that have both —
+  the **`Table`** switch with **`Columns`** beside it. See
+  [§9.10](#910-cards-and-the-table-view).
 
 The Library remembers which tab you were last in for the current browser tab, so
 a refresh brings you back to the same section. A brand-new tab starts at the top.
 
-Every screen inside the Library is left with its `Back` button **or the
-**Escape** key** — the two do exactly the same thing, including leaving an
-unsaved draft behind. Escape is not a cancel; nothing is saved on the way out.
+**Two halves, and only one of them writes.** `Meditations`, `Symbols`,
+`Audio files`, `Presets`, `Plans` and `History` **show** your material: pressing a
+card opens that entry's page, and the page has no boxes to type in. Everything
+that changes something — a chakra, a symbol, a line, a column — happens in the
+**Database**, which is the fourth tab and the one screen here that holds a draft
+([§9.3](#93-the-database)). Leaving a page is `Back` or **Escape**; on a page that
+only shows, both do the same thing.
 
-### 9.1 Focus points
+### 9.1 Meditations
 
-A focus point is a place you put your attention: a chakra, a body point, or
+A meditation is a place you put your attention: a chakra, a body point, or
 something entirely your own.
 
-The list shows each focus point with its picture (or `No image`), its name, its
-kind and location, and how many symbols are attached to it. Press `Add focus
-point` to create one. **Pressing a card — or anywhere on a row, in table view —
-opens that focus point's page**, and the page itself is read-only:
+The list shows each meditation with its picture (or `No image`), its name, its
+type and location, and how many rows it has in the [Karuna
+table](#93-the-database) — that is how many symbols are attached to it.
+**Pressing a card — or anywhere on a row, in table view — opens that meditation's
+page**, and the page itself is read-only:
 
 | On the page | What it does |
 | --- | --- |
-| `Edit` (bottom bar) | The form where you change everything, including the symbols, intentions and custom fields. |
-| `Edit` (on the card, in the list) | A shortcut to that same form. |
-| `Delete` (on the card, in the list) | Removes the focus point, after a second press (see [§9.11](#911-deleting-rules-and-the-two-press-safety)). |
+| `Edit` (bottom bar) | Opens this meditation in the Database's record view, where everything about it is changed. |
 
-**Creating a focus point**
+There is no `Edit` or `Delete` on the card itself: what opens only shows, and
+editing means the Database.
 
-1. Choose a kind: `Chakra`, `Point`, or `Custom`.
+**Adding a meditation**
+
+`Add meditation` opens the Database's **new-record screen**, which is the same
+form `Edit` opens. Fill it in and press `Save`:
+
+1. Choose a type: `Chakras`, `Points`, `Protection` or `Thanks Giving` — or a type you added yourself.
 2. Give it a `Name`.
 3. Optionally add a `Location` in words — for example `Between the eyebrows`.
-4. Set a `Default duration` with the `Minutes` and `Seconds` steppers. This is the
-   length Meditaur uses when you pick this focus point in a plan.
-5. Optionally set a `Default sound` — the binaural preset this focus point uses by
-   default. When you later pick this focus point in the planner, this sound and
+4. Set the meditation's own stage lengths — one row per stage, with `Minutes` and
+   `Seconds` wheels — if it should not follow its type's own template. This is what
+   a new block of this meditation is built from.
+5. Optionally set a `Default sound` — the binaural preset this meditation uses by
+   default. When you later pick this meditation in the planner, this sound and
    this duration are copied onto the block for you.
 6. If you chose **Chakra**, extra boxes appear: `Description`, `Governs`,
    `Colour`, `Element`, a `Representation` image, and `Representation
    description`. These are for the traditional chakra correspondences.
-7. Press `Save`. You land on the new focus point's page, ready to attach its
-   symbols.
+7. Press `Save`. You land back on the list, with the new meditation among the
+   others.
 
-**The focus point page shows; it does not change anything.** Opening a focus
-point gives you its chakra block, its custom field values — each one under its own
-heading — its symbols in the order `Rotate next` will walk them, its intention
-lines, and its binaural state. Nothing you can press changes the focus point by
-accident. `Edit` in the bottom bar opens the form, and the form is where all of
-the following live:
+**The meditation page shows; it does not change anything.** Opening a meditation
+gives you its chakra block, its custom field values — each one under its own
+heading — the rows of `Karuna` that name it, and its binaural state.
+Nothing you can press changes the meditation by accident. `Edit` in the bottom
+bar opens it in the Database's record view, and that record view is where
+everything else about it lives: its name, type, location, duration and picture,
+the columns of its own table, and the `Open binaural config` screen. Lines and
+symbols are not edited here at all — they are rows of the [Karuna
+table](#93-the-database), where a row is the meditation, the symbol, or the pair, and
+the lines inside it are that pair's intentions.
 
-- **Your custom fields** — each field is its own section here, under its own
-  heading, with one box for *this* focus point's text. Type in them, then press
-  `Save fields`. `Add custom fields` sits on the line under the fields and takes
-  you to a new field that every focus point will then have (and it brings you
-  back here when you save it). `Delete <heading>` beside a field's heading removes
-  that field from every focus point, with everything that was typed into it — it
-  asks for a second press first, and says what else goes.
-- `Symbols` — press `Add symbol` to attach one (a picker opens showing the symbols
-  that are not attached yet). Attached symbols can be **dragged** by their name to
-  reorder them, and `Remove` takes one off this focus point. The order here is the
-  order `Rotate next` follows in the planner, so it is worth arranging.
-- `Intentions` — press `Add intention` to write a line for this focus point. Each
-  row shows the line and the symbol it is paired with, if any. `Edit` opens the
-  line, `Remove` deletes it, and the rows reorder by dragging.
-- `Binaural` — the assigned `Preset`, the `Binaural beats` switch, and
-  `Open binaural config`.
-
-If the focus point has no symbols yet, the form tells you with `Add a symbol
-first` or `All symbols are attached`. Changes to symbols, intentions and custom
-fields save as you make them; the name, kind, location, duration and picture save
-when you press `Save`, and a draft of those is written before the form hands over
-to a picker, so `Back` never loses them.
-
-**Deleting a focus point takes what was written about it with it.** The first
-press says so before anything happens: while the button is armed it shows the
-damage underneath in plain words, for example `This also removes 2 blocks from 1
-plan, 1 intention and 3 symbol attachments.` The second press then removes the
-focus point, unbinds its symbols, drops its intention lines and its custom field
-values, and removes the plan blocks that used it. If the sentence names nothing,
-the focus point is unused and only it goes.
+**Deleting a meditation happens in the Archive.** Archiving it from the Database
+hides it, its rows, their lines and any plan block that used it, and **Restore**
+brings all of it back; a permanent delete is offered on the [Archive
+page](#94-the-archive), and its sentence names the rows, the lines and the plan
+blocks it takes with it.
 
 ### 9.2 Symbols
 
 Symbols are the drawings or glyphs you meditate on. They live in one shared
-library, and you attach them to focus points.
+library, and you attach them to meditations.
 
 Press `Add symbol` to create one. **Pressing a symbol's card — or its row, in
 table view — opens that symbol's own page**: its picture, description, usage, your
-custom field values under their own headings, and the focus points it is attached
-to. Like a focus point's page, it only shows; `Edit` in the bottom bar (or on the
-card) opens the form. Each symbol has:
+custom field values under their own headings, and the meditations it is attached
+to. Like a meditation's page, it only shows; `Edit` in the bottom bar opens it in
+the Database's record view. Each symbol has:
 
 | Box | What it is for |
 | --- | --- |
@@ -643,87 +736,123 @@ card) opens the form. Each symbol has:
 | `Image` | The symbol's picture. Press it to upload a file. |
 | `Description` | A short summary — what the symbol is for, in one or two lines. |
 | `Usage` | How to practise with it. This is the longer text. |
-| Heading line of each field | Your own box for this symbol, exactly as a focus point has — the field's own heading names the section, `Add custom fields` makes a new one just above `Save fields`, and `Save fields` writes what you typed. `Delete <heading>` removes the field itself, from every symbol. Any [field](#94-fields-your-own-columns) you created for symbols appears here. |
+| Heading line of each field | Your own box for this symbol, because a column of the Symbols table can be any [type](#97-your-own-columns) you like. Any column you added to the Symbols table appears here, under its own heading. |
 
-Press `Save` when done. **Deleting a symbol** removes it, unbinds it from every
-focus point, drops the intention lines that named it, and clears its custom field
-values. Plan blocks that named *that* symbol keep their place and fall back to
-`Rotate next`, so the block goes on walking the focus point's remaining symbols —
-the armed button says how many places that affects (`1 place that pointed at it
-is cleared.`).
+Press `Save` when done. **Deleting a symbol** is offered on the [Archive
+page](#94-the-archive); its sentence names the rows that named it, the lines those
+rows held, and the plan blocks that stop showing when it goes. Archiving instead
+hides all of that and `Restore` brings it back.
 
 Images: PNG, JPEG, WebP and GIF are accepted, up to 2 MB each. Transparent-background
 images look best — the app frames every image softly so that pictures with a white
 background do not look out of place. A symbol's picture also appears beside its
 name on the run screen, next to its intention lines.
 
-### 9.3 Intentions
+### 9.3 The Database
 
-An intention is a line of text you hold in mind. This section lists every
-intention in your library, regardless of what it is attached to, and shows its
-attachment — or `Unassociated` if it is attached to nothing.
+`Database`, the tab between `Library` and `Settings` in the bar at the top, is the
+whole of your material in tables, and it is where anything is edited:
 
-Press `Add intention` to write one. An intention has:
+| Table | What a row is |
+| --- | --- |
+| `Karuna` | One **row**: a meditation, a symbol, or a pair of the two. This is the table your intentions live in — a line is written inside the row it belongs to. Each group is headed by the meditation you are looking at, and the selector at the top searches the meditations that have symbol rows. |
+| one per type | `Chakras`, `Points`, `Protection`, `Thanks Giving`, and a table for every type you add. A row is one meditation of that type, with its own columns. |
+| `Symbols` | One symbol, with its own columns. |
+| `Presets` | One binaural sound, with its own columns. |
+| `Affirmations` | One **sentence**: an intention or an affirmation. This is the one place every sentence can be seen, with an `Association` cell saying what it is written about; a sentence with nothing associated with it yet is an orphan, waiting here until you attach one. It is not a table of its own any more — intentions and affirmations are one table, and this is its widest view. |
+| `Types` | One type: its name, and where it sits in the tabs and in the tiles. Adding a row here gives the type a tab in the Library, a table here and a group of tiles in the planner, with nothing else to set up. |
 
-- a `Text` box for the line itself, and
-- an `Associated with` control with four choices: **None**, **Focus point**,
-  **Symbol**, or **Both**.
+The switcher remembers which table you were on for the rest of the browser tab.
 
-If you choose Focus point or Both, a `Focus point` row appears. If you choose
-Symbol or Both, a `Symbol` row appears. Each row shows its value, or `Choose`
-until you pick one — press it and the picker opens. The picker has a **text bar**:
-type part of the name and the list narrows as you type, then press `Choose` (or
-Enter) to take the name you typed, or press one of the options. A name that
-matches nothing is refused with a message and nothing is selected, so a typo
-cannot quietly attach a line to the wrong symbol.
+**The screen holds a draft.** Everything you do here — a cell, a new row, a
+reordered line, a new column, a renamed chakra — appears at once but is only
+written when you press **`Save`** in the bottom bar, which is dim until there is
+something to write and says `Unsaved changes` beside it when there is. **Leaving
+loses unsaved edits**, which is the one place in Meditaur where that is true, so
+leaving with edits asks first: a question in the app when you press `Back` or
+`Escape`, and the browser's own warning if you close or reload the tab. `Save`
+then reports what it did, including the rows it put in the Archive because they
+had nothing left to point at.
 
-You can also add intentions directly from a focus point's page — press `Edit`,
-and the same controls appear there — which is often faster when you are working
-through one focus point at a time. An intention attached to both a focus point
-and a symbol only shows up during a block when that focus point *and* that symbol
-are on screen together.
+**Rows and lines are dragged.** Every row has a grip (`⣿`) at its left and a small
+`↑`/`↓` beside it; every line has the same. Dragging onto another row moves it to
+that place, and the order is written immediately — nothing animates into place.
 
-**A note about the intentions that come with the app.** The starter set is a real
+**The `+` signs insert where you press them.** The `+` on a row's own cell puts a
+new row in that row's place; the one at the right end of a table appends. `＋ Add`
+under a row's lines writes another line. On a phone the row's lines open in a
+panel below the row instead of stretching it, with the same handles.
+
+**The filter narrows the table by name.** Above the grid sits a box reading
+`Filter <table> by name` — `Filter Chakras by name`, and so on. It matches the
+row's own name (a line matches its text, a Karuna row matches the
+`meditation · symbol` pair it is labelled with), and it does **not** search inside
+cell values, so a description is not findable this way. The toolbar says what it is
+showing while a filter is on, and switching tables clears it — it is a way of
+looking, not a setting. A filter that matches nothing leaves the table empty above
+its `New …` row rather than explaining itself.
+
+**`Edit table` hides columns you do not want to look at.** Press it and every
+heading grows a small `✕`; pressing one takes that column out of this table's view.
+It is a hide, not a delete: the column, its values and its place in a meditation's
+Display all stay, and pressing `Edit table` again puts it back. While it is on and something
+is hidden, a `Show N hidden column(s)` button appears beside it to bring them all
+back. Columns cannot be reordered. Hiding is remembered per table **for this browser
+session only** — reload the tab and every column is back.
+
+**A cell is a box, a chip or a wheel, depending on the column's type.** Text,
+long text, number, duration (the same wheels as everywhere), date, image,
+`reference` and `select`:
+
+| Cell | How it works |
+| --- | --- |
+| Text, number, long text | A box. `Enter` commits, and so does clicking away; `Escape` puts the box back to what it held. Nothing is written until `Save`. |
+| Duration | The alarm-clock wheels, the same control the planner uses. |
+| Image | A framed picture; press it to upload or replace one. |
+| Reference | A chip naming the record it points at. Press the chip for `Open record` and `✕ Clear`; press `▾` for the search bar. |
+| Select | The same chip, over that column's own list of options. Typing a name that is not on the list offers `Add “…”` to make it one. |
+| Lines | The row's intentions: each with a grip and an `X`, and `＋ Add` underneath. |
+
+**A name the search bar cannot find can be made on the spot.** Type `Nova` into a
+symbol chip and press Enter: Meditaur offers to create the symbol, makes it, and
+chooses it for the cell — the same for a chakra or a preset.
+
+**Your own columns** are added with the `+` at the end of a table's header row:
+give it a `Heading`, a `Description` and a `Type`, and it is usable immediately —
+in the grid, on the record's page in the Library, and in every meditation's Display
+([§7.10](#710-the-display-panel-what-a-session-shows)). Two columns arrive with
+the app on the Chakra table: `Governs` and `Element`. A column can be removed
+with its `X` **only while it is empty** — the control is not drawn once it holds
+a value — and removing one takes the values that were typed in it.
+
+**Adding to one of the other tables** works the same way, with `Open` on a row
+opening that record's own page. `Add meditation`, `Add symbol` and `Add preset`
+in the Library open the same screen for a brand new record.
+
+**A note about the lines that come with the app.** The starter set is a real
 practitioner's own material, and some lines contain blank markers like `<>` where
 a name or detail belongs. These are examples, not prescriptions — read through
 them and replace them with your own words. Your practice works better with lines
 you have written yourself.
 
-### 9.4 Fields (your own columns)
+### 9.4 The Archive
 
-Fields are how you add your own information to symbols and focus points without
-waiting for the app to grow a new box.
+Nothing you archive is deleted. The `Archive` tab lists everything that has
+stepped aside — chakras, symbols, presets, rows and single lines — **most recently
+archived first**, grouped into Records, Rows and Lines, with what each one was
+attached to and when it was archived. Each entry has two actions:
 
-The `Fields` section lists every field you have, and offers three filter tiles:
-`All`, `Symbol`, and `Focus point`. Press `Add symbol field` or `Add focus point
-field` to create one, or press an existing field to edit it.
-
-Each field has:
-
-| Box | What it is for |
+| Action | What it does |
 | --- | --- |
-| `Applies to` | Whether this field shows on `Symbol` entries or `Focus point` entries. It is a choice only when you start from the `Fields` tab; making a field from a symbol's or a focus point's own form already knows, and says so instead. |
-| `Heading` | The heading you will see, in plain words. For example `Colour`. This is the word that appears above the box on every entry of that kind, above the value on its page, and it is the section heading in the entry's own form. |
-| `Description` | A line saying what the field is for, shown under the heading on the field's card in the `Fields` tab and under the value on an entry's page. Optional, and deliberately not drawn in the edit form. |
+| `Restore` | Puts it back exactly as it was. Nothing about it was moved or copied, so its lines, its values and its place in a plan all return with it. |
+| `Delete` | The **only** permanent delete in Meditaur. Press it once and it says what goes with it — the rows, the lines, and the plan blocks that will stop existing — and press again to do it. |
 
-Once a field exists, its own section appears in the form of every entry of that
-type — on the symbol's form, and on the focus point's — with one box under its own
-heading. Type a value and press `Save` (or `Save fields`). **Clearing the box
-removes the value entirely** rather than storing an empty one.
+Archiving is reached from the Database: the `X` beside a row, a line's `X`, or the
+`×` on a record's row opens the little box that offers **Archive** on one press
+and **Remove** on two.
 
-The field's own page shows the value under the field's heading, next to that
-entry's own headings, so you read `Colour: Blue` rather than a list under one
-`Custom fields` heading. **Deleting a field** — `Delete <heading>` in an entry's
-form, or `Delete` on the field's card — takes the field from every entry of that
-type, with the values that were typed into it, and drops it as a column from any
-table view that used it. The first press names what goes; the second does it.
-
-Fields are also selectable as columns in table views, so a field you invent can
-become a column in your session table.
-
-**Deleting a field** removes its values everywhere — on every symbol and focus
-point that had one — and strips the field from any table view that showed it as a
-column. The armed button says how many values go with it.
+If nothing has been archived yet, the page says so: *Nothing archived — items you
+archive appear here.*
 
 ### 9.5 Audio files
 
@@ -733,7 +862,8 @@ the end of a block).
 
 Press `Add ambient file` or `Add alarm file` and choose a file from your device.
 Meditaur records the file's length and lists it with its name and duration. Once
-added, a file becomes selectable on any block card in the planner.
+added, a file becomes selectable in any block's editor in the planner, under
+`Sound`.
 
 Rules to know:
 
@@ -744,7 +874,7 @@ Rules to know:
   and GIF.
 - **Deleting** a file clears the references to it rather than refusing: a plan
   block that used it as its `Ambient:` or `Alarm:` sound keeps its place and loses
-  the sound, and a chakra representation image leaves its focus point with no
+  the sound, and a chakra representation image leaves its meditation with no
   picture. The armed button tells you how many places were cleared.
 
 ### 9.6 Presets
@@ -772,41 +902,44 @@ the sound is here.
 | `Link EQ ears` | Keeps both ears' equaliser in step. |
 | Ten EQ bands | From `32 Hz` to `16000 Hz`, ±12 dB. |
 | `Save` | Writes your changes. Unlike the tuner, this screen does not save as you go. |
-| `Delete preset` | Removes the preset. Blocks that used it lose their sound and keep their place; a focus point that used it as its default loses the default. |
+| `Delete preset` | Removes the preset. Blocks that used it lose their sound and keep their place; a meditation that used it as its default loses the default. |
 
 Each card in the list carries `Duplicate` beside `Edit`, so you can copy a sound
 without opening it first: `Duplicate` makes a copy called `<name> copy`, so you
 can vary a sound without losing the original.
 
 To hear a sound while you work on it, use the [tuner](#104-the-binaural-tuner),
-or a focus point's `Open binaural config`, which adds a `Try` button and a draft
+or a meditation's `Open binaural config`, which adds a `Try` button and a draft
 you can throw away.
 
 A preset is removed with its references cleared — see §9.11 — but **your last
 preset is protected** (`Keep at least one preset`): a workspace always keeps one
 sound.
 
-### 9.7 Views
+### 9.7 Your own columns
 
-A view is a saved table you can display on the run screen while a session runs. It is
-meant for symbol-heavy practice, where you want a lot of detail visible at once.
+A column is one field of one table. Adding one does not wait for the app to grow a
+box — you decide what it is for, and it works everywhere at once.
 
-Press `Add table view` to create one. A view has:
+Add one from the Database with the `+` at the end of a table's header row (or on a
+header, to insert it before that column). The form asks for:
 
-| Control | What it does |
+| Box | What it is for |
 | --- | --- |
-| `Name` | What the table is called. |
-| `Rows` | Which symbols the table lists: `This block` (only the symbol you are on), `Focus point` (every symbol attached to the current focus point), or `All symbols` (your entire symbol library). |
-| Column switches | One switch per available column. Built-in columns are `Name`, `Image`, `Kind`, `Location` and `Symbols` for focus points, and `Name`, `Image`, `Description` and `Usage` for symbols — plus every custom [field](#94-fields-your-own-columns) you have created. |
-| The `Add …` action | Sits where the section's heading used to be, at the left of the row, with the display switch and `Columns` at the right. |
-| `Save` | Saves the view. |
-| `Delete table view` | Removes the view. Blocks that displayed it fall back to no table. |
+| `Heading` | The word you will see, in plain words. For example `Colour`. It names the column in the grid, the box on the record's page, and — if you switch it on — the fact shown during a session. |
+| `Description` | A line saying what the column is for. Optional. |
+| `Type` | What a cell holds: `Text`, `Long text`, `Number`, `Duration`, `Date`, `Image`, `Reference` or `Select`. A reference points at another record — a chakra, a symbol or a preset — and a select has a list of options you fill in yourself. |
 
-Meditaur requires at least one column: `Pick at least one column`. A view is
-removed with its references cleared, but your last remaining view is protected
-(`Keep at least one table view`).
+A column belongs to the table you added it to, so `Governs` on a chakra and
+`Governs` on a symbol are two different columns. **Remove** a column with its `X`
+**only while it is empty** — once it holds a value the control is not drawn — and
+removing one takes the values that were typed into it. The armed press says how
+many values go with it. (To take a column that *does* hold values out of your way
+without losing anything, use `Edit table` instead — it hides a column from the grid
+for this browser session and leaves the data alone: [§9.3](#93-the-database).)
 
-Once a view exists, choose it on any block card in the planner with `Table:`.
+To choose which columns a **session** shows, use the `Display` section of a
+meditation's editor on the plan screen: [§7.10](#710-the-display-panel-what-a-session-shows).
 
 ### 9.8 Plans
 
@@ -835,26 +968,28 @@ What counts and what does not:
 Meditaur keeps the most recent 50 sessions per device. Older entries drop off the
 list automatically. Deleting a plan also removes that plan's history entries.
 
-### 9.10 Cards, Table views and the `Table` switch
+### 9.10 Cards and the table view
 
-Three sections — `Focus points`, `Symbols` and `Intentions` — can be shown either
-as **cards** or as a **table**, and the section header carries one switch for it:
+Two sections — `Meditations` and `Symbols` — can be shown either as **cards** or
+as a **table**, and the section header carries one switch for it:
 
 - **`Table` off** — the section shows **cards**: each entry is a block with its
-  image, name, a line or two of detail, and its own `Edit` and `Delete` buttons.
+  image, name and a line or two of detail. A card carries no `Edit` and no
+  `Delete`: these pages only show ([§9.1](#91-meditations)).
 - **`Table` on** — the same entries as rows, like a spreadsheet, and the
   **`Columns`** action appears beside the switch. Press `Columns` to open a panel
   of switches, one per available column, so you can turn individual columns on and
   off. While that panel is open the `Columns` button stays selected, so you can
   see it is the one you pressed.
 
-**Pressing an entry is how you open it** — the whole card, or anywhere on a row.
-That opens the entry's read-only page; `Edit` next to it, on the card, goes
-straight to the form. In table mode only the card carries `Edit` and `Delete`.
+**Pressing an entry is how you open it** — anywhere on the card, or anywhere on a
+row. That opens the entry's read-only page, and `Edit` on that page opens it in the
+Database.
 
-The switch only appears in the three sections that have a table: `Fields`,
-`Audio files`, `Presets`, `Views`, `Plans` and `History` list their entries as
-cards with the same actions.
+The other sections — `Audio files`, `Presets`, `Plans` and `History` — list their
+entries as cards. The audio and preset cards carry their own actions (`Delete`, and
+`Duplicate` for presets), because those things have no page of their own to hold
+them.
 
 Meditaur remembers your choice per section, and remembers which columns you
 switched on. Switch back to cards any time; nothing is lost.
@@ -865,54 +1000,60 @@ Meditaur never deletes your material silently. Two rules apply everywhere:
 
 **1. A two-press confirmation with a five-second window.** When you press a
 delete button, it does not delete. Instead it arms itself, fills with a light
-red, and changes its label to include a question mark — `Delete focus point`
-becomes `Delete Heart Chakra?`. Pressing it again fills it dark red as it goes
-and the item is deleted. If you do nothing, the button puts itself back after
-**five seconds**, so a half-pressed delete cannot sit there waiting for a stray
-tap. Pressing anything else cancels it at once.
+red, and changes its label to include a question mark — `Delete` becomes
+`Delete Heart Chakra?`. Pressing it again fills it dark red as it goes and the
+item is deleted. If you do nothing, the button puts itself back after **five
+seconds**, so a half-pressed delete cannot sit there waiting for a stray tap.
+Pressing anything else cancels it at once.
 
-This is every delete in the app — focus points, symbols, intentions, fields,
-presets, views, audio files, plans, and a plan's blocks. The one exception is
-`Remove tone` in the tuner and in a focus point's binaural page: that edits a
-draft you have not saved, and the `Revert` button beside it is the undo.
+This is every delete in the app — records and rows on the Archive page, columns in
+the Database, presets, audio files, plans, and a plan's blocks. **Archiving is
+not one of them**: archiving is a single press, and it is the safety net that
+stands in for an undo. The one other exception is `Remove tone` in the tuner and
+in a meditation's binaural page: that edits a draft you have not saved, and the
+`Revert` button beside it is the undo.
 
 **2. Whatever else goes is named first.** Meditaur removes references rather than
-refusing, so the armed button tells you what the delete would take with it. Two
-kinds of sentence appear under it:
+refusing, so the armed button — and the box the `X` on a row opens — tells you
+what the action would take with it:
 
 | Sentence | What it means |
 | --- | --- |
-| `This also removes 2 blocks from 1 plan, 1 intention and 3 symbol attachments.` | These things stop existing. The count covers plan blocks, intention lines, symbol attachments and custom field values. |
+| `This also removes 2 plan blocks, 1 row and 3 intentions.` | These things stop existing. The count covers plan blocks, rows, intention lines and column values. |
 | `1 place that pointed at it is cleared.` | These things stay, but lose what they pointed at — a plan block keeps its place and falls back to `Rotate next`, or a block loses its ambient sound. |
 
 Nothing is listed when nothing else is affected. There is no undo, so read that
 line before the second press.
 
-Only three deletes still refuse outright, and each says why:
+Only two deletes still refuse outright, and each says why:
 
 | Message | What to do |
 | --- | --- |
 | `Keep at least one plan` | A workspace must always have at least one plan. Create a new one first. |
 | `Keep at least one preset` | A workspace always keeps one binaural sound. Add another preset first. |
-| `Keep at least one table view` | A workspace always keeps one table view. Add another first. |
+
+The old `Keep at least one table view` went with the Views tab: a plan stores its
+own display now, so there is no last view to protect.
 
 There is no undo anywhere in Meditaur. If you are about to do something
 significant, press `Download catalog` first — that backup is your safety net.
 
-### 9.12 The picker: one text bar, everywhere
+### 9.12 Choosing a value: the chips and their search bars
 
-Whenever Meditaur asks you to choose something — a focus point, a symbol, a
-sound, a table, an alarm — you get the same screen, and it works the same way:
+In the Database, a reference or a select is a **chip**, and there are two gestures
+on it:
 
-| Control | What it does |
+| Gesture | What it does |
 | --- | --- |
-| The **text bar** | Type any part of the name and the list below narrows as you type. It also searches the small line under each name, so you can find a symbol by where it is used. |
-| `Choose` | Takes the name in the text bar. If the text matches no option, Meditaur refuses: `Nothing matches “...”, so nothing was chosen.` Nothing is saved on a typo. |
-| The **list** | Press any option to take it directly, without typing. The current choice, if there is one, is filled in. |
-| `Back` | Leaves without choosing. `Escape` does the same, on every picker. |
+| The chip itself | Opens `Open record` — for the chips that point at one — and `✕ Clear`, which clears that reference and nothing else. |
+| The `▾` next to it | Opens the search bar: type any part of the name and the list narrows as you type. |
+| `Enter` | Takes the highlighted option. If nothing matches, Meditaur offers `Add “…”` and makes that record for you — never the nearest-looking option. |
+| `Escape` | Closes the search bar, and nothing else. |
 
-Long names are cut short with an ellipsis rather than spilling out of their row,
-so a row never looks broken however long the text is.
+Everything else that asks you to choose something follows the same pattern on its
+own screen: a **text bar** with the list under it. Long names are cut short with
+an ellipsis rather than spilling out of their row, so a row never looks broken
+however long the text is.
 
 ---
 
@@ -1006,9 +1147,9 @@ preset in your library — that is what happens when the preset it was asked for
 cannot be found. Use `/tuner?preset=<id>`, or work in the preset's own editor
 instead.
 
-### 10.5 The binaural page for a focus point
+### 10.5 The binaural page for a meditation
 
-Each focus point has its own binaural editor, reached from the focus point's
+Each meditation has its own binaural editor, reached from the meditation's
 `Edit` form with `Open binaural config`. It is the same set of controls as the
 tuner, with three differences that make it safer for careful work:
 
@@ -1033,14 +1174,17 @@ things:
 | Where you find it | What it controls |
 | --- | --- |
 | **Planner**, bottom of the page | The **whole plan**. Off means no binaural sound anywhere in this plan, whatever the blocks say. |
-| **Library → a focus point → Binaural** | **That one focus point**. Off means this focus point is silent even when the plan's master switch is on. |
+| **Library → a meditation → Binaural** | **That one meditation**. Off means this meditation is silent even when the plan's master switch is on. |
 
 A block plays binaural tone only when the plan's switch is on **and** the focus
-point's switch is on **and** the block has a preset chosen. If any one of those
+meditation's switch is on **and** the block has a preset chosen. If any one of those
 three is missing, that block is silent.
 
-Cool-off blocks have no focus point, so only the planner's master switch applies
-to them.
+Binaural is also **per stage**, and off for an intentions or an affirmations stage:
+a chakra's session opens silent for the intentions, brings the tones in for the
+symbols, keeps them through the focus and never restarts them in between. That is
+why `Thanks Giving`, whose only stage is affirmations, is silent however the other
+switches are set.
 
 There is also the `Stop binaural when alarm rings` switch in
 [Settings](#12-settings-explained), which decides what happens the moment an
@@ -1057,8 +1201,11 @@ Work through this list:
 3. **Is the planner's `Binaural beats` switch on?**
 4. **Does the block have a preset?** Check the card — the `Binaural` field's
    value should not read `None`.
-5. **Is that focus point's own `Binaural beats` switch on?**
+5. **Is that meditation's own `Binaural beats` switch on?**
 6. **Is `Master volume` too low?** Check Settings.
+7. **Is the stage an intentions or an affirmations one?** Binaural is off for those
+   two by design — that is what makes a chakra's opening and a Thanks Giving block
+   silent.
 7. **Did you just enter the screen?** Browsers keep audio silent until you press
    something, so press `Start` (or `Play` in the tuner) after arriving.
 8. **Is another Meditaur tab playing?** Only one session can hold the audio.
@@ -1099,10 +1246,11 @@ screen is at `Settings` in the navigation bar.
 | --- | --- |
 | `Stop binaural when alarm rings` | What happens when a block's alarm sounds. On: the tone fades out completely. Off: the tone only dips. This is the setting a session obeys — there is no per-plan copy. |
 | `Auto-advance by default` | The default for plans you create **from now on**. On: new plans move from block to block by themselves. |
+| `Alarm by default` | The same thing for the alarm: on, a block's end rings. It only decides what a **new** plan starts with — an existing plan carries its own `Alarm` switch. |
 | `Speak intentions (TTS)` | Turns the spoken intentions on and off. |
-| `Alarm volume` | How loud the alarm is, from 0 to 1, in steps of 0.05. |
-| `Master volume` | The overall loudness of everything Meditaur plays, from 0 to 1, in steps of 0.05. |
-| `Text size` | `Medium`, `Large` or `XL`. Changes the size of text across the whole app immediately — useful on a small phone screen across the room. |
+| `Alarm volume` | How loud the alarm is, from 0 to 10 in whole steps. |
+| `Master volume` | The overall loudness of everything Meditaur plays, from 0 to 10 in whole steps. |
+| `Text size` | `Small`, `Medium`, `Large` or `XL`. Changes the size of text across the whole app immediately — useful on a small phone screen across the room. `Medium` is the default. Buttons keep their size, so the controls stay where they are. |
 
 ### The same switch in three places: which one wins?
 
@@ -1112,10 +1260,13 @@ same way. This table removes the guesswork:
 | Switch | On the `Settings` screen | On a plan | While a session is running |
 | --- | --- | --- | --- |
 | `Auto-advance` | Sets the default for **new** plans. Does not touch plans that already exist. | Sets it for **this plan**. | Changes **this session only**; it is not saved back to the plan. |
+| `Alarm` | Sets the default for **new** plans, the same way `Auto-advance by default` does. | Sets it for **this plan**, and it is saved with the plan. | Changes **this session only**; the plan's own switch is what a new session starts from. |
+| `Binaural` (per stage) | — | Its own switch on each stage's row, saved with the plan. | The stage rows are the ones before `Start`; a change made before the session starts is saved back to the plan. |
+| `Auto-scroll` (per stage) | — | Its own switch on each intentions or affirmations stage's row, saved with the plan. | Same as `Binaural`. |
 | `Stop binaural when alarm rings` | The one switch for this, and the one a session obeys. | Not on a plan any more. | Not available; change it in `Settings`. |
 
 If a plan is behaving unexpectedly, check the plan's own switches — but anything
-to do with the alarm and the tone comes from `Settings`.
+to do with the alarm's loudness and the tone's ducking comes from `Settings`.
 
 ---
 
@@ -1124,7 +1275,7 @@ to do with the alarm and the tone comes from `Settings`.
 ### Where your material lives
 
 **Your material lives in this browser, on this device.** Meditaur works without
-an account and without an internet connection, which means your focus points,
+an account and without an internet connection, which means your meditations,
 symbols, intentions, plans, sounds and pictures are stored locally in the browser
 you are using.
 
@@ -1141,8 +1292,9 @@ Because of this, `Download catalog` is not optional — it is your backup.
 ### Download catalog
 
 `Download catalog` saves a single file called `meditaur-catalog.json` containing
-everything: your focus points, symbols, intentions, custom fields and their
-values, table views, presets, plans, **and your uploaded audio and image files**.
+everything: your meditations, symbols, the `Karuna` table with its lines, your own
+columns and their values, presets, plans, **your uploaded audio and image files**,
+and your session history.
 
 Press it whenever you have done meaningful work, and keep the file somewhere
 safe — your own cloud drive, e-mail, wherever you keep things you care about. It
@@ -1181,7 +1333,7 @@ Two practical warnings:
    you have).
 3. On the new device: open Meditaur → `Library` → `Restore catalog` → choose the
    file.
-4. Check a focus point and a plan to confirm everything arrived.
+4. Check a meditation and a plan to confirm everything arrived.
 
 ---
 
@@ -1193,11 +1345,13 @@ ignored while you are typing in a text box.
 | Key | What it does |
 | --- | --- |
 | **Space** | Before you start: starts the session. While running: pauses. While paused: resumes. |
-| **→** (right arrow) | Skips to the next block immediately, with no alarm. |
+| **→** (right arrow) | Moves on: once to the next **stage**, twice in quick succession to the next **meditation**. The clock is cleared and the session holds until you press `Start`. |
+| **←** (left arrow) | Once restarts the stage you are in, twice steps back a stage, three times steps back a meditation. Same rule: held, with the clock cleared. |
 | **Escape** | Ends the session and returns to the planner. |
 
 The run screen lists the keys that work at that moment, drawn as keys: `Space`
-`start` or `pause`, `→` `skip to the next block`, `Esc` `end the session`.
+`start` or `pause`, `→` `next stage · twice: next meditation`, `←` `restart stage`,
+and `Esc` `end the session`.
 
 On a phone or tablet, use the on-screen buttons: `Start`, `Pause`, `Resume`,
 `Skip`, `Stop`, `Start another session`.
@@ -1217,9 +1371,16 @@ On a phone or tablet, use the on-screen buttons: `Start`, `Pause`, `Resume`,
 ### I can hear the timer alarm but no binaural tone
 
 Work through the checklist in
-[§10.7](#107-why-is-my-binaural-sound-silent). Nine times out of ten it is one of
-the two `Binaural beats` switches, or a block whose `Binaural` field reads
-`None`.
+[§10.7](#107-why-is-my-binaural-sound-silent). Nine times out of ten it is the
+plan's `Binaural beats` switch, a meditation whose own switch is off, the stage's
+own `Binaural` switch, or a block whose `Binaural` field reads `None`.
+
+### The alarm does not sound at the end of a block
+
+Check the two `Alarm` switches: the plan has one, and the run screen has one for
+the session you are in. The stage rows have no alarm switch of their own — the
+ring is session-level, so one switch turns it off for the whole plan, or for one
+sitting from the run screen.
 
 ### The tone stops every time the alarm rings
 
@@ -1258,18 +1419,19 @@ keep the tab open and the screen on.
 You pressed `Delete plan` with only one plan in the workspace. Meditaur always
 keeps one. Press `New plan` first, then delete the other.
 
-### `Keep at least one preset` or `Keep at least one table view`
+### `Keep at least one preset`
 
-Only three deletes in Meditaur refuse, and they all say the same thing: a
-workspace keeps one plan, one preset and one table view. Create another one
-first, then delete the one you meant to go.
+Two deletes in Meditaur refuse, and each says why: a workspace keeps one plan and
+one binaural sound. Create another one first, then delete the one you meant to go.
+(The last table view used to refuse as well — a plan stores its own display now, so
+there is no last view to protect.)
 
 ### `Plan was changed in another tab`
 
 The same plan is open in two tabs. Reload this page; you will get the newest
 version. To avoid it, keep one planner tab open.
 
-### `Remove this focus point's symbols first` (or another refusal)
+### `Remove this meditation's symbols first` (or another refusal)
 
 That message comes from an older build. Meditaur removes references instead of
 refusing, and names what will go under the delete button while it is armed. If
@@ -1305,9 +1467,11 @@ sound across two presets.
 
 ### I want to start over completely
 
-Press `Download catalog` first if there is anything you want to keep. Then clear
-this site's data in your browser settings. Next time you open Meditaur it will be
-fresh, with the starter content and no history.
+Press `Download catalog` first if there is anything you want to keep. Then either
+use **Erase this device's data** on the Account screen, or clear this site's data
+in your browser settings. Either way Meditaur comes back fresh, with the starter
+content and no history. The Account screen's wipe also signs you out, and it
+cannot be undone.
 
 ---
 
@@ -1318,15 +1482,17 @@ fresh, with the starter content and no history.
 | **Ambient** | A background audio file playing during a block. |
 | **Auto-advance** | Moving to the next block automatically when the timer ends. |
 | **Binaural beats** | The pulsing tone you hear when each ear receives a slightly different pitch. Requires headphones. |
-| **Block** | One step in a plan: either a focus block or a cool-off. |
+| **Block** | One step in a plan: a meditation with its stages. |
+| **Stage** | A part of a block with its own length and its own switches: `Intentions`, `Symbols`, `Focus`, `Affirmations`. |
+| **Alarm** | The sound that marks the end of a block. Session-level, like Auto-advance: one switch for the plan, and one on the run screen for the sitting. |
+| **Type** | What kind of meditation a row is. The seeded types are `Chakras`, `Points`, `Protection` and `Thanks Giving`, and you can add your own. |
+| **Affirmation** | A sentence of your own that a Thanks Giving block reads out. Affirmations and intentions are one table of sentences; the `Affirmations` tab shows them all. |
 | **Card view** | Showing a Library list as cards rather than as a table. |
 | **Catalog** | Your entire collection of material, as saved by `Download catalog`. |
-| **Chakra / Point / Custom** | The three kinds of focus point. |
-| **Cool-off** | A rest block between focus blocks. |
+| **Meditation** | A place you put your attention: a chakra, a body point, Protection, Thanks Giving, or anything you add. |
 | **Cycle** | One complete pass through every block in a plan. |
-| **Field** | A custom column you add to symbols or focus points. |
-| **Focus block** | A timed block dedicated to one focus point. |
-| **Focus point** | The place you put your attention. |
+| **Field** | A custom column you add to a table in the Database. |
+| **Meditation block** | One card in a plan: a meditation with its stages. |
 | **Gain** | Loudness. `Master volume` is overall loudness; per-tone gain is one tone's loudness. |
 | **Intention** | A short line of text you hold in mind. |
 | **Library** | The section holding all your material. |
@@ -1334,7 +1500,7 @@ fresh, with the starter content and no history.
 | **Plan** | Your ordered sequence of blocks, and how often it repeats. |
 | **Preset** | A saved binaural sound. |
 | **Session** | One full run of a plan. |
-| **Symbol** | A glyph you meditate on for a focus point. |
+| **Symbol** | A glyph you meditate on for a meditation. |
 | **Table view** | A saved table layout shown on the run screen during a block. |
 | **TTS** | Text-to-speech: Meditaur reading your intentions aloud. |
 | **Workspace** | Your collection of material. In this version it is local to one browser on one device. |
@@ -1349,7 +1515,7 @@ So you are not left hunting for things that do not exist:
   can create one from the welcome screen's `Account` button, and you never have
   to. Signed in, your `Settings` (volumes, text size, and the rest) follow you to
   whatever device you sign in on; changing one does need a connection, so with no
-  account nothing in the app needs one. Everything else — focus points, symbols,
+  account nothing in the app needs one. Everything else — meditations, symbols,
   intentions, plans, uploaded sounds, your history — still lives in the browser on
   this device and is not copied, which is why `Download catalog` matters.
 - **A plan remembered on another device does not force anything.** The planner
@@ -1362,9 +1528,10 @@ So you are not left hunting for things that do not exist:
   a session.
 - **The tuner has no undo.** It saves as you change it; duplicate a preset first
   if you are experimenting.
-- **There is no offline installation step yet**, but you can add Meditaur to your
-  home screen or app list from your browser's menu. Added that way, it opens
-  straight to the planner.
+- **You can add Meditaur to your home screen** from your browser's menu; added
+  that way it opens straight to the planner. Installed, it also keeps working with
+  no network once you have visited it at least once — a navigation tries the
+  network first and falls back to the copy it saved.
 
 Some screens also show a few rough edges — small labels that read more like the
 insides of the app than like English. These are cosmetic and known.

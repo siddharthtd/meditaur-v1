@@ -1,24 +1,42 @@
 import {
+  CHAKRA_TYPE_ID,
   classicBinauralPair,
+  copyStages,
   defaultEarEq,
+  DEFAULT_ALARM_ENABLED,
+  DEFAULT_PLAN_DISPLAY,
+  DEFAULT_REIKI_SYSTEM,
+  INTENTION_STAGES,
+  POINT_TYPE_ID,
+  PROTECTION_TYPE_ID,
+  SEEDED_MEDITATION_TYPES,
+  SEEDED_REIKI_SYMBOLS,
+  THANKS_GIVING_TYPE_ID,
   type BinauralPreset,
-  type FocusKind,
-  type FocusPoint,
-  type FocusSymbolBinding,
+  type Entry,
+  type FieldDef,
+  type FieldOption,
+  type Meditation,
   type Intention,
+  type MeditationType,
   type Plan,
   type PlanBlock,
+  type PlanBlockStage,
+  type ReikiSystem,
   type Symbol,
-  type TableView,
 } from "@meditaur/domain";
 
-export const DEFAULT_PLAN_NAME = "Circuit session";
+export const DEFAULT_PLAN_NAME = "Chakra circuit";
 export const CHAKRA_DURATION_MS = 420_000;
 export const PROTECTION_DURATION_MS = 671_000;
 export const ORGAN_DURATION_MS = 300_000;
-export const COOLOFF_DURATION_MS = 190_000;
+// Thanks Giving is one affirmations stage of 3:00, which is its whole length
+// (§12.10) — the same 180 s `AFFIRMATION_STAGES` holds, written out because the
+// other seeded durations are seed values the owner tunes rather than arithmetic.
+export const THANKS_GIVING_DURATION_MS = 180_000;
+// `COOLOFF_DURATION_MS` went with the block kind it seeded (the owner's round 15,
+// round 15, 2026-09-19): every seeded block is a meditation now, and its length is its stages'.
 export const DEFAULT_PLAN_ID = "01900000-0000-7000-8000-000000000040";
-export const DEFAULT_VIEW_ID = "01900000-0000-7000-8000-000000000050";
 
 const GAIN = 0.45;
 const FADE_MS = 40;
@@ -45,6 +63,8 @@ function preset(
     fadeOutMs: FADE_MS,
     eqLeft: defaultEarEq(),
     eqRight: defaultEarEq(),
+    sortOrder: 0,
+    archivedAt: null,
     // Seeded rows start unversioned, like every other first write: the revision
     // is what a later sync compares, and there is nothing to compare yet.
     revision: 0,
@@ -52,20 +72,31 @@ function preset(
   };
 }
 
+/**
+ * A seeded type's stages, copied, so a meditation can be given its own copy of
+ * the template it was seeded from (§12.8).
+ *
+ * A type nothing knows falls back to a chakra's three stages rather than to none.
+ */
+function stagesForType(typeId: string): PlanBlockStage[] {
+  const row = SEEDED_MEDITATION_TYPES.find((type) => type.id === typeId);
+  return copyStages(row?.stages ?? INTENTION_STAGES);
+}
+
 function focus(
   workspaceId: string,
   id: number,
   name: string,
-  kind: FocusKind,
+  typeId: string,
   locationText: string,
   durationMs: number,
-  presetId: string,
-): FocusPoint {
+  presetId: string | null,
+): Meditation {
   return {
     id: nid(id),
     workspaceId,
     name,
-    kind,
+    typeId,
     locationText,
     defaultBinauralPresetId: presetId,
     defaultDurationMs: durationMs,
@@ -76,6 +107,12 @@ function focus(
     representationAssetId: null,
     representationDescription: null,
     binauralEnabled: true,
+    // Its own copy of its type's template, which the owner will tune one row at a
+    // time later. A copy rather than a reference: editing the type must not move a
+    // meditation's timers, and editing a meditation must not move the type's.
+    stages: stagesForType(typeId),
+    sortOrder: 0,
+    archivedAt: null,
     revision: 0,
     updatedAt: 0,
   };
@@ -87,6 +124,7 @@ function symbol(
   name: string,
   description: string,
   usage: string,
+  reikiSystem: ReikiSystem = DEFAULT_REIKI_SYSTEM,
 ): Symbol {
   return {
     id: nid(id),
@@ -95,54 +133,91 @@ function symbol(
     description,
     usage,
     imageAssetId: null,
+    // Every seeded symbol names its system (the owner's round 16, §2.5). The
+    // default is the one system the app shipped until then, so the eight rows
+    // declared below need not repeat it; only the four new ones differ.
+    reikiSystem,
+    sortOrder: 0,
+    archivedAt: null,
     revision: 0,
     updatedAt: 0,
   };
 }
 
-function focusBlock(id: string, sortOrder: number, point: FocusPoint, viewId: string): PlanBlock {
+/**
+ * One of the four rows the owner added (§2.5), built from the list the three
+ * mirrors share.
+ *
+ * Their text is **empty**, deliberately: the owner said they will fill the
+ * Description and the Usage in from the Database, so seeding a placeholder would
+ * only be something to delete.
+ */
+function addedSymbol(
+  workspaceId: string,
+  row: { id: string; name: string; reikiSystem: ReikiSystem },
+): Symbol {
   return {
-    id,
-    sortOrder,
-    type: "focus",
-    durationMs: point.defaultDurationMs,
-    focusPointId: point.id,
-    symbolId: null,
-    symbolScope: "all",
-    binauralPresetId: point.defaultBinauralPresetId,
-    tableViewId: viewId,
-    ambientAssetId: null,
-    alarmAssetId: null,
+    id: row.id,
+    workspaceId,
+    name: row.name,
+    description: "",
+    usage: "",
+    imageAssetId: null,
+    reikiSystem: row.reikiSystem,
+    sortOrder: 0,
+    archivedAt: null,
+    revision: 0,
+    updatedAt: 0,
   };
 }
 
-function cooloffBlock(id: string, sortOrder: number): PlanBlock {
+function meditationBlock(id: string, sortOrder: number, point: Meditation): PlanBlock {
   return {
     id,
     sortOrder,
-    type: "cooloff",
-    durationMs: COOLOFF_DURATION_MS,
-    focusPointId: null,
+    // The meditation's own copy of its stages, so the seeded plan runs what the
+    // seeded rows say rather than what a type said when the plan was made.
+    stages: copyStages(point.stages ?? stagesForType(point.typeId)),
+    meditationId: point.id,
     symbolId: null,
-    symbolScope: "rotate",
-    binauralPresetId: null,
-    tableViewId: null,
+    symbolScope: "all",
+    binauralPresetId: point.defaultBinauralPresetId,
     ambientAssetId: null,
     alarmAssetId: null,
+    // The seeded blocks take the plan's answers: a plan the reader has not edited
+    // behaves exactly as it did, and the block editor is where one meditation
+    // disagrees with its siblings.
+    alarmEnabled: null,
+    display: null,
   };
 }
 
 export type DefaultWorkspace = {
-  focusPoints: FocusPoint[];
+  meditationTypes: MeditationType[];
+  meditations: Meditation[];
   symbols: Symbol[];
-  bindings: FocusSymbolBinding[];
+  entries: Entry[];
   intentions: Intention[];
+  fieldDefs: FieldDef[];
+  fieldOptions: FieldOption[];
   presets: BinauralPreset[];
-  tableViews: TableView[];
   plan: Plan;
 };
 
 export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
+  // The types come first because everything else points at them. Their ids are the
+  // constants the domain exports, so the seed and the app agree about which row
+  // "the Chakra type" is without either matching on a name a reader can rename.
+  const meditationTypes: MeditationType[] = SEEDED_MEDITATION_TYPES.map((row, sortOrder) => ({
+    id: row.id,
+    workspaceId,
+    name: row.name,
+    stages: copyStages(row.stages),
+    sortOrder,
+    archivedAt: null,
+    revision: 0,
+    updatedAt: 0,
+  }));
   const solfeggioThirdEye = preset(workspaceId, 0x70, "Solfeggio Third-Eye 852/8", 852, 8);
   const solfeggioThroat = preset(workspaceId, 0x71, "Solfeggio Throat 741/8", 741, 8);
   const solfeggioHeart = preset(workspaceId, 0x72, "Solfeggio Heart 639/8", 639, 8);
@@ -168,7 +243,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x20,
     "Third-Eye Chakra",
-    "chakra",
+    CHAKRA_TYPE_ID,
     "Between the eyebrows",
     CHAKRA_DURATION_MS,
     solfeggioThirdEye.id,
@@ -177,7 +252,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x21,
     "Throat Chakra",
-    "chakra",
+    CHAKRA_TYPE_ID,
     "Throat",
     CHAKRA_DURATION_MS,
     solfeggioThroat.id,
@@ -186,7 +261,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x22,
     "Heart Chakra",
-    "chakra",
+    CHAKRA_TYPE_ID,
     "Center of the chest",
     CHAKRA_DURATION_MS,
     solfeggioHeart.id,
@@ -195,7 +270,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x23,
     "Solar Plexus",
-    "chakra",
+    CHAKRA_TYPE_ID,
     "Upper abdomen",
     CHAKRA_DURATION_MS,
     solfeggioSolar.id,
@@ -204,7 +279,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x24,
     "Hara Chakra",
-    "chakra",
+    CHAKRA_TYPE_ID,
     "Below the navel",
     CHAKRA_DURATION_MS,
     solfeggioHara.id,
@@ -213,7 +288,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x25,
     "Root Chakra",
-    "chakra",
+    CHAKRA_TYPE_ID,
     "Base of spine",
     CHAKRA_DURATION_MS,
     solfeggioRoot.id,
@@ -222,7 +297,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x26,
     "Crown Chakra",
-    "chakra",
+    CHAKRA_TYPE_ID,
     "Top of the head",
     CHAKRA_DURATION_MS,
     solfeggioCrown.id,
@@ -231,7 +306,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x27,
     "Liver",
-    "point",
+    POINT_TYPE_ID,
     "Right upper abdomen",
     ORGAN_DURATION_MS,
     solfeggioLiver.id,
@@ -240,7 +315,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x28,
     "Kidneys",
-    "point",
+    POINT_TYPE_ID,
     "Lower back",
     ORGAN_DURATION_MS,
     solfeggioKidneys.id,
@@ -249,10 +324,30 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     workspaceId,
     0x29,
     "Protection",
-    "custom",
+    PROTECTION_TYPE_ID,
     "Aura",
     PROTECTION_DURATION_MS,
     solfeggioProtection.id,
+  );
+  /**
+   * Thanks Giving: one silent affirmations stage, and the sentences it reads come
+   * from their own table (§12.10).
+   *
+   * It names **no preset and no location**. A sound it never plays would be a
+   * promise the stage does not keep — binaural is off for affirmations by
+   * construction (`binauralForKind`) — and it is not practised at a place on the
+   * body the way a chakra or a point is. No affirmations are seeded either: the
+   * owner gave no text, and a sentence the reader did not write is not one they
+   * should be asked to repeat.
+   */
+  const thanksGiving = focus(
+    workspaceId,
+    0x2a,
+    "Thanks Giving",
+    THANKS_GIVING_TYPE_ID,
+    "",
+    THANKS_GIVING_DURATION_MS,
+    null,
   );
 
   const rama = symbol(
@@ -315,7 +410,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
   const protectionText =
     "I am wholly and completely protected physically, emotionally, mentally and spiritually from lower and negative energies, from manipulation and negative influence, from thoughts, words, deeds, consequences and actions that create pain and suffering.";
 
-  const pairs: Array<{ point: FocusPoint; glyph: Symbol; texts: string[] }> = [
+  const pairs: Array<{ point: Meditation; glyph: Symbol; texts: string[] }> = [
     {
       point: solar,
       glyph: rama,
@@ -560,62 +655,116 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     },
   ];
 
-  const bindings: FocusSymbolBinding[] = [];
+  const entries: Entry[] = [];
   const intentions: Intention[] = [];
-  const nextOrder = new Map<string, number>();
+  // The order the catalogue reads in, in one place each. `Crown` is the seventh
+  // chakra and the owner's list stops at Root, so it follows the six rather than
+  // displacing one of them; the points and the custom row come after, and `Rama`
+  // follows the named symbols for the same reason. `catalog-order.ts` is the same
+  // order written for the callers that have to *recognise* it, and
+  // `tests/unit/db/catalog-order.test.ts` fails if the two drift apart.
+  const meditationRows = [
+    thirdEye,
+    throat,
+    heart,
+    solar,
+    hara,
+    root,
+    crown,
+    liver,
+    kidneys,
+    protection,
+    thanksGiving,
+  ];
+  const symbolRows = [
+    harth,
+    gnosa,
+    halu,
+    iava,
+    shanti,
+    kriya,
+    zonar,
+    // The four rows the owner added (§2.5) sit in the catalogue's own order, which
+    // is the one `SYMBOL_ORDER` holds and the one the v24 repair places them in —
+    // after `Zonar` and before `Rama`. Nothing is bound to them yet: they are
+    // symbols to associate with a meditation later.
+    ...SEEDED_REIKI_SYMBOLS.map((row) => addedSymbol(workspaceId, row)),
+    rama,
+  ];
   // Intentions are the one seeded row that used to be minted with `createId()`,
   // which made two devices seeding this catalog disagree about intention ids and
   // would duplicate every intention under id-merge sync (architectural review
-  // M4). They are numbered from 0x100, above the focus/symbol/preset blocks and
-  // below the plan blocks at 0x200, so the ranges stay readable and collide with
-  // nothing.
+  // the review's seeded-id finding, 2026-09-15). They are numbered from 0x100, above the focus/symbol/preset blocks; the
+  // entries they belong to sit at 0x300, above the plan blocks at 0x200, so the
+  // ranges stay readable and collide with nothing.
   let nextIntentionId = 0x100;
-  for (const row of pairs) {
-    const sortOrder = nextOrder.get(row.point.id) ?? 0;
-    nextOrder.set(row.point.id, sortOrder + 1);
-    bindings.push({
-      focusPointId: row.point.id,
-      symbolId: row.glyph.id,
-      sortOrder,
-    });
-    row.texts.forEach((text, index) => {
-      intentions.push({
-        id: nid(nextIntentionId++),
+  let nextEntryId = 0x300;
+  /**
+   * The rows read chakra by chakra, and the symbols inside a chakra in the order
+   * above.
+   *
+   * Walking `pairs` as written got both halves wrong, which is what the owner saw
+   * — "I want the data grouped by chakra, right now it is arranged according to
+   * symbol": that array is written **symbol by symbol**, so the rows came out
+   * grouped by symbol, and `sortOrder` restarted at 0 for each chakra, so the
+   * groups then interleaved by place instead of following one another.
+   */
+  let nextEntryOrder = 0;
+  for (const focus of meditationRows) {
+    const rows = pairs
+      .filter((pair) => pair.point.id === focus.id)
+      .sort((a, b) => symbolRows.indexOf(a.glyph) - symbolRows.indexOf(b.glyph));
+    for (const row of rows) {
+      const sortOrder = nextEntryOrder;
+      nextEntryOrder += 1;
+      // A pair is an entry now, and the lines written about it belong to that row:
+      // the association and its intentions are two halves of the same thing.
+      const entry: Entry = {
+        id: nid(nextEntryId++),
         workspaceId,
-        focusPointId: row.point.id,
+        meditationId: row.point.id,
         symbolId: row.glyph.id,
-        sortOrder: index,
-        text,
+        sortOrder,
+        archivedAt: null,
         revision: 0,
         updatedAt: 0,
+      };
+      entries.push(entry);
+      row.texts.forEach((text, index) => {
+        intentions.push({
+          id: nid(nextIntentionId++),
+          workspaceId,
+          entryId: entry.id,
+          sortOrder: index,
+          text,
+          archivedAt: null,
+          revision: 0,
+          updatedAt: 0,
+        });
       });
-    });
+    }
   }
 
   const blocks: PlanBlock[] = [];
-  const pushFocus = (point: FocusPoint) => {
-    blocks.push(focusBlock(nid(0x200 + blocks.length), blocks.length, point, DEFAULT_VIEW_ID));
+  const pushMeditation = (point: Meditation) => {
+    blocks.push(meditationBlock(nid(0x200 + blocks.length), blocks.length, point));
   };
-  const pushCooloff = () => {
-    blocks.push(cooloffBlock(nid(0x200 + blocks.length), blocks.length));
-  };
-  pushFocus(thirdEye);
-  pushCooloff();
-  pushFocus(throat);
-  pushCooloff();
-  pushFocus(heart);
-  pushCooloff();
-  pushFocus(solar);
-  pushCooloff();
-  pushFocus(hara);
-  pushCooloff();
-  pushFocus(root);
-  pushCooloff();
-  pushFocus(protection);
-  pushFocus(liver);
-  pushCooloff();
-  pushFocus(kidneys);
-  pushCooloff();
+  // **No cool-off.** The owner's round 15 deleted the kind, so nothing sits between
+  // the meditations; each one ends with its own last stage.
+  //
+  // §12.13: the seeded plan is Thanks Giving → the seven chakras in order → Thanks
+  // Giving. The two Thanks Giving blocks are one row run twice, at the open and the
+  // close of the circuit, and they are two blocks because a block is a *place* in a
+  // plan: the second one can be given its own length later without moving the first.
+  pushMeditation(thanksGiving);
+  pushMeditation(thirdEye);
+  pushMeditation(throat);
+  pushMeditation(heart);
+  pushMeditation(solar);
+  pushMeditation(hara);
+  pushMeditation(root);
+  pushMeditation(crown);
+  pushMeditation(thanksGiving);
 
   const plan: Plan = {
     id: DEFAULT_PLAN_ID,
@@ -624,27 +773,74 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     cycleCount: 1,
     cycleUntilStopped: false,
     autoAdvance: true,
+    alarmEnabled: DEFAULT_ALARM_ENABLED,
     binauralEnabled: true,
     revision: 0,
+    display: DEFAULT_PLAN_DISPLAY,
     blocks,
   };
 
+  // The two extra columns the reader starts with, on the chakra table: one free
+  // text and one `select`, so the option machinery has something in it the first
+  // time the Database is opened. The seed describes the column, not what goes in
+  // it — what a chakra governs is the reader's own note to keep.
+  const governsColumn: FieldDef = {
+    id: nid(0x0a0),
+    workspaceId,
+    scope: "meditation",
+    typeId: CHAKRA_TYPE_ID,
+    cellType: "longText",
+    refKind: null,
+    key: "governs",
+    label: "Governs",
+    description: "What this chakra or point is about.",
+    sortOrder: 0,
+    archivedAt: null,
+    revision: 0,
+    updatedAt: 0,
+  };
+  const elementColumn: FieldDef = {
+    id: nid(0x0a1),
+    workspaceId,
+    scope: "meditation",
+    typeId: CHAKRA_TYPE_ID,
+    cellType: "select",
+    refKind: null,
+    key: "element",
+    label: "Element",
+    description: "The classical element this chakra is paired with.",
+    sortOrder: 1,
+    archivedAt: null,
+    revision: 0,
+    updatedAt: 0,
+  };
+  const elementOptions: FieldOption[] = ["Earth", "Water", "Fire", "Air", "Ether"].map(
+    (label, index) => ({
+      id: nid(0x0b0 + index),
+      workspaceId,
+      fieldDefId: elementColumn.id,
+      label,
+      sortOrder: index,
+      revision: 0,
+      updatedAt: 0,
+    }),
+  );
+
   return {
-    focusPoints: [
-      thirdEye,
-      throat,
-      heart,
-      solar,
-      hara,
-      root,
-      crown,
-      liver,
-      kidneys,
-      protection,
-    ],
-    symbols: [rama, zonar, halu, harth, gnosa, iava, kriya, shanti],
-    bindings,
+    meditationTypes,
+    // Order is a property of the row here, so the array's own order is the order
+    // the reader sees: Third-Eye first, a chakra's own pairs grouped together, and
+    // the two types that are not practised one place at a time after them —
+    // Protection, then Thanks Giving, which is where §12's type order puts them.
+    meditations: meditationRows.map((row, index) => ({ ...row, sortOrder: index })),
+    symbols: symbolRows.map((row, index) => ({
+      ...row,
+      sortOrder: index,
+    })),
+    entries,
     intentions,
+    fieldDefs: [governsColumn, elementColumn],
+    fieldOptions: elementOptions,
     presets: [
       solfeggioThirdEye,
       solfeggioThroat,
@@ -666,18 +862,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
       notesLiver,
       notesKidneys,
       notesProtection,
-    ],
-    tableViews: [
-      {
-        id: DEFAULT_VIEW_ID,
-        workspaceId,
-        name: "Focus table",
-        columnKeys: ["name", "description", "usage", "intentions"],
-        symbolFilter: "focusPoint",
-        revision: 0,
-        updatedAt: 0,
-      },
-    ],
+    ].map((row, index) => ({ ...row, sortOrder: index })),
     plan,
   };
 }
