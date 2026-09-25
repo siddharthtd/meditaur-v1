@@ -11,6 +11,8 @@ import type {
   Symbol,
 } from "@meditaur/domain";
 import type { LibraryView } from "@meditaur/application";
+import { CATALOG_ERRORS } from "@meditaur/application";
+import { CHAKRA_TYPE_ID, POINT_TYPE_ID } from "@meditaur/domain";
 import {
   addColumn,
   addEntry,
@@ -23,9 +25,9 @@ import {
   columnHoldsValue,
   commitDatabaseDraft,
   draftFromLibrary,
+  emptyRecord,
   karunaGroups,
   karunaOrder,
-  karunaSelection,
   linesOf,
   meditationEntry,
   meditationLines,
@@ -353,7 +355,12 @@ describe("saving the draft", () => {
       // is the one thing the Save report names.
       "sweep:e-fp1-s2",
     ]);
-    expect(report).toEqual({ names: ["Root × e-fp1-s2"], total: 1 });
+    // The report carries a change-set beside the sweep's half now (`P2 · 4`), so these
+    // compare the two fields they are about rather than the whole object.
+    expect({ names: report.names, total: report.total }).toEqual({
+      names: ["Root × e-fp1-s2"],
+      total: 1,
+    });
   });
 
   it("keeps a row the reader emptied and then filled in again before Save", async () => {
@@ -478,7 +485,7 @@ describe("saving the draft", () => {
       false,
     );
     expect(port.log).toContain("sweep:");
-    expect(report).toEqual({ names: [], total: 0 });
+    expect({ names: report.names, total: report.total }).toEqual({ names: [], total: 0 });
   });
 
   it("sweeps a row that was stored and then left pointing at nothing", async () => {
@@ -722,7 +729,51 @@ describe("the Database's affirmations table", () => {
     // store has never seen is what `saveLine` refuses.
     expect(entryWrite).toBeGreaterThanOrEqual(0);
     expect(lineWrite).toBeGreaterThan(entryWrite);
-    expect(report).toEqual({ names: [], total: 0 });
+    expect({ names: report.names, total: report.total }).toEqual({ names: [], total: 0 });
+    // The other half of the answer (`P2 · 4`): the rows a screen patches from, named
+    // here rather than found again by re-reading the store.
+    expect(report.changes.updated.entries.map((row) => row.id)).toEqual([made.id]);
+    expect(report.changes.updated.intentions.map((row) => row.id)).toEqual([id]);
+  });
+
+  it("refuses a blank sentence before it writes anything, so a half-saved draft is impossible", async () => {
+    // The owner's round 20 report, reduced to the rule behind it: the point they made on
+    // the spot survived Save while the sentence written for it did not, and all the screen
+    // said was "Save failed". Every write in a commit is its own transaction, so the guard
+    // has to run before the first one rather than where the store refuses the sentence.
+    const before = draftFromLibrary(viewOf());
+    const { draft: withSentence, id } = addSentence(before);
+    const paired = associateLine(withSentence, id, { meditationId: "fp1", symbolId: null });
+    const draft = {
+      ...paired,
+      lines: paired.lines.map((row) => (row.id === id ? { ...row, text: "   " } : row)),
+    };
+    const port = writes();
+    await expect(
+      commitDatabaseDraft({ writes: port, workspaceId: "ws1", before, draft }),
+    ).rejects.toThrow(CATALOG_ERRORS.textRequired);
+    expect(port.log, "not one row was written").toEqual([]);
+  });
+
+  it("gives a meditation made beside an affirmation the Points type", () => {
+    // The owner's round 21 report: they typed a body part into an affirmation's meditation
+    // chip, and the row arrived as the first live type — a chakra — so it was in the wrong
+    // tab, its page drew the chakra-only fields, and the affirmation written for it read as
+    // if it belonged to a chakra. The a sentence is about a place on the body.
+    const types = viewOf().meditationTypes;
+    const beside = emptyRecord("meditation", "ws1", types, "affirmations");
+    expect((beside.source as Meditation).typeId).toBe(POINT_TYPE_ID);
+    // Karuna's rows are chakra × symbol, so a row made there is a chakra…
+    const karuna = emptyRecord("meditation", "ws1", types, "entries");
+    expect((karuna.source as Meditation).typeId).toBe(CHAKRA_TYPE_ID);
+    // …a meditation table still answers for itself, whatever the cell that asked…
+    const inTable = emptyRecord(meditationTableId(POINT_TYPE_ID), "ws1", types);
+    expect((inTable.source as Meditation).typeId).toBe(POINT_TYPE_ID);
+    // …and a caller with no table at all keeps the reader's first type.
+    expect((emptyRecord("meditation", "ws1", types).source as Meditation).typeId).toBe(
+      types[0]!.id,
+    );
+    expect((emptyRecord("meditation", "ws1", types).source as Meditation).locationText).toBe("");
   });
 
   it("writes an orphan with no entry, and no order of its own to keep", async () => {
@@ -812,27 +863,6 @@ describe("Karuna", () => {
     expect(unowned.rows.map((row) => row.symbolId)).toEqual(["s2"]);
   });
 
-  it("does not read no-filter as the unowned heading", () => {
-    // The defect this guards, found by a reader's own gesture: a sentence written
-    // about a symbol and no meditation collapsed the whole stack to that one
-    // heading, and there was no way back — every option in the selector names a
-    // meditation, so pressing `✕` set the choice to `null` and re-selected it.
-    const groups = karunaGroups(draftFromLibrary(karunaView()));
-    const unowned = groups[groups.length - 1]!;
-    expect(unowned.meditationId, "the heading that caused it is the null one").toBeNull();
-    expect(
-      karunaSelection(groups, null).map((group) => group.name),
-      "no filter is the whole stack",
-    ).toEqual(["Root", "Liver", "No meditation"]);
-    expect(
-      karunaSelection(groups, "fp1").map((group) => group.name),
-      "a picked meditation is its own table",
-    ).toEqual(["Root"]);
-    expect(
-      karunaSelection(groups, "gone").map((group) => group.name),
-      "an id no group answers falls back to the stack rather than to nothing",
-    ).toEqual(["Root", "Liver", "No meditation"]);
-  });
 
   it("gives the `＋` the meditation's own row, and never a second row for one pair", () => {
     const draft = draftFromLibrary(karunaView());

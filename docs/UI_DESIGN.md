@@ -76,11 +76,54 @@ These **replaced** the hard-coded `stone-*`/`amber-*`/`teal-*` +
 `apps/web/src/app/globals.css`), they are defined once in an `@theme` block so
 utilities like `bg-bg`, `text-muted`, and `border-line` are generated.
 
+#### The eight colour schemes (the owner's round 24)
+
+The tokens above are **Warm Earth** — the scheme the app has always painted, and the
+document's default. Seven more schemes override the same seven tokens for the whole
+document, so one attribute on `<html>` (`data-theme`) repaints every screen, every button,
+every ring and the scrollbar at once. **No component knows a scheme exists**: the picker is
+the only place a hex is written, and everything else reads `--color-*`.
+
+| Scheme | Ground | Accent | Feel |
+| --- | --- | --- | --- |
+| Warm Earth (default) | near-black brown | sandstone cream | the app as it was |
+| Midnight Indigo | deep indigo | sea green | cool ground, cool-to-green accent |
+| Forest | forest black | amber | green ground, warm counterpoint |
+| Slate & Copper | cool slate | copper | the one warm-on-cool pair |
+| Plum Noir | aubergine | gold | purple and gold |
+| Paper (light) | warm off-white | deep teal | paper and ink |
+| Sea Glass (light) | pale blue-grey | coral | cool pages, warm accent |
+| Sakura (light) | blush | deep violet | blossom and stem |
+
+- **The default is untouched.** A reader who never opens Settings, a device with no stored
+  row and a build with no cloud all paint exactly as they did, which is what makes eight
+  schemes a subtraction nobody has to take.
+- **Each scheme is more than one colour.** The ink is near-neutral in every one by design —
+  it has to be readable — so what carries a scheme is its ground against an accent a good way
+  round the wheel from it. A unit test measures that gap, and the legibility of every scheme's
+  ink and accent, which is the half of "beautiful" that can be checked.
+- **The scheme is a preference**, beside the text size, and the app's own is what a row that
+  predates the field reads as.
+- **Two homes, one palette, and a guard between them.** The hexes are declared once in
+  `apps/web/src/lib/themes.ts` (which the picker draws its swatches from) and once as token
+  blocks in `globals.css` (which the document paints from); `tests/unit/web/themes.test.ts`
+  reads both and fails if they disagree. The one unavoidable duplicate in this design, so it
+  is the one that is tested.
+- **The picker draws three dots of each scheme** over a patch of its ground, with
+  `aria-pressed` for the chosen one: a scheme named "Sea Glass" means nothing until it is
+  seen, and colour alone must never be what says which is selected.
+
 ### 1.2 Color — chakra accents
 
 One muted hue per chakra, used **sparingly** — a ring around the representation
 image, the section's tinted primary button, a small label — never a large
 background wash.
+
+> **One screen is the exception, and it is the session** (the owner's round 24): a run draws
+> itself in the colour of the meditation it is running, controls **and** ground alike — *"it
+> should feel like a completely immersive experience"*. §2 has the shape. The rule above still
+> governs the app a reader reads and edits in: the library, the Database and the planner keep
+> the reader's chosen scheme, and no chakra hue is ever washed behind them.
 
 | Chakra | Hex | Note |
 |---|---|---|
@@ -330,6 +373,14 @@ needs to look professionally made (The textbox one is working fine)".
   taking the width a digit of the pair needed.
 - **The neighbours fade** into the band instead of being cut off by it, and the
   scroll indicator is hidden by `.time-wheel` (§1.10).
+- **One axis, and only one** (owner's round 20: *"The minute wheel is able to scroll
+  horizontally as well, while the seconds wheel only scrolls vertically as it should.
+  Fix the minute wheel to only move vertically."*). The column's `overflow-x` is
+  hidden and its `touch-action` is `pan-y pinch-zoom`, so a trackpad's sideways swipe
+  and a finger's sideways drag both do nothing while a vertical pan and a pinch-zoom
+  still work. The minute column could move sideways at all because three digits
+  (`180` is its ceiling) are a couple of pixels wider than it — `overflow-y: scroll`
+  computes `overflow-x` to `auto`, so there was somewhere to go.
 
 `Stepper` keeps its job for values that are not minutes and seconds — Hz, gain,
 decibels, milliseconds — because a wheel for "2000 Hz" would be unusable.
@@ -355,9 +406,13 @@ item 2: "the Esc back instruction should be at the same place everywhere […] i
 was next to the save/edit button (the button at the bottom bar that retains even
 if scrolled)"). The legend sits with the screen's **own primary action, in the
 bar that survives scrolling**: the run screen's footer, `EditorChrome`'s sticky
-bar (`Esc back` beside `Save`), and — since a picker has no bottom bar — the row
-holding `Choose`. It is never beside the title: a reader at the bottom of an
-editor is looking at the bar, not at the top of the page.
+bar (`Esc back` beside `Save`), and the picker's own bar (`Esc back` beside
+`Choose`/`Done`). It is never beside the title: a reader at the bottom of an
+editor is looking at the bar, not at the top of the page. Since round 25 every
+shell draws that bar — the dead-end screens included — and `integrity.test.ts`
+reads the legend's **place** as well as its press, because the rule had quietly
+drifted back to the title line in `EditorChrome` while the guard was only
+checking that a legend existed.
 
 ### 1.9 The plan card is a fixed width, and the sound is not behind a screen
 
@@ -501,6 +556,26 @@ shapes, not two sizes of the same shape.
   top. The library's screens are state, not routes, so this is the only thing that
   can hold a position.
 
+### 1.13 The plan card's `Intentions` section (the owner's round 24)
+
+The card's editor grew a section between `Meditation` and `Stages`, holding the one setting
+that decides **what a session reads**:
+
+- A master switch, `Draw a subset each session`. Off — and `null`, which is what a block that
+  has never been asked carries — reads every line in the order the reader arranged them.
+- While it is on, two rows: `Intentions of this meditation` (the lines that belong to the
+  meditation and to no symbol) and `Intentions under a symbol` (one count for every symbol,
+  drawn over that symbol's own lines together with the meditation's lines for it).
+- Each row's count appears **only while that row is on**. A number beside a switch that does
+  nothing is a promise nothing keeps, which is the app's own rule about controls.
+- The count's top value is everything the meditation has: a count is a **ceiling**, so dialled
+  to the top the session reads all of it. The exact pool is the compiler's business, and this
+  control deliberately does not spell that rule a second time.
+- `Read every line` on the section's heading line clears a block's answer back to `null`, the
+  shape `Use the plan's Display` gives the neighbouring section.
+- The section is drawn only when the account has the feature **and** the meditation holds
+  lines for the counts to act on.
+
 ---
 
 ## 2. Run screen — three regions, one viewport
@@ -641,6 +716,48 @@ Files: `apps/web/src/features/runner/SessionRegions.tsx` (the three regions),
   the **clock**, because a sheet has nothing to scroll. An intentions or affirmations
   stage whose column has run out of travel falls back to the clock too: *"it should be
   updated with time even though the scrolling stops."*
+- **The sheet is the whole stage, and it is boxes in rows** (owner's rounds 20 and 22). The rail
+  beside it is gone — it drew the same symbols twice, in the width the boxes needed — and the
+  boxes are large and **framed** (`h-36 w-36`, a picture at `h-24 w-24`). Round 20 laid them out
+  as one staggered line; round 22 replaced that with `symbolRows`: balanced rows, the extra box
+  of an odd count in the **middle** row, and every other row nudged half a box across —
+  *"something like hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in first
+  row 2 in the 2nd row in the middle … something that feels organized but not constricted like a
+  list."* There is **no panel behind them**: *"that background strip or panel is not required,
+  just the boxes."*
+- **A `focus` stage draws the meditation and its symbols, in one colour, breathing** (the same
+  round, built 2026-09-24). *"During focus, we would want to show beautiful visuals of the
+  chakra's picture in its colour, as well as all the symbols in the same colour breathing etc.
+  occupying the entire space that was earlier occupied by the intentions table."* So the region
+  holds the meditation's picture — the reader's own upload, or the glyph `focus-glyphs.tsx`
+  draws for it — and the block's symbols under it, all in the meditation's accent, each
+  breathing on a stagger. **The accent is ink, never a fill**: every glyph is a line drawing in
+  `currentColor`, because §1.2's rule about a large background wash matters most on the largest
+  surface the app has. A chakra's petal count is data (2, 4, 6, 10, 12, 16, and a bloom for
+  Crown), a place on the body gets a location mark instead, and the symbol the stage's clock
+  has reached is drawn larger. Reduced motion gets the same picture, still.
+- **The whole screen takes the meditation's colour** (the owner's round 24). `Runner` puts
+  `data-chakra="root|hara|…"` on its `<main>`, and one rule per chakra replaces the ground,
+  the two surface tiers, the hairline and the accent token **for that subtree** — so the stage
+  strip, the latches, the table borders, the focus ring and the scrollbar all follow at once.
+  The wash is mixed into a base of the reader's own scheme, so a dark scheme gets a dark wash
+  and a light one a light one: the reader still decides how bright the screen is, the chakra
+  decides what colour it is. A reader's custom `Meditation.colour`, and a point's neutral
+  accent, get the ink accents and no wash — there is no rule for a colour the app did not
+  choose. The shell carries `bg-bg` itself, or the wash would tint the panels and not the page.
+- **The stage card's own controls stay out of the way** — the artwork is not a control: a focus
+  stage's region takes no press, and the strip above it is still how a stage is chosen.
+- **The whole stage card is a target before Start.** *"Clicking anywhere on meditation
+  stage cards while the session has not started should take the user to that stage …
+  (same behavior as pressing the right arrow)."* The card's press is a labelled button
+  painted **under** its own controls, so the wheels stay editable and `♪`/`↺` keep their
+  own presses; once the session has started it is gone.
+- **A stage's two switches share its end** (the same round). The `♪` sits after the
+  wheels and the `↺` after that; the name and its clock keep the left-to-right reading
+  order they had.
+- **The arrow window is one second** (the same round: *"reduce that timer to 1 second. If
+  an arrow is pressed after a second, consider it a stage advancement not a meditation
+  advancement."*) Nothing about what the gestures *mean* changed.
 
 ### 2.4 Wireframe
 
@@ -747,21 +864,24 @@ The arrangement below replaced that, and is what the app does now:
    pressing anywhere on a table row, because "edit" is no longer what opening
    something means.
 
-### 3.2a Open means read (2026-09-16, round 4 items 6–8)
+### 3.2a Open means read (2026-09-16, round 4 items 6–8; one screen since round 22)
 
 The owner's ask split one screen into two jobs, and the split is the model for
 any entity that grows an open view:
 
-- **Open is read-only.** Pressing a card or a row lands on the entry's own page
-  (`FocusSheet`, `SymbolSheet`): chakra block, custom field *values*, the bound
-  symbols in `Rotate next` order, the intention lines, the binaural state. No
-  inputs, no switches, no remove buttons — "there should be no editable or
-  selectable options, only displaying current statuses and values".
-- **Edit is where change lives.** One `Edit` in the open view's bottom bar
-  (`EditorChrome.actions`) goes to the editor, and the editor now carries every
+- **Open is read-only.** Pressing a card or a row lands on the entry's own record:
+  chakra block, custom field *values*, the bound symbols in `Rotate next` order, the
+  intention lines, the binaural state. No inputs, no switches, no remove buttons —
+  "there should be no editable or selectable options, only displaying current statuses
+  and values". Since round 22 that record is a **route of its own** (`/record`, with the
+  door it came through in the address), and arriving on it always draws this half.
+- **Edit is where change lives, on the same screen.** The reading half's `Edit`
+  (`EditorChrome.actions`) turns the record into its editor **in place** — the address does
+  not move, and there is no second screen to travel to — and the editor carries every
   management control that used to sit on the sheet: attach and unbind symbols,
   add and edit intentions, write custom fields, `Open binaural config`. The
-  card's own `Edit` is a shortcut to the same place.
+  card's own `Edit` is a shortcut to the same record. A **preset** is the exception: it has
+  nothing to read, so its page *is* its editor.
 - **Order is dragged, not stepped.** Symbols and intentions reorder by drag
   (`@dnd-kit/sortable`, x locked, the mirror of the planner strip's y lock), with
   the keyboard as a second sensor (Space, arrows, Space). `Up`/`Down` are gone;
@@ -871,17 +991,22 @@ The treatment, which is the rule from here on:
 - **The Add-column form is a form**: `Heading` and `Description` labels over
   their controls, `Type` and `Points at` under `TileGrid`s, `Add column` as the
   one action and `Cancel` on the heading line.
-- **A filter per table, over the row's key** (the owner's round 17: *"Add filter
-  functionality to all the tabs in the database based on the key. So, for chakras,
-  there should be a chakra key searching for that chakra should filter"*). The box
-  sits in a toolbar under the table switcher and matches what a row **is** — a
-  record's name, a sentence's words, a Karuna row's pair — never a cell and never a
-  column, so the reader does not have to guess which column it searches. It is one
-  sentence applied where each table reads its rows (`recordRows`, `sentenceList`,
-  `karunaVisible`), which is why no tab can be left without one — Karuna had been
-  (*"There is no filter functionality in Karuna table in database"*). A heading goes
-  once nothing under it matches; a heading the filter names is kept whole. The filter
-  belongs to the tab it was typed in and is cleared when the tab changes.
+- **A filter on every column** (the owner's round 22, which replaces round 17's one box:
+  *"Clicking on any column header should convert that into a filter bar. It should display all
+  the rows that contain the particular text for that column. This should be for all columns.
+  Including having multiple filterable columns, if multiple columns' filters are activated, it
+  should be an 'AND' action. Each search table should be able to do an | for OR, regular
+  expression search should also be supported."*). Every heading carries a quiet `⌕` that opens
+  that column's input in a **filter row under the header band**; a second press, or `Escape` in
+  the input, closes it. Presence in the map is "this column's input is open", so an empty one
+  narrows nothing. `grid-filter.ts` is the whole rule: one column's text is a case-insensitive
+  regular expression list split on `|` (a `|` inside a group or a class belongs to the pattern),
+  and an alternative that will not compile is read as plain text — a typo must never hide every
+  row. Every open column has to match, which is the AND. It is applied where each table reads
+  its rows (`recordRows`, `sentenceList`, `karunaVisible`), so no table can be left out — and
+  **Karuna's `Meditation · All meditations` selector is gone**, because it was a second way to
+  narrow the same stack whose only press offered `Cancel` (the owner: *"it needs to be removed
+  if it is not usable"*). A heading goes when nothing under it matches.
 - **`Edit table`, and a column that leaves the view** (the same round: *"Columns
   should be able to be removed (Add an edit table button which should enable x button
   next to every column heading which removes the column where-ever not required by
@@ -900,11 +1025,33 @@ Two sizing notes worth keeping:
 
 - **Widths are hints, never `width: 100%`.** In an auto-layout table a column with
   `w-full` resolves against the table's own width and the table grew to
-  **500000px**. The wide column (the entries' Intentions, a record's `Name`) is
-  left to take what is left after the others are named (`BUILTIN_WIDTH`).
+  **500000px**. A wide column asks for its own minimum instead (`BUILTIN_WIDTH`), and the one
+  that is a sentence — an entry's or a meditation's `Intentions`, Karuna's own `Intentions` —
+  asks for `min-w-[28rem]` through `INTENTIONS_WIDTH`, one constant for both tables. Left to
+  "take what is left", that column was given its minimum content width, which is *three letters
+  of an intention* and the owner's round-22 report.
 - **`min-w-[40rem]`, not `min-w-max`.** A max-content floor kept the grid wider
   than a 1024-wide laptop, so it scrolled sideways with room to spare. The
   sideways scroll is still there on a phone, where it is the point.
+- **A row's controls are the row's own** (owner's round 20: *"the 1st column is the open
+  button, drag handle and remove row. This needs to go … ideally, drag and remove row
+  should be innate to the row itself, open actually opens the table's key menu."*). There
+  is no leading controls column: the grip, the `＋` insert and the `×` sit in the row's
+  **last** cell, revealed by the pointer or the keyboard, and the row's own press opens
+  the record — mouse anywhere on its surface, or Enter/Space with the row focused, so the
+  worded `Open` button is gone. That cell **stays at the row's right edge** while the
+  columns scroll under it, because the first cut left it in the flow and a table wider
+  than its room scrolled drag and remove out of reach. The armed box (`Archive` /
+  `Remove` plus what the delete would take) is a full-width band **under** its row, where
+  the sentence has room to be read.
+- **Two pins, and they are the two edges.** The first data column — a record's `Name`, a
+  sentence's words, Karuna's `Symbol` — stays at the **left** edge while the columns beside it
+  scroll under it (`LEAD_CELL`, `LEAD_HEAD`), and the row's own controls stay at the **right**
+  (`TAIL_CELL`). The owner asked for the second in round 20 and, when round 20's "nothing
+  pinned" turned out to have taken the first with it, answered *"Pin Name so it stays visible"*
+  ([DECISIONS.md](./DECISIONS.md) §15). Neither costs width: both are cells the table already
+  had. What they buy is a reader scrolling a wide table sideways who can still see which row
+  they are on and still reach its grip.
 
 ### 3.2d Adds happen in the grid (2026-09-18, owner's round 14)
 
@@ -925,11 +1072,11 @@ in the cell itself."*
 - **An unnamed column is not stored**, the same rule as a row with nothing to
   point at. A column's `key` is derived from the first heading written and never
   moves again, so a later rename cannot strand a plan's pinned column.
-- **A row is added where it lives.** A type tab's `Add`, `Add symbol` in the
-  library, and a browse sheet's `Edit`, land in the Database's grid with the caret
-  in the row's name — there is no new-record page. Only a **preset** keeps its own
-  page: the sound is the point of a preset, and the owner asked for presets to be
-  made and edited there.
+- **A row is added where it lives.** A type tab's `Add` and `Add symbol` land in the
+  Database's grid with the caret in the row's name — there is no new-record page for a row.
+  A record's `Edit` is not one of these doors any more (round 22): it opens the record
+  itself, which reads first and edits in place. Only a **preset**'s empty editor is still
+  the Database's, because a preset with no row yet has no id for an address to name.
 - **A chakra's own settings are columns**, which is the owner's answer to where
   they live now that the page is gone: `Picture`, `Default sound` (a preset chip,
   with `Tune` beside it — the control sits with the sound it tunes) and `Binaural`
@@ -974,13 +1121,24 @@ LIBRARY — list:
 
 ## 4. Cross-page consistency — one shared shell
 
-Every screen follows the same structure: a top bar (back button top-left, title,
-and the tab strip where applicable) → scrollable content → an optional fixed
-bottom bar holding the primary action.
+Every screen follows the same structure: a top bar (title, and the tab strip where
+applicable) → scrollable content → a bar at the foot holding the `Esc back` legend beside
+the screen's one primary action. The bar is drawn on **every** screen the shell builds,
+including one whose only control is the way back, and the legend is never beside the title.
+
+**There is one way back, and it is the `Esc back` legend** (owner's round 20: *"There is
+no need for a separate back button, just have the Esc Back directive double as a back
+button, if people want to go back, they can use that button"*). `KeyHints` takes an
+optional `onPress`, and a screen that has a legend draws it as a real control instead of
+a `Back` button beside it — so the reader can press what the screen told them to press,
+with or without a keyboard. `EditorChrome`, `PickerPage`, the dead-end screens, the run
+screen's `Esc end the session` and the Database's own bar all follow it, and
+`integrity.test.ts` reads all five shells — for the press **and** for the place — so a
+second button, or a legend that drifts back up beside the title, cannot come back.
 
 Formalize this as a shared layout shell — extending or replacing the current
-`EditorChrome` (`apps/web/src/features/library/EditorChrome.tsx`, which today
-renders only back + title + children + error) — adding a **bottom action-bar
+`EditorChrome` (`apps/web/src/features/library/EditorChrome.tsx`, which today draws the
+title, the content, the error line and the foot bar) — adding a **bottom action-bar
 slot**. `AppNav` stays for the `(app)` route group; the run screen keeps its
 minimal chrome but obeys the same placement rules.
 
@@ -990,14 +1148,61 @@ new pages get added.
 ```
 LIBRARY — editor (shared shell):
 ┌──────────────────────────────────────┐
-│ ◂ back (tertiary)     Edit meditation│ top bar
+│                       Edit meditation│ top bar
 ├──────────────────────────────────────┤
 │ form fields (scrolls)                │
 ├──────────────────────────────────────┤
 │ [🗑 Delete] (bottom of its section)   │
-│                        [Save] (lg)   │ sticky bottom bar
+│            Esc back      [Save] (lg)│ sticky bottom bar
 └──────────────────────────────────────┘
 ```
+
+### 4.1 The one screen that is not the reader's — the admin panel
+
+`/admin` (`P0 · 23`, slice 23f) is the owner's own tool, and the only screen in this app
+written for somebody who is not the reader. It keeps §4's shape — a title, scrollable
+content, and each action beside the thing it acts on — and departs in three places on
+purpose, all of them recorded in `DECISIONS.md` §11:
+
+- **It is not a nav destination.** The door is a link on `/account`, drawn only for the
+  account that runs the beta, because `AppNav` is the reader's five destinations. Typing
+  the address works for an admin and gets one sentence for everybody else — here, and
+  again from the function that holds the service role, which is what makes this screen's
+  gate an affordance rather than the boundary.
+- **One account at a time, opened in place.** A row is a name, a line of facts — reader or
+  admin, when it was made, when it last signed in — and one `Open`. Opening it draws the
+  eight flags as `sm` switches with the flag's name over its one-line summary, which is the
+  only place a flag is explained to a human, and it is why `FEATURE_FLAG_INFO` exists.
+- **The unrecoverable press is armed.** `Set a new password` is the one action there that a
+  reader cannot undo, so it is a two-press control with its own field, like every other
+  destructive control in the app. `Create account` says in a line that the address is
+  confirmed on the spot, because this deployment sends no mail.
+
+The flag list is drawn from the domain's union (`FEATURE_FLAGS`, labelled by
+`FEATURE_FLAG_INFO`), so a flag added to the vocabulary appears here with no edit to the
+screen — the same reason §4 wants one shell, one level down.
+
+### 4.2 A gate takes a surface out whole, and never half of one
+
+`P0 · 35` gated every surface the account's flags name. The rule that came out of the seven
+slices is a design rule rather than an implementation detail: **a flag removes the surface
+whole.** A control that cannot act is not drawn, and a thing a reader cannot reach is not
+named. Looking down the app:
+
+| Where | With the flag off |
+| --- | --- |
+| The library's tab strip | The Presets tab goes, and so does a hidden type's tab — a remembered `type:<id>` falls back to the strip's first tab. The **Archive** keeps drawing a hidden row on purpose: that is where hidden data is *managed* rather than where it is offered |
+| The Database's rail | `Karuna`, `Affirmations` and `Presets` go; a plain `/database` lands on a table the rail still draws, and a remembered one is re-landed rather than shown |
+| The Database's grid | The two binaural columns leave the **column list**, so `Edit table` cannot add them back either, and a stored key that is no longer offered is simply not drawn |
+| The plan editor | The `Binaural` field, the `Auto-scroll` switch and the `♪` mark go; a hint that named the Karuna table stops naming it. Everything the plan already holds still shows, because a stored row is a fact rather than an offer |
+| The run screen | The `♪` mark and the footer's `Scroll` latch go — the latch is already drawn only for a stage that scrolls, and a second gate on top of that must not leave it dead — and with `binaural` off the session compiles **silent** rather than muting a switch after the fact. A plan whose block names a symbol outside the account **refuses to start**, with a sentence that names it, says which field to change so the session runs now, and says who to ask to change the account instead |
+| `/tuner` | One sentence and no controls at all: the screen exists for the tones, and its address is the only way in |
+| `/login` and `/signup` | One sentence saying who to ask instead — which is what the privacy notice's stale sign-up link lands on, and why the sentence says what to do rather than only that the door is shut |
+| `/account` | The sign-in link, `Create an account` and `Sign out` go. The **status line stays**, because it is a fact about the device rather than an offer, and so do both erasures — `Erase this device's data` and `Close this account`. Erasure is a right, not a surface (`DECISIONS.md` §11) |
+
+The `sentence instead of a form` pattern is the one that carries the weight here: a gated
+route is reachable by address even when no link points at it, so each of these screens
+answers in the reader's own voice rather than rendering empty.
 
 ---
 

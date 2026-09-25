@@ -2,13 +2,25 @@ name: meditaur-e2e
 
 services:
   e2e:
-    image: meditaur-e2e:local
+    # The tag is the session's, so two agents in one checkout never build over each other's
+    # image. Unset, it is the tag this file has always used and the one CI builds.
+    image: ${MEDITAUR_E2E_IMAGE:-meditaur-e2e:local}
     pull_policy: never
     build:
       context: ..
       dockerfile: infra/Dockerfile.e2e
     ipc: host
     init: true
+    # A failure's evidence has to reach the host, or "read the red stage" is advice nobody
+    # can follow: Playwright's trace and `error-context.md` are written into the container, and
+    # `docker compose run --rm` takes them with it. They land under `tests/e2e/artifacts/`,
+    # which each run overwrites (`PLAYWRIGHT_OUTPUT_DIR` above) and which the existing
+    # `**/test-results` and `**/playwright-report` patterns already keep out of git and out of
+    # both dockerignore files, so nothing here is committed or baked into an image. The build
+    # stays in the image, which is what keeps a run from testing somebody else's `.next`.
+    volumes:
+      - ../tests/e2e/artifacts/test-results:/artifacts/test-results
+      - ../tests/e2e/artifacts/playwright-report:/artifacts/playwright-report
     environment:
       CI: "1"
       NEXT_PUBLIC_E2E: "1"
@@ -20,3 +32,10 @@ services:
       # variable lets a run say how much of the machine it may take —
       # `PLAYWRIGHT_WORKERS=3 ./scripts/meditaur e2e`. Empty means "the default".
       PLAYWRIGHT_WORKERS: "${PLAYWRIGHT_WORKERS:-}"
+      # Where a failed run's evidence goes. Not the default (`tests/e2e/test-results` next to
+      # the config): the container's own sweep removes that path at the start of a run, and a
+      # **bind-mounted directory cannot be removed** — `rm` refuses a mount point with "Device
+      # or resource busy", which failed the e2e stage before its first test when these two
+      # were mounted where the sweep looks. `/artifacts` is outside everything the run sweeps.
+      PLAYWRIGHT_OUTPUT_DIR: "/artifacts/test-results"
+      PLAYWRIGHT_HTML_REPORT: "/artifacts/playwright-report"

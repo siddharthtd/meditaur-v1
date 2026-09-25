@@ -12,8 +12,14 @@ test("home and planner render without select elements", async ({ page }) => {
   // pickers in there).
   await page.getByRole("button", { name: "Edit Third-Eye Chakra" }).first().click();
   await page.getByRole("button", { name: "Change", exact: true }).first().click();
-  await expect(page.getByRole("heading", { name: "Meditation" })).toBeVisible();
+  // The field is a **set** since round 22 — a point block clubs several points into one
+  // pass — so the picker toggles rows in place and `Done` is the way back, rather than a
+  // press committing and returning. Swapping one meditation for another is therefore two
+  // presses on the rows and one on `Done`, which is what this walks.
+  await expect(page.getByRole("heading", { name: "Points" })).toBeVisible();
+  await page.getByRole("button", { name: /Third-Eye Chakra/ }).click();
   await page.getByRole("button", { name: /Heart Chakra/ }).click();
+  await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByRole("heading", { name: "Heart Chakra", exact: true })).toBeVisible();
   await expect(page.locator("select")).toHaveCount(0);
 });
@@ -35,9 +41,14 @@ test("the privacy notice is reachable and says what is stored", async ({ page })
   await expect(
     page.getByRole("heading", { name: "What Meditaur stores about you" }),
   ).toBeVisible();
-  // The device-only story is the part a reader most needs, and the part that an
-  // account deliberately does not change.
-  await expect(page.getByRole("heading", { name: "Almost nothing leaves your browser" })).toBeVisible();
+  // Where the material lives and what an account does with it are the two things a
+  // reader most needs, and `P2 · 3`'s copy slice made them one story rather than
+  // two: the notice used to promise that material never left the browser, and now
+  // it says this device *and* — signed in — the account, which is what makes moving
+  // to another device possible. Both halves are pinned, because dropping either one
+  // is the failure this test exists for.
+  await expect(page.getByRole("heading", { name: "Where your material lives" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "What an account stores" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Removing it" })).toBeVisible();
   await page.getByRole("link", { name: "Back to creating an account" }).click();
   await expect(page).toHaveURL(/\/signup$/);

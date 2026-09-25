@@ -1,4 +1,5 @@
 import { app } from "@/composition";
+import { useSession } from "@/features/auth/SessionProvider";
 import { NONE_PICK_ID } from "@meditaur/application";
 import {
   CHAKRA_TYPE_ID,
@@ -139,6 +140,7 @@ export function MeditationEditor({
   onOpenBinaural: () => void;
   onSave: () => void;
 }) {
+  const { flags } = useSession();
   const focus = screen.value;
   // The chakra's own sections belong to the seeded Chakra type. Which *type* a row
   // is became data (the owner's round 15); which of these sections is a built-in
@@ -200,20 +202,25 @@ export function MeditationEditor({
             onChange={(defaultDurationMs) => onChange({ ...focus, defaultDurationMs })}
           />
         </div>
-        <div className="flex flex-col gap-2">
-          <span className="text-lg text-muted">Default sound</span>
-          <Button
-            size="sm"
-            accent={accentForMeditation(focus)}
-            aria-label="Default sound"
-            className="w-full justify-start"
-            onClick={onPickPreset}
-          >
-            {presets.find((p) => p.id === focus.defaultBinauralPresetId)?.name ?? "None"}
-          </Button>
-        </div>
+        {/* The sounds are the `binaural` flag's (`P0 · 35`, slice 35d): off, the picker
+            and the config's own switch are not drawn, and the meditation keeps the
+            preset it names — the session will compile silent rather than be edited. */}
+        {flags.binaural ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-lg text-muted">Default sound</span>
+            <Button
+              size="sm"
+              accent={accentForMeditation(focus)}
+              aria-label="Default sound"
+              className="w-full justify-start"
+              onClick={onPickPreset}
+            >
+              {presets.find((p) => p.id === focus.defaultBinauralPresetId)?.name ?? "None"}
+            </Button>
+          </div>
+        ) : null}
       </EditorSection>
-      {showChakra ? (
+      {showChakra && flags.binaural ? (
         <EditorSection title="Binaural">
           <LatchButton
             label={focus.binauralEnabled ? "Binaural on" : "Binaural off"}
@@ -406,7 +413,7 @@ export function MeditationList({
   imageUrls,
   columnKeys,
   listMode,
-  onOpenSheet,
+  onOpenRecord,
   typeId,
 }: {
   meditations: Meditation[];
@@ -417,7 +424,7 @@ export function MeditationList({
   imageUrls: Record<string, string>;
   columnKeys: string[] | null;
   listMode: ListMode;
-  onOpenSheet: (focus: Meditation) => void;
+  onOpenRecord: (focus: Meditation) => void;
   /** The type whose tab this is: the pool the reader's columns are drawn from. */
   typeId: string | null;
 }) {
@@ -462,10 +469,9 @@ export function MeditationList({
             rows={meditations.map((fp) => ({
               id: fp.id,
               cells: shown.map((col) => cellFor(fp, col.key)),
-              // The row opens the read-only view; editing is a press away from
-              // there, or the card's `Edit`. It used to open the editor, which
-              // meant going "in" landed you in a form.
-              onOpen: () => onOpenSheet(fp),
+              // The row opens the record; editing is a press away from there. It
+              // used to open the editor, which meant going "in" landed you in a form.
+              onOpen: () => onOpenRecord(fp),
             }))}
           />
         </>
@@ -486,7 +492,7 @@ export function MeditationList({
               imageAlt={fp.name}
               imageClassName={`h-12 w-12 ring-1 ${accent.ring}`}
               imageStyle={accentStyle(accent) ?? undefined}
-              onOpen={() => onOpenSheet(fp)}
+              onOpen={() => onOpenRecord(fp)}
             />
           );
         })
@@ -502,7 +508,7 @@ export function SymbolsList({
   imageUrls,
   columnKeys,
   listMode,
-  onOpenSheet,
+  onOpenRecord,
 }: {
   symbols: Symbol[];
   fieldDefs: FieldDef[];
@@ -510,7 +516,7 @@ export function SymbolsList({
   imageUrls: Record<string, string>;
   columnKeys: string[] | null;
   listMode: ListMode;
-  onOpenSheet: (symbol: Symbol) => void;
+  onOpenRecord: (symbol: Symbol) => void;
 }) {
   const ordered = sortSymbolsForPicker(symbols);
   const symbolDefs = [...fieldDefs]
@@ -544,7 +550,7 @@ export function SymbolsList({
             rows={ordered.map((s) => ({
               id: s.id,
               cells: shown.map((col) => cellFor(s, col.key)),
-              onOpen: () => onOpenSheet(s),
+              onOpen: () => onOpenRecord(s),
             }))}
           />
         </>
@@ -557,7 +563,7 @@ export function SymbolsList({
             imageSrc={s.imageAssetId ? (imageUrls[s.imageAssetId] ?? null) : null}
             imageAlt={s.name}
             imageClassName="h-12 w-12 ring-1 ring-line"
-            onOpen={() => onOpenSheet(s)}
+            onOpen={() => onOpenRecord(s)}
           />
         ))
       )}

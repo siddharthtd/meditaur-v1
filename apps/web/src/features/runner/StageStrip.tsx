@@ -52,6 +52,11 @@ import { autoScrollForKind, binauralForKind, type CompiledStage } from "@meditau
  * plain, quiet character rather than a control that cannot act — the app's rule is
  * that a control which cannot act is not drawn, and the mark is information about
  * the stage (this one is silent) rather than an action.
+ *
+ * The owner's round 20 made two changes here, both about a card being one pressable
+ * thing: the `♪` moved to sit with the `↺` at the card's end (*"it would look more
+ * classy if the stage's toggles for binaural and reload stage would be on the same
+ * side"*), and before the session starts **the whole card** goes to that stage.
  */
 export function StageStrip({
   stages,
@@ -59,6 +64,7 @@ export function StageStrip({
   running,
   started,
   remainingMs,
+  binauralOn,
   onDuration,
   onBinaural,
   onSelect,
@@ -71,6 +77,13 @@ export function StageStrip({
   started: boolean;
   /** What is left of the stage at `activeIndex`, from the engine. */
   remainingMs: number;
+  /**
+   * Whether binaural is part of this account at all (`P0 · 35`, slice 35d). Off, the
+   * mark is not drawn: it is a control for the tones, and there are no tones to
+   * control. The stages and their wheels are untouched — the session is silent, not
+   * shorter.
+   */
+  binauralOn: boolean;
   onDuration: (stageIndex: number, durationMs: number) => void;
   onBinaural: (stageIndex: number, value: boolean) => void;
   /** Move the session to a stage, and hold it there. */
@@ -90,14 +103,14 @@ export function StageStrip({
   return (
     <ul aria-label="Stages" className="flex flex-wrap items-center gap-2" data-stage-strip>
       {stages.map((stage, index) => {
-        const settable = binauralForKind(stage.kind);
+        const settable = binauralOn && binauralForKind(stage.kind);
         const active = index === activeIndex;
         return (
           <li
             key={stage.key}
             data-stage={index}
             data-active={active ? "true" : "false"}
-            className={`flex items-center gap-1 rounded-xl border px-2 py-1 transition-colors ${
+            className={`relative flex items-center gap-1 rounded-xl border px-2 py-1 transition-colors ${
               active && running
                 ? "border-accent/60 bg-surface-raised"
                 : active
@@ -105,33 +118,27 @@ export function StageStrip({
                   : "border-line bg-surface"
             }`}
           >
-            {settable ? (
+            {/* Before the session begins, the whole card is the target: the owner's
+                round 20, *"clicking anywhere on meditation stage cards while the
+                session has not started should take the user to that stage, if the
+                user wants to start at that stage (same behavior as pressing the
+                right arrow)"*.
+
+                It is a labelled button painted **under** the card's own controls,
+                which are all positioned so they paint above it — the wheels are
+                still editable before Start, and `♪`/`↺` are presses of their own.
+                This is the same shape `CatalogCard` gives a card's press-anywhere
+                action, and for the same reason: a click handler on the container
+                would leave the card with no labelled default action at all. */}
+            {!started ? (
               <button
                 type="button"
-                aria-label={`Binaural for ${stage.label}`}
-                aria-pressed={stage.binaural}
-                title={`Binaural for ${stage.label}`}
-                onClick={() => onBinaural(index, !stage.binaural)}
-                className={`flex h-5 w-5 items-center justify-center rounded-md text-sm transition-colors active:scale-95 ${
-                  stage.binaural
-                    ? "bg-accent/15 text-text"
-                    : "text-muted hover:bg-bg/60 hover:text-text"
-                }`}
-              >
-                ♪
-              </button>
-            ) : (
-              // Not `aria-hidden`: the mark is the only thing that says this
-              // stage is silent, and a screen reader should hear that too. It is
-              // a description rather than a control, so it has no role and no
-              // press.
-              <span
-                title="Binaural is off for this stage"
-                className="flex h-5 w-5 items-center justify-center text-sm text-muted/40"
-              >
-                ♪
-              </span>
-            )}
+                aria-label={`Go to ${stage.label}`}
+                title={`Start the session from ${stage.label}`}
+                onClick={() => onSelect(index)}
+                className="absolute inset-0 rounded-xl active:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              />
+            ) : null}
             {/* A stage is pickable (the owner's round 17): the press highlights
                 it and holds the session there, so Start runs from here on. */}
             <button
@@ -140,7 +147,7 @@ export function StageStrip({
               aria-current={active ? "step" : undefined}
               title={`Start the session from ${stage.label}`}
               onClick={() => onSelect(index)}
-              className={`${EYEBROW_CLASS} rounded-md px-1 text-xs transition-colors hover:text-text ${
+              className={`${EYEBROW_CLASS} relative rounded-md px-1 text-xs transition-colors hover:text-text ${
                 active ? "text-text" : "text-muted"
               }`}
             >
@@ -150,13 +157,58 @@ export function StageStrip({
                 from then on — and in the same place either way. The captions are off
                 here and nowhere else: a card is as tall as this window (round 19,
                 item 2), and the columns keep their accessible names. */}
-            <DurationSteppers
-              durationMs={shownMs(index)}
-              readOnly={started}
-              onChange={(ms) => onDuration(index, ms)}
-              size="sm"
-              captions={false}
-            />
+            <div className="relative">
+              <DurationSteppers
+                durationMs={shownMs(index)}
+                readOnly={started}
+                onChange={(ms) => onDuration(index, ms)}
+                size="sm"
+                captions={false}
+              />
+            </div>
+            {/* Binaural is **in the stage's name** (item 0.2): a `♪` mark that is
+                itself the switch. A kind that cannot carry binaural
+                (`binauralForKind`) draws the mark as a plain, quiet character rather
+                than a control that cannot act — the app's rule is that a control
+                which cannot act is not drawn, and the mark is information about the
+                stage (this one is silent) rather than an action.
+
+                It sits with the stage's `↺` (the owner's round 20): *"it would look
+                more classy if the stage's toggles for binaural and reload stage would
+                be on the same side (currently binaural is on left and reload is on
+                the right)"*. The two things about a stage that are switches are one
+                group at the end of its card, and the name and its clock keep the
+                reading order they had. */}
+            {binauralOn ? (
+              settable ? (
+                <button
+                  type="button"
+                  aria-label={`Binaural for ${stage.label}`}
+                  aria-pressed={stage.binaural}
+                  title={`Binaural for ${stage.label}`}
+                  onClick={() => onBinaural(index, !stage.binaural)}
+                  className={`relative flex h-5 w-5 items-center justify-center rounded-md text-sm transition-colors active:scale-95 ${
+                    stage.binaural
+                      ? "bg-accent/15 text-text"
+                      : "text-muted hover:bg-bg/60 hover:text-text"
+                  }`}
+                >
+                  ♪
+                </button>
+              ) : (
+                // Not `aria-hidden`: the mark is the only thing that says this
+                // stage is silent, and a screen reader should hear that too. It is
+                // a description rather than a control, so it has no role and no
+                // press — and no `relative`, so the card's own target still answers
+                // a press that lands on it.
+                <span
+                  title="Binaural is off for this stage"
+                  className="flex h-5 w-5 items-center justify-center text-sm text-muted/40"
+                >
+                  ♪
+                </span>
+              )
+            ) : null}
             {/* The owner's round 17: *"I want a restart button for each of the
                 stages"*. It is the same move as picking the stage — back to its set
                 length, holding, waiting for Start — because that is what a restart
@@ -166,7 +218,7 @@ export function StageStrip({
               aria-label={`Restart ${stage.label}`}
               title={`Restart ${stage.label} from its set time`}
               onClick={() => onSelect(index)}
-              className="rounded-md px-1 text-sm text-muted transition-colors hover:text-text active:scale-95"
+              className="relative rounded-md px-1 text-sm text-muted transition-colors hover:text-text active:scale-95"
             >
               ↺
             </button>

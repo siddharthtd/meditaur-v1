@@ -22,6 +22,7 @@ import type {
 } from "./models.ts";
 import { MAX_TONES_PER_EAR } from "./tones.ts";
 import { blockStages, stagesDurationMs } from "./stages.ts";
+import { systemPick, type PickLines } from "./pick.ts";
 import {
   AREA_OF_SCOPE,
   BUILTIN_AREA_COLUMNS,
@@ -29,7 +30,7 @@ import {
 } from "./plan-display.ts";
 import { entryIsVisible, isLive, lineIsVisible, livenessOf } from "./visibility.ts";
 
-export const SNAPSHOT_SCHEMA_VERSION = 6;
+export const SNAPSHOT_SCHEMA_VERSION = 8;
 export const SNAPSHOT_KEEP_PER_PLAN = 5;
 export const SESSION_LOG_LIST_LIMIT = 50;
 
@@ -37,27 +38,32 @@ export const SESSION_LOG_LIST_LIMIT = 50;
  * The sentences written about one meditation, in the reader's order.
  *
  * The owner's round 16, §2.1: a sentence is one table and a block reads its **own**
- * meditation's. The order is the pairs' first and then the sentences' — which is the
+ * meditations'. The order is the pairs' first and then the sentences' — which is the
  * order the Karuna table draws them in — so a Protection block reads what
  * Protection's rows say, in the order the reader arranged them.
+ *
+ * A list since round 22: a point block clubs several points into one pass, and its
+ * affirmations stage reads them one after another in the block's own order.
  *
  * A sentence with no pair (`entryId: null`) is not about any meditation, so it is
  * nobody's: it lives in the Affirmations tab until something is associated with it.
  */
 export function sentencesForMeditation(
-  meditationId: string | null,
+  meditationIds: readonly string[],
   entries: Entry[],
   intentions: Intention[],
 ): string[] {
-  if (!meditationId) return [];
+  if (meditationIds.length === 0) return [];
   const byOrder = (a: { sortOrder: number; id: string }, b: { sortOrder: number; id: string }) =>
     a.sortOrder - b.sortOrder || a.id.localeCompare(b.id);
   const sentences: string[] = [];
-  for (const entry of entries.filter((row) => row.meditationId === meditationId).sort(byOrder)) {
-    for (const line of intentions.filter((row) => row.entryId === entry.id).sort(byOrder)) {
-      // A blank line is left out: the app refuses to store one, and a backup file
-      // can carry anything, so compile does not take a row of spaces for a sentence.
-      if (line.text.trim().length > 0) sentences.push(line.text);
+  for (const meditationId of meditationIds) {
+    for (const entry of entries.filter((row) => row.meditationId === meditationId).sort(byOrder)) {
+      for (const line of intentions.filter((row) => row.entryId === entry.id).sort(byOrder)) {
+        // A blank line is left out: the app refuses to store one, and a backup file
+        // can carry anything, so compile does not take a row of spaces for a sentence.
+        if (line.text.trim().length > 0) sentences.push(line.text);
+      }
     }
   }
   return sentences;
@@ -110,6 +116,33 @@ export type CompileOptions = {
    * read — so the preference is the single source now.
    */
   stopBinauralOnAlarm?: boolean;
+  /**
+   * The account's `binaural` flag, resolved by the caller (`P0 · 35`, slice 35d).
+   *
+   * `true` compiles every block with **no tones**, which is the switch the engine
+   * already honours — `setBinaural(stage.binaural ? block.binaural : null)` on a null
+   * block is silence — so nothing in the engine changes and no stored row is touched.
+   * The stages still run, which is the owner's "off means silent, the session still
+   * runs"; the plan's own `binauralEnabled` keeps its value and is heard again the day
+   * the flag comes back.
+   */
+  binauralSilent?: boolean;
+  /**
+   * The randomiser's draw, injected the way `Clock` is (`P2 · 45`).
+   *
+   * Optional because `systemPick` is the real one: a test supplies a settled draw rather
+   * than mocking a global, and the app passes nothing at all.
+   */
+  pick?: PickLines;
+  /**
+   * The account's `intention_randomiser` flag, resolved by the caller (`P2 · 44`).
+   *
+   * `false` compiles every block with **every line**, whatever the block carries. The flag
+   * subtracts the behaviour and not only the control, which is the `binaural` precedent
+   * again: off means the trimming does not happen, and no stored row is touched, so the
+   * counts are read again the day the flag comes back.
+   */
+  randomiseIntentions?: boolean;
 };
 
 function indexBy<T>(items: T[], key: (item: T) => string): Map<string, T> {
@@ -249,31 +282,69 @@ function factsFor(
   return facts;
 }
 
-function groupForSymbol(
-  meditationId: string | null,
+/**
+ * The symbols a block's meditations carry, each one **once**, in the order they are met.
+ *
+ * A `symbolScope: "all"` block walks every symbol its meditations have — and a point block
+ * clubs several points, so a symbol two of them share must appear once and carry both
+ * points' lines (`groupForSymbols`). First-appearance order is the reading order: the first
+ * point's symbols, then whatever only the next one has.
+ */
+function distinctSymbolsFor(
+  meditationIds: readonly string[],
+  symbolsByMeditation: Map<string, Symbol[]>,
+): Symbol[] {
+  const seen = new Set<string>();
+  const out: Symbol[] = [];
+  for (const meditationId of meditationIds) {
+    for (const row of symbolsByMeditation.get(meditationId) ?? []) {
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/**
+ * One symbol's group, across every meditation the block runs.
+ *
+ * The owner's round 22 rule: a symbol the block's points have **in common** is shown once,
+ * holding each point's lines for it. The points are what the reader is moving through and
+ * the symbol is what they are holding, so a group per pair would print the same symbol name
+ * N times and split one reading into N cells.
+ */
+function groupForSymbols(
+  meditationIds: readonly string[],
   symbol: Symbol,
   input: FactScope & {
     intentByPair: Map<string, string[]>;
     entryIdByPair: Map<string, string>;
   },
 ): CompiledSymbolGroup {
-  const pair = pairKey(meditationId, symbol.id);
   // "Symbol-only lines join the block whose symbol matches" (§10): a line written
   // about a symbol on its own belongs to that symbol's box wherever the symbol
   // appears, so it reads first and the pair's own lines follow.
-  const solo = meditationId ? (input.intentByPair.get(pairKey(null, symbol.id)) ?? []) : [];
+  const solo =
+    meditationIds.length > 0 ? (input.intentByPair.get(pairKey(null, symbol.id)) ?? []) : [];
+  // Each point's lines for this symbol, in the block's own order.
+  const pairs = meditationIds.flatMap(
+    (meditationId) => input.intentByPair.get(pairKey(meditationId, symbol.id)) ?? [],
+  );
+  // The entry facts belong to a **pair**, and a group of several has several: the first
+  // pair the block names is the one the box describes — the lead's answer, like every other
+  // block-level fact.
+  const entryId = meditationIds
+    .map((meditationId) => input.entryIdByPair.get(pairKey(meditationId, symbol.id)))
+    .find((id) => id != null);
   return {
     name: symbol.name,
     description: symbol.description,
     usage: symbol.usage,
     imageAssetId: symbol.imageAssetId ?? null,
     facts: factsFor(input, { area: "symbol", entityId: symbol.id, record: symbol }),
-    entryFacts: factsFor(input, {
-      area: "entry",
-      entityId: input.entryIdByPair.get(pair) ?? null,
-      record: null,
-    }),
-    intentions: [...solo, ...(input.intentByPair.get(pair) ?? [])],
+    entryFacts: factsFor(input, { area: "entry", entityId: entryId ?? null, record: null }),
+    intentions: [...solo, ...pairs],
   };
 }
 
@@ -362,37 +433,53 @@ export function compilePlan(
   const nextSymbolIndex = new Map<string, number>();
   const blocks: CompiledBlock[] = [];
   for (const block of plan.blocks.slice().sort((a, b) => a.sortOrder - b.sortOrder)) {
-    if (!block.meditationId) {
+    if (block.meditationIds.length === 0) {
       // The owner's round 15 deleted cool-off, so a block that names nothing has
       // nothing to run. A stored block that did is dropped on the way in
       // (`parsePlanBlocks`), which is why reaching this is a broken plan rather
       // than an old one.
       fail("compile.meditationRequired", `Block ${block.id} requires a meditation`);
     }
-    // A block whose meditation is archived steps aside rather than being removed: it
-    // stays in the plan, is not shown and is not compiled, and Restore reveals it
-    // where it was again (the owner's rule, 2026-09-18).
-    if (block.meditationId && focusIsArchived.has(block.meditationId)) continue;
-    const focus = requireListed(block.meditationId, focusById, block.id, "meditation");
+    // A block whose meditations are **all** archived steps aside rather than being removed:
+    // it stays in the plan, is not shown and is not compiled, and Restore reveals it where it
+    // was again (the owner's rule, 2026-09-18). One archived point of several is simply not
+    // this session's business, so it drops out of the block.
+    const liveIds = block.meditationIds.filter((id) => !focusIsArchived.has(id));
+    if (liveIds.length === 0) continue;
+    const foci: Meditation[] = [];
+    for (const id of liveIds) {
+      const row = requireListed(id, focusById, block.id, "meditation");
+      if (row) foci.push(row);
+    }
+    // A block's stages, its binaural answer, its Display facts and the picture a Focus stage
+    // draws all come from its **lead** — its first point. One set of timers is what "the
+    // block's stages" means, and the first point is the one the reader put there.
+    const focus = foci[0];
+    if (!focus) continue;
+    const meditationIds = foci.map((row) => row.id);
+    // The rotation counter is keyed on the whole list rather than on one meditation: for a
+    // block of one this is that meditation's id, which is what it has always been.
+    const rotationKey = meditationIds.join("+");
     let symbol: Symbol | undefined;
     let showAll = false;
-    if (focus) {
-      if (block.symbolId) {
-        // An archived symbol is not a missing one: the block keeps its place and
-        // goes back to walking whatever the meditation still has, exactly as it does
-        // when the symbol is deleted.
-        symbol = symbolIsArchived.has(block.symbolId)
-          ? undefined
-          : requireListed(block.symbolId, symbolById, block.id, "symbol");
-      } else if (block.symbolScope === "all") {
-        showAll = true;
-      } else {
-        const list = symbolsByMeditation.get(focus.id) ?? [];
-        if (list.length > 0) {
-          const idx = nextSymbolIndex.get(focus.id) ?? 0;
-          symbol = list[idx % list.length];
-          nextSymbolIndex.set(focus.id, idx + 1);
-        }
+    if (block.symbolId) {
+      // An archived symbol is not a missing one: the block keeps its place and
+      // goes back to walking whatever the meditations still have, exactly as it does
+      // when the symbol is deleted.
+      symbol = symbolIsArchived.has(block.symbolId)
+        ? undefined
+        : requireListed(block.symbolId, symbolById, block.id, "symbol");
+    } else if (block.symbolScope === "all") {
+      showAll = true;
+    } else {
+      // "Rotate next": the block walks the symbols its meditations carry, one block at a
+      // time. A point block's list is the **distinct** union across its points, so a symbol
+      // two of them share is walked once.
+      const list = distinctSymbolsFor(meditationIds, symbolsByMeditation);
+      if (list.length > 0) {
+        const idx = nextSymbolIndex.get(rotationKey) ?? 0;
+        symbol = list[idx % list.length];
+        nextSymbolIndex.set(rotationKey, idx + 1);
       }
     }
     const preset = requireListed(block.binauralPresetId, presetById, block.id, "preset");
@@ -407,29 +494,60 @@ export function compilePlan(
       : factScope;
     requireListed(block.ambientAssetId, assetById, block.id, "ambient audio");
     const alarm = requireListed(block.alarmAssetId, assetById, block.id, "alarm audio");
-    const focusIntentions = focus ? (intentByPair.get(pairKey(focus.id, null)) ?? []) : [];
-    let symbolGroups: CompiledSymbolGroup[] = [];
-    if (focus && showAll) {
-      symbolGroups = (symbolsByMeditation.get(focus.id) ?? []).map((row) =>
-        groupForSymbol(focus.id, row, { ...blockScope, intentByPair, entryIdByPair }),
+    // The points' own sentences, in the block's order — the lines that belong to a point and
+    // to no symbol. They read **first** in the intentions table (the owner's round 22),
+    // exactly as a chakra's own lines do.
+    const allOwnLines = meditationIds.flatMap(
+      (meditationId) => intentByPair.get(pairKey(meditationId, null)) ?? [],
+    );
+    let allSymbolGroups: CompiledSymbolGroup[] = [];
+    if (showAll) {
+      allSymbolGroups = distinctSymbolsFor(meditationIds, symbolsByMeditation).map((row) =>
+        groupForSymbols(meditationIds, row, { ...blockScope, intentByPair, entryIdByPair }),
       );
     } else if (symbol) {
-      symbolGroups = [
-        groupForSymbol(focus?.id ?? null, symbol, { ...blockScope, intentByPair, entryIdByPair }),
+      allSymbolGroups = [
+        groupForSymbols(meditationIds, symbol, { ...blockScope, intentByPair, entryIdByPair }),
       ];
     }
+    // The block's own randomiser draws from what it would otherwise read (the owner's
+    // round 24, `P2 · 45`): `own` from the meditations' own lines, `symbols` from each
+    // symbol's group — the symbol's own lines pooled with the meditations' lines for it,
+    // which is the group the session draws under that symbol's name. Off, on the flag or
+    // on the card's master switch, nothing is drawn and the block reads exactly what it
+    // always did.
+    //
+    // Applied here, to the two finished lists, rather than to `intentByPair`: the setting
+    // is the **block's** and the map is the workspace's, so a shared map would have to be
+    // copied per block anyway — and drawing from the finished group is what "the whole
+    // per-symbol box, chosen together" means. The affirmations list is deliberately not
+    // drawn from: that stage reads the meditation's sentences, and the card's counts name
+    // intentions.
+    const randomiser = options.randomiseIntentions === false ? null : block.intentionRandomiser;
+    const draw = randomiser?.on === true ? randomiser : null;
+    const pick = options.pick ?? systemPick;
+    const focusIntentions =
+      draw?.own.on === true ? pick(draw.own.count, allOwnLines) : allOwnLines;
+    const symbolGroups =
+      draw?.symbols.on === true
+        ? allSymbolGroups.map((group) => ({
+            ...group,
+            intentions: pick(draw.symbols.count, group.intentions),
+          }))
+        : allSymbolGroups;
     const intentions = [
       ...focusIntentions,
       ...symbolGroups.flatMap((group) => group.intentions),
     ];
-    const binauralAllowed = plan.binauralEnabled !== false && focus?.binauralEnabled !== false;
+    const binauralAllowed =
+      !options.binauralSilent &&
+      plan.binauralEnabled !== false &&
+      // Every point in the block has to allow it: one tone is played for the block, and a
+      // point the reader has silenced is a point they do not want the tones over.
+      foci.every((row) => row.binauralEnabled !== false);
     // The stages this block runs, and its length as their sum. A block that names
     // no meditation — a cool-off block — keeps the single stage it was read with.
-    const stages = blockStages(
-      block,
-      focus ?? null,
-      focus ? (typeById.get(focus.typeId) ?? null) : null,
-    );
+    const stages = blockStages(block, focus, typeById.get(focus.typeId) ?? null);
     const overrideMs = options.durationOverrideMs ?? null;
     const timedStages =
       overrideMs == null
@@ -441,18 +559,24 @@ export function compilePlan(
       durationMs: stagesDurationMs(timedStages),
       stages: timedStages,
       affirmations: timedStages.some((row) => row.kind === "affirmations")
-        ? sentencesForMeditation(focus?.id ?? null, liveEntries, liveLines)
+        ? sentencesForMeditation(meditationIds, liveEntries, liveLines)
         : [],
-      meditationName: focus?.name ?? null,
-      meditationTypeName: focus
-        ? (typeById.get(focus.typeId)?.name ?? null)
-        : null,
+      meditationName: focus.name,
+      meditationNames: foci.map((row) => row.name),
+      // A Focus stage draws the meditation's picture in its colour (the owner's round 20,
+      // item 5), and a session reads the snapshot rather than the store: both are stamped
+      // here beside the name, for the same reason `meditationTypeName` is.
+      representationAssetId: focus.representationAssetId ?? null,
+      colour: focus.colour ?? null,
+      meditationTypeName: typeById.get(focus.typeId)?.name ?? null,
       symbolName: showAll ? null : (symbol?.name ?? null),
       intentions,
       focusIntentions,
-      meditationFacts: focus
-        ? factsFor(blockScope, { area: "meditation", entityId: focus.id, record: focus })
-        : [],
+      meditationFacts: factsFor(blockScope, {
+        area: "meditation",
+        entityId: focus.id,
+        record: focus,
+      }),
       symbolGroups,
       // This block's own switch if it has one, and the plan's otherwise — the
       // reader's round 17 order of precedence, and the reason a plan whose blocks

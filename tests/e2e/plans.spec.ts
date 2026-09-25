@@ -22,6 +22,20 @@ test("create, switch, and delete plans without select elements", async ({ page }
   await page.getByRole("button", { name: "Delete plan" }).click();
   await page.getByRole("button", { name: "Delete New session?" }).click();
   await expect(page.getByRole("textbox", { name: "Plan name" })).toHaveValue("Chakra circuit");
+  // A deleted plan is a **mark** on its row rather than a removal (`P2 · 3`, slice 3),
+  // so the plan is still stored and has to be able to travel as gone. The planner
+  // patched it out of its list regardless, so a reload is the half that proves it: the
+  // reads leave the marked plan out, and the plan does not come back.
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: "Plan name" })).toHaveValue("Chakra circuit");
+  await page.getByRole("button", { name: "Switch plan" }).click();
+  await expect(page.getByRole("button", { name: "New session", exact: true })).toHaveCount(0);
+  // The picker's legend and its own action share one bar (round 25). It used to be the one
+  // shell that kept them apart — the legend in the title's row, `Choose` in the text bar.
+  const pickerBar = page.getByRole("button", { name: "Choose", exact: true }).locator("xpath=..");
+  await expect(pickerBar.getByRole("button", { name: "Esc back", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Chakra circuit", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Plan name" })).toHaveValue("Chakra circuit");
   await page.getByRole("button", { name: "New plan" }).click();
   await expect(page.getByRole("textbox", { name: "Plan name" })).toHaveValue("New session");
   await page.getByRole("button", { name: "Switch plan" }).click();
@@ -142,6 +156,41 @@ test("a wheel turns with the mouse wheel, and still with a drag", async ({ page 
   await page.mouse.move(centre.x, centre.y + 80, { steps: 8 });
   await page.mouse.up();
   await expect.poll(value, { message: "the drag turned it back" }).toBeLessThan(wheeled);
+});
+
+test("a wheel turns on one axis, and a sideways swipe moves nothing", async ({ page }) => {
+  // The owner's round 20: *"The minute wheel is able to scroll horizontally as well,
+  // while the seconds wheel only scrolls vertically as it should. Fix the minute wheel
+  // to only move vertically."* The minute column is the one that can overflow sideways
+  // at all — `180` is wider than it — so it is the one that had somewhere to go.
+  await openEditor(page, "Third-Eye Chakra");
+  const minutes = page.getByRole("spinbutton", { name: "Minutes" }).first();
+  await minutes.scrollIntoViewIfNeeded();
+  await minutes.click();
+  const box = page.getByRole("textbox", { name: "Minutes value" });
+  await box.fill("180");
+  await box.press("Enter");
+  await expect(minutes).toHaveAttribute("aria-valuenow", "180");
+
+  const scrollLeft = () =>
+    minutes.evaluate((el) => (el.querySelector(".time-wheel") as HTMLElement).scrollLeft);
+  expect(await scrollLeft(), "it starts where it should").toBe(0);
+  // Asserted as a style rather than as a scroll: whether three digits actually
+  // overflow is the font's business, and the rule is that the axis does not exist
+  // whichever way that comes out.
+  expect(
+    await minutes.evaluate((el) =>
+      getComputedStyle(el.querySelector(".time-wheel") as HTMLElement).overflowX,
+    ),
+    "the minute column declares no sideways axis",
+  ).toBe("hidden");
+
+  const rect = (await minutes.boundingBox())!;
+  await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  await page.mouse.wheel(200, 0);
+  await expect
+    .poll(scrollLeft, { message: "a sideways swipe leaves it where it was" })
+    .toBe(0);
 });
 
 test("the wheel rests on a digit, not between two", async ({ page }) => {
@@ -606,6 +655,58 @@ test("the session is a region list, and the screen does not scroll", async ({ pa
   expect(stopBox.y + stopBox.height, "the controls are on screen").toBeLessThanOrEqual(
     box.clientHeight + 1,
   );
+});
+
+test("the card's Intentions section draws a subset, and remembers it", async ({ page }) => {
+  // The owner's round 24 (`P2 · 45`): a plan card can ask for a handful of intentions a
+  // session rather than all of them, so a list that has grown past one sitting stops
+  // being a list the reader has to hurry through. The **effect** on a session is the
+  // compiler's and is unit-tested (`compile-plan.test.ts`); what this covers is the
+  // control the reader actually presses — and that what it holds is stored on the block
+  // rather than kept in the screen's state.
+  test.slow();
+  await openEditor(page, "Third-Eye Chakra");
+
+  const master = page.getByRole("button", { name: "Draw a subset each session" });
+  await expect(master).toHaveAttribute("aria-pressed", "false");
+  // Nothing is drawn for a half that is off: a count beside a switch that does nothing
+  // is a promise nothing keeps.
+  await expect(page.getByRole("button", { name: /^Intentions of this meditation/ }))
+    .toHaveCount(0);
+
+  await master.click();
+  await expect(master).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: /^Intentions of this meditation/ }))
+    .toHaveAttribute("aria-pressed", "true");
+  // The seeded chakra carries symbols (round 21 bound the reiki symbols to every chakra),
+  // so the per-symbol half is offered too — one count for all of them.
+  await expect(page.getByRole("button", { name: /^Intentions under a symbol/ }))
+    .toHaveAttribute("aria-pressed", "true");
+
+  // The count the master switch produces, and that it is a real number the reader can
+  // move: three lines to begin with, then four.
+  const increase = page.getByRole("button", { name: "increase How many" }).first();
+  const ownRow = increase.locator("xpath=../..");
+  await expect(ownRow.locator(".tabular-nums")).toHaveText("3");
+  await increase.click();
+  await expect(ownRow.locator(".tabular-nums")).toHaveText("4");
+
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  // **The write has to land before the next line, because `openEditor` is a full
+  // navigation** (`page.goto("/plan")`), which re-reads the store — that is the point of
+  // the last two assertions, and a reopen that read the screen's own state would pass even
+  // if nothing had been written. Edits autosave 400ms after the last one (`Planner.tsx`)
+  // and `Done` does not flush, so this used to depend on the dev server being slow enough
+  // to compile `/plan` inside that window; the production build (item 17) navigates at
+  // once and made the assumption fail every time. So the write is asked for and waited
+  // for, the way the neighbouring test does it: the button drops its `· unsaved` half.
+  await page.getByRole("button", { name: /^Save/ }).click();
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
+  await openEditor(page, "Third-Eye Chakra");
+  await expect(master).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "increase How many" }).first()
+    .locator("xpath=../..")
+    .locator(".tabular-nums")).toHaveText("4");
 });
 
 test("the stages carry their own switches, and they survive a save", async ({ page }) => {

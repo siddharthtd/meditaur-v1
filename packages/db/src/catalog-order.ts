@@ -33,12 +33,21 @@ export const FOCUS_ORDER: readonly (readonly string[])[] = [
   ["Eyes", "Eye"],
   ["Temples", "Temple"],
   ["Ears", "Ear"],
-  ["Thyroid and thymus", "Thyroid", "Thymus"],
+  ["Thyroid and thymus", "Thyroid"],
+  // Round 22: those were two places written as one row, so the group became two. The old
+  // name stays an alias of the first, because a device that has not run v32 yet still holds
+  // a row spelled that way and it has to read where `Thyroid` reads.
+  ["Thymus"],
   ["Shoulders", "Shoulder"],
   ["Tips of the lungs", "Lungs"],
   ["Liver"],
   ["Kidneys", "Kidney"],
-  ["Pancreas and spleen", "Pancreas", "Spleen"],
+  // Round 25: `Pancreas and spleen` was two places written as one row, so the group became
+  // two — the split round 22 made of `Thyroid and thymus`. The old combined name stays an
+  // alias of the first, because a device that has not run v34 yet still holds a row spelled
+  // that way and it has to read where `Pancreas` reads.
+  ["Pancreas", "Pancreas and spleen"],
+  ["Spleen"],
   ["Thighs", "Thigh"],
   ["Knees", "Knee"],
   ["Lower legs", "Lower leg"],

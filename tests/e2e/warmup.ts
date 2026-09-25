@@ -1,17 +1,16 @@
 import { chromium } from "@playwright/test";
 
 /**
- * The e2e web server is `next dev`, and the e2e image ships no `.next`
- * (`infra/Dockerfile.e2e.dockerignore`), so every route is compiled on the first
- * request of every run — inside whichever test arrives first, with three workers
- * arriving at once.
+ * The e2e web server is a **production build** (`next start`, item 17), so nothing is
+ * compiled during a run and this is no longer a requirement for a new route: what is left of
+ * it is that every route is visited once before any worker starts, so a route that does not
+ * answer is found here rather than inside whichever worker reached it first.
  *
- * That cost was being read as a slow app. `plans.spec.ts`'s Display test starts
- * two sessions across three navigations, and CI failed it on both attempts with
- * `Start` not yet rendered: the compile of the route it lives on was sitting
- * inside its own budget. Visiting each route here — before the first worker
- * starts — moves the compiles out of the tests, where a slow compile cannot be
- * mistaken for a failing screen.
+ * It used to carry the whole cost of `next dev`: the image ships no `.next`, so every route
+ * was compiled on the first request of every run — inside whichever test arrived first, with
+ * three workers arriving at once — and that was read as a slow app. `plans.spec.ts`'s Display
+ * test starts two sessions across three navigations, and CI failed it on both attempts with
+ * `Start` not yet rendered: the compile of the route it lives on was inside its own budget.
  *
  * A fixture, not a test: it asserts only that each route answers.
  */
@@ -24,8 +23,12 @@ const ROUTES = [
   "/plan",
   "/library",
   "/database",
+  // A record's own page (the owner's round 22). It reads its kind and id from the
+  // query string, and so does every spec that lands on one.
+  "/record",
   "/settings",
   "/account",
+  "/admin",
   "/tuner",
   "/login",
   "/signup",

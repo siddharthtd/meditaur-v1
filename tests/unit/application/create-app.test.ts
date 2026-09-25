@@ -13,6 +13,7 @@ import {
   PRESET_ERRORS,
 } from "@meditaur/application";
 import {
+  DEFAULT_FEATURE_FLAGS,
   FakeClock,
   SESSION_LOG_LIST_LIMIT,
   SNAPSHOT_KEEP_PER_PLAN,
@@ -87,6 +88,108 @@ describe("createMeditaurApp", () => {
       prefs: makePrefs({ stopBinauralOnAlarm: true }),
     });
     expect((await on.compileAndStoreSession(off, "u1")).stopBinauralOnAlarm).toBe(true);
+  });
+
+  it("compiles a session silent, and whole, when the account has no binaural", async () => {
+    // `P0 · 35`, slice 35d. "Off means silent" (the owner, 2026-09-23): the tones go and
+    // every stage still runs, which is the difference between this and hiding a block. The
+    // plan is read rather than rewritten — a reader whose flag comes back finds their plan
+    // exactly as they left it — and the answer comes from the **account**, read in the
+    // application, not from the screen that pressed Start.
+    const plan = makePlan([makeBlock("b1", 0, { symbolId: "s1" })]);
+    const input = {
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [plan],
+      library,
+      presets: library.presets,
+      prefs: null,
+    };
+    const silent = appFromMemory({
+      ...input,
+      // A session is what makes the flags read reach the port at all: `getFeatureFlags`
+      // answers for the session, and a device with nobody signed in is every default —
+      // which is also why the second compile below is audible without any flags port.
+      auth: {
+        isConfigured: () => true,
+        getSession: async () => ({ userId: "u1", expiresAt: null }),
+        signIn: async () => ({ userId: "u1", expiresAt: null }),
+        signUp: async () => ({
+          status: "signedIn" as const,
+          session: { userId: "u1", expiresAt: null },
+        }),
+        signOut: async () => {},
+        onSessionChange: () => () => {},
+      },
+      flags: {
+        isConfigured: () => true,
+        read: async () => ({
+          flags: { ...DEFAULT_FEATURE_FLAGS, binaural: false },
+          isAdmin: false,
+        }),
+      },
+    });
+    const snapshot = await silent.compileAndStoreSession(plan, "u1");
+    expect(snapshot.blocks[0].binaural).toBeNull();
+    // The same plan with the flag on is audible, which is what makes the assertion above
+    // about the flag rather than about a plan that never carried a sound.
+    expect((await appFromMemory(input).compileAndStoreSession(plan, "u1")).blocks[0].binaural
+      ?.leftTones.length).toBeGreaterThan(0);
+    expect((await silent.getPlan("ws1", "plan1"))?.binauralEnabled).toBe(true);
+  });
+
+  it("refuses a session whose plan names a symbol the account is not offered", async () => {
+    // `P0 · 37`, the owner's answer (2026-09-23): a session shows what the account is
+    // offered and **nothing else**. A symbol is what a stored plan can name, and one
+    // outside the account is refused rather than quietly replaced — that symbol is the
+    // point of the block, and walking something else would hand the reader material the
+    // plan did not choose. Nothing is migrated for it, because no account has been
+    // released: there is no stored plan whose continuity this could break.
+    const plan = makePlan([makeBlock("b1", 0, { symbolId: "s1" })]);
+    const api = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [plan],
+      library,
+      presets: library.presets,
+      prefs: null,
+      auth: {
+        isConfigured: () => true,
+        getSession: async () => ({ userId: "u1", expiresAt: null }),
+        signIn: async () => ({ userId: "u1", expiresAt: null }),
+        signUp: async () => ({
+          status: "signedIn" as const,
+          session: { userId: "u1", expiresAt: null },
+        }),
+        signOut: async () => {},
+        onSessionChange: () => () => {},
+      },
+      flags: {
+        isConfigured: () => true,
+        read: async () => ({
+          flags: { ...DEFAULT_FEATURE_FLAGS, karuna_reiki: false },
+          isAdmin: false,
+        }),
+      },
+    });
+
+    // `makeSymbol` defaults to the Karuna system, which is exactly the row a flag hides.
+    // The sentence has to carry three things (the owner, 2026-09-23): the symbol **by
+    // name**, the way out the reader can take right now, and who to ask instead.
+    const refusal = await api
+      .compileAndStoreSession(plan, "u1")
+      .then(() => null)
+      .catch((err: unknown) => err as { code?: string; message?: string });
+    expect(refusal?.code).toBe("compile.symbolNotIncluded");
+    const message = refusal?.message ?? "";
+    expect(message, "names the symbol").toContain("Lam");
+    expect(message, "says what the reader can do now").toMatch(/Set the block's symbol/);
+    expect(message, "and who to ask").toMatch(/whoever set up your account/);
+
+    // The same rule read the other way: a block that names *no* symbol rotates through the
+    // ones the account has, so with the only binding hidden it has nothing to walk — and
+    // that is a session, not a refusal.
+    const rotating = makePlan([makeBlock("b1", 0, { symbolId: null, symbolScope: "all" })]);
+    const snapshot = await api.compileAndStoreSession(rotating, "u1");
+    expect(snapshot.blocks[0]?.symbolGroups).toEqual([]);
   });
 
   it("compiles a session from a stored plan id", async () => {
@@ -329,6 +432,172 @@ describe("createMeditaurApp", () => {
 
     await api.closeAccount();
     expect(calls).toEqual(["close", "signOut", "wipe"]);
+  });
+
+  it("reads the flags of the account the session names, and nobody's while signed out", async () => {
+    // `getFeatureFlags` asks the session rather than its caller, so there is one answer to
+    // "whose flags" — and a signed-out device is the defaults rather than an error, which
+    // is what keeps a local-only build behaving exactly as it did before flags existed.
+    const asked: string[] = [];
+    const signedIn = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+      auth: {
+        isConfigured: () => true,
+        getSession: async () => ({ userId: "u1", expiresAt: null }),
+        signIn: async () => ({ userId: "u1", expiresAt: null }),
+        signUp: async () => ({ status: "signedIn" as const, session: { userId: "u1", expiresAt: null } }),
+        signOut: async () => {},
+        onSessionChange: () => () => {},
+      },
+      flags: {
+        isConfigured: () => true,
+        async read(userId) {
+          asked.push(userId);
+          return { flags: { ...DEFAULT_FEATURE_FLAGS, chakras: false }, isAdmin: true };
+        },
+      },
+    });
+    expect(await signedIn.getFeatureFlags()).toEqual({
+      flags: { ...DEFAULT_FEATURE_FLAGS, chakras: false },
+      isAdmin: true,
+    });
+    expect(asked, "the session's own account, once").toEqual(["u1"]);
+
+    const signedOut = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+      auth: {
+        isConfigured: () => true,
+        getSession: async () => null,
+        signIn: async () => ({ userId: "u1", expiresAt: null }),
+        signUp: async () => ({ status: "confirmationRequired" }),
+        signOut: async () => {},
+        onSessionChange: () => () => {},
+      },
+      flags: {
+        isConfigured: () => true,
+        async read() {
+          throw new Error("nobody is signed in — the port must not be asked");
+        },
+      },
+    });
+    expect(await signedOut.getFeatureFlags()).toEqual({
+      flags: DEFAULT_FEATURE_FLAGS,
+      isAdmin: false,
+    });
+  });
+
+  it("reaches the panel's writes through one port, and answers with what was stored", async () => {
+    // The screen owns no call of its own (`P0 · 23`, slice 23f): everything the panel does
+    // goes through `AdminPort`, so the function behind it stays the only writer. What is
+    // pinned here is that the app passes the caller's own arguments through unchanged and
+    // hands back what the port stored — the panel patches the row it drew from that answer
+    // rather than re-reading every account.
+    const seen: { call: string; args: unknown[] }[] = [];
+    const api = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+      admin: {
+        isConfigured: () => true,
+        async listAccounts() {
+          seen.push({ call: "list", args: [] });
+          return [
+            {
+              userId: "u2",
+              email: "reader@example.test",
+              createdAt: "2026-09-23T00:00:00.000Z",
+              lastSignInAt: null,
+              isAdmin: false,
+              flags: { ...DEFAULT_FEATURE_FLAGS, chakras: false },
+            },
+          ];
+        },
+        async setFlags(userId, flags) {
+          seen.push({ call: "set-flags", args: [userId, flags] });
+          return { flags: { ...DEFAULT_FEATURE_FLAGS, ...flags }, isAdmin: false };
+        },
+        async createAccount(email, password) {
+          seen.push({ call: "create-account", args: [email, password] });
+          return { userId: "u3", email };
+        },
+        async setPassword(userId, password) {
+          seen.push({ call: "set-password", args: [userId, password] });
+        },
+      },
+    });
+
+    expect(api.adminIsConfigured()).toBe(true);
+
+    const accounts = await api.listAccounts();
+    expect(accounts.map((row) => row.userId)).toEqual(["u2"]);
+    expect(accounts[0]?.flags.chakras).toBe(false);
+
+    const stored = await api.setAccountFlags("u2", { chakras: false, binaural: false });
+    expect(stored.flags.chakras).toBe(false);
+    expect(stored.flags.binaural).toBe(false);
+    expect(stored.flags.usui_reiki, "a flag the write did not name is the default").toBe(true);
+
+    expect(await api.createAccount("new@example.test", "Test-pass-1!")).toEqual({
+      userId: "u3",
+      email: "new@example.test",
+    });
+    await api.setAccountPassword("u3", "Test-pass-2!");
+
+    expect(seen).toEqual([
+      { call: "list", args: [] },
+      { call: "set-flags", args: ["u2", { chakras: false, binaural: false }] },
+      { call: "create-account", args: ["new@example.test", "Test-pass-1!"] },
+      { call: "set-password", args: ["u3", "Test-pass-2!"] },
+    ]);
+  });
+
+  it("runs a sync for the workspace it is given, and lets a failing run go", async () => {
+    // What a run does is the storage adapter's (`P2 · 3`, slice 3); what the app owns
+    // is these two things. The workspace is the caller's rather than read from the
+    // store again — a run must not sync a workspace its caller's screen has left — and
+    // a failure has to be swallowed, because the store is local-first and a sync the
+    // reader never asked for must not arrive as an error. The refusing port is the half
+    // a test written against a working one would miss.
+    const seen: string[] = [];
+    const api = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+      sync: {
+        run: async (workspaceId) => {
+          seen.push(workspaceId);
+          return { sent: 2, received: 0, written: 0 };
+        },
+      },
+    });
+    await expect(api.syncNow("ws-elsewhere")).resolves.toBeUndefined();
+    expect(seen).toEqual(["ws-elsewhere"]);
+
+    const offline = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+      sync: {
+        run: async () => {
+          throw new Error("offline");
+        },
+      },
+    });
+    await expect(offline.syncNow("ws1")).resolves.toBeUndefined();
   });
 
   it("erases the device even when the sign-out fails, and wipes nothing when the close does", async () => {
@@ -635,7 +904,7 @@ describe("createMeditaurApp", () => {
     // One block, and it is a meditation: the owner's round 15 deleted cool-off, so a
     // new plan no longer opens with a silent timer after it.
     expect(created.blocks).toHaveLength(1);
-    expect(created.blocks[0]?.meditationId).toBeTruthy();
+    expect(created.blocks[0]?.meditationIds.length).toBeGreaterThan(0);
     expect((await api.getPreferences("u1"))?.lastPlanId).toBe(created.id);
     const remaining = await api.deletePlan("u1", "ws1", created.id);
     expect(remaining.id).toBe("plan1");
@@ -783,7 +1052,7 @@ describe("createMeditaurApp", () => {
   it("cascades a meditation delete through its symbols, lines, values and plans", async () => {
     const plan = makePlan([
       makeBlock("b1", 0, { symbolId: "s1" }),
-      makeBlock("b2", 1, { meditationId: "fp2", symbolId: "s1" }),
+      makeBlock("b2", 1, { meditationIds: ["fp2"], symbolId: "s1" }),
     ]);
     const api = appFromMemory({
       context: { userId: "u1", workspaceId: "ws1" },
@@ -1118,7 +1387,7 @@ describe("createMeditaurApp", () => {
     // The symbol's answer, with the rows this cascade takes instead of rewrites:
     // a removed meditation is gone from the plans as well, so there is no row left
     // to replace by id — the plan is what the screen has to be handed back.
-    const plan = makePlan([makeBlock("b1", 0, { meditationId: "fp1", symbolId: "s1" })]);
+    const plan = makePlan([makeBlock("b1", 0, { meditationIds: ["fp1"], symbolId: "s1" })]);
     const api = appFromMemory({
       context: { userId: "u1", workspaceId: "ws1" },
       plans: [plan],
@@ -1152,7 +1421,7 @@ describe("createMeditaurApp", () => {
     // test is about is that the answer covers *every* row the delete took — the
     // type, the meditations, and the lines inside their entries.
     const typeId = library.meditations[0]!.typeId;
-    const plan = makePlan([makeBlock("b1", 0, { meditationId: "fp1", symbolId: "s1" })]);
+    const plan = makePlan([makeBlock("b1", 0, { meditationIds: ["fp1"], symbolId: "s1" })]);
     const api = appFromMemory({
       context: { userId: "u1", workspaceId: "ws1" },
       plans: [plan],
@@ -1171,6 +1440,104 @@ describe("createMeditaurApp", () => {
     expect(changes.updated.plans[0]).toEqual(await api.getPlan("ws1", "plan1"));
   });
 
+  it("answers a record's archive with the row it rewrote, and a restore with the row it put back", async () => {
+    // An archive is the reader's one undo, so nothing is removed: the answer is the
+    // record's own row with `archivedAt` moved, which is what a screen replaces by
+    // id. `removed` is empty for **every** kind, and `oneRowChangeSet` is what says
+    // that once instead of at each of the six writes.
+    const api = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+    });
+
+    const archived = await api.archiveRecord("ws1", "meditation", "fp1");
+    expect(archived.removed).toEqual({
+      presets: [],
+      mediaAssets: [],
+      symbols: [],
+      entries: [],
+      intentions: [],
+      meditations: [],
+      meditationTypes: [],
+    });
+    expect(archived.updated.meditations.map((row) => row.id)).toEqual(["fp1"]);
+    expect(archived.updated.meditations[0]!.archivedAt).not.toBeNull();
+    // A row the write did not touch is absent, or a screen would rewrite it from a
+    // copy that has since moved.
+    expect(archived.updated.symbols).toEqual([]);
+
+    // The answer is what a refetch would have said, row for row.
+    const hidden = await api.getLibrary("ws1");
+    expect(archived.updated.meditations[0]).toEqual(
+      hidden.meditations.find((row) => row.id === "fp1"),
+    );
+
+    const restored = await api.restoreRecord("ws1", "meditation", "fp1");
+    expect(restored.updated.meditations[0]!.archivedAt).toBeNull();
+    const back = await api.getLibrary("ws1");
+    expect(restored.updated.meditations[0]).toEqual(
+      back.meditations.find((row) => row.id === "fp1"),
+    );
+  });
+
+  it("gives the preset bucket a writer: a preset's step aside answers with the row", async () => {
+    // The bucket the change-set was missing. A preset's *delete* needs only its id
+    // in `removed`, and the Library reads presets through their own repository — but
+    // the Archive page draws presets out of this view, and a step aside keeps the
+    // row. An id cannot say what `archivedAt` became, so archiving is what earns it.
+    const api = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+    });
+
+    const changes = await api.archiveRecord("ws1", "preset", "preset1");
+
+    expect(changes.removed.presets).toEqual([]);
+    expect(changes.updated.presets.map((row) => row.id)).toEqual(["preset1"]);
+    expect(changes.updated.presets[0]!.archivedAt).not.toBeNull();
+    // The answer is what a refetch would have said, row for row.
+    const back = await api.getLibrary("ws1");
+    expect(changes.updated.presets[0]).toEqual(back.presets.find((row) => row.id === "preset1"));
+  });
+
+  it("answers a line's step aside with the line, so the Affirmations table can patch", async () => {
+    // The sentence table is the third screen with its own reload, and a line is the
+    // row only it holds: an archived sentence has to reach it as the stored row, or
+    // it stays drawn until the next clean load.
+    const lineId = library.intentions[0]!.id;
+    const api = appFromMemory({
+      context: { userId: "u1", workspaceId: "ws1" },
+      plans: [],
+      library,
+      presets: library.presets,
+      prefs: null,
+    });
+
+    const archived = await api.archiveLine("ws1", lineId);
+    expect(archived.updated.intentions.map((row) => row.id)).toEqual([lineId]);
+    expect(archived.updated.intentions[0]!.archivedAt).not.toBeNull();
+    // Archiving rewrites the row and nothing else: the entry it belongs to keeps
+    // its place and comes back with it.
+    expect(archived.updated.entries).toEqual([]);
+
+    // The answer is what a refetch would have said, row for row.
+    const hidden = await api.getLibrary("ws1");
+    expect(archived.updated.intentions[0]).toEqual(
+      hidden.intentions.find((row) => row.id === lineId),
+    );
+
+    const restored = await api.restoreLine("ws1", lineId);
+    expect(restored.updated.intentions[0]!.archivedAt).toBeNull();
+    const back = await api.getLibrary("ws1");
+    expect(restored.updated.intentions[0]).toEqual(back.intentions.find((row) => row.id === lineId));
+  });
+
   it("archives a row without touching what it holds, and brings it back whole", async () => {
     const plan = makePlan([makeBlock("b1", 0, { symbolId: "s1" })]);
     const api = appFromMemory({
@@ -1180,29 +1547,33 @@ describe("createMeditaurApp", () => {
       presets: library.presets,
       prefs: null,
     });
-    await api.archiveEntry("ws1", "e-fp1-s1");
+    const archived = await api.archiveEntry("ws1", "e-fp1-s1");
     const hidden = await api.getLibrary("ws1");
     expect(hidden.entries[0]?.archivedAt).not.toBeNull();
+    // The answer is the row it stored, and a refetch agrees with it, row for row.
+    expect(archived.updated.entries[0]).toEqual(hidden.entries[0]);
+    expect(archived.removed.symbols).toEqual([]);
     // Nothing else moved: the line is still there, with its own place, because
     // archiving hides a row rather than dismantling it (§3.1).
     expect(hidden.intentions).toHaveLength(1);
     expect(hidden.intentions[0]).toMatchObject({ entryId: "e-fp1-s1", text: "A1" });
 
-    await api.restoreEntry("ws1", "e-fp1-s1");
+    const restored = await api.restoreEntry("ws1", "e-fp1-s1");
     const back = await api.getLibrary("ws1");
     expect(back.entries[0]).toMatchObject({ archivedAt: null, sortOrder: 0 });
+    expect(restored.updated.entries[0]).toEqual(back.entries[0]);
     const snapshot = await api.compileSession("u1", "ws1", "plan1");
     expect(snapshot.blocks[0].symbolGroups[0]?.intentions).toEqual(["A1"]);
   });
 
   it("steps a meditation's blocks aside while it is archived, and reveals them again", async () => {
     const plan = makePlan([
-      makeBlock("b1", 0, { meditationId: "fp1", symbolId: "s1" }),
+      makeBlock("b1", 0, { meditationIds: ["fp1"], symbolId: "s1" }),
       // A second meditation, because the test's point is that *one* meditation's
       // blocks step aside while the plan keeps them (the owner's rule, 2026-09-18)
       // and a second block is what is still left to compile. It used to be a
       // cool-off block, which had no meditation to archive.
-      makeBlock("b2", 1, { meditationId: "fp2", symbolId: "s2", binauralPresetId: null }),
+      makeBlock("b2", 1, { meditationIds: ["fp2"], symbolId: "s2", binauralPresetId: null }),
     ]);
     const api = appFromMemory({
       context: { userId: "u1", workspaceId: "ws1" },

@@ -27,6 +27,7 @@ import {
   ALL_PICK_ID,
   NONE_PICK_ID,
   applyBlockPick,
+  toggleBlockMeditation,
   type BlockPickKind,
   type LibraryView,
 } from "@meditaur/application";
@@ -39,9 +40,14 @@ import {
   createId,
   defaultStage,
   fail,
+  isLive,
+  leadMeditationId,
   setDisplayColumn,
   stagesForMeditation,
+  visibleSymbols,
+  visibleTypes,
   type FieldDef,
+  type IntentionRandomiser,
   type Plan,
   type PlanBlock,
   type PlanBlockStage,
@@ -172,15 +178,111 @@ function FieldButton({
  * *"the Thanksgiving card has a symbol entry, even though there are no symbols in
  * there, there shouldn't be"*).
  */
-function symbolsForMeditation(library: LibraryView, meditationId: string | null) {
-  if (!meditationId) return [];
+/**
+ * What the master switch starts from when a block has never been asked.
+ *
+ * Both halves on, three lines each: the ask is *"draw a few, and let the list move on"*,
+ * so the state the switch produces is the state it describes. The counts are the reader's
+ * from that press onward, and a block that has **never** been asked still stores `null` —
+ * this is what the screen offers, not what the store holds.
+ */
+const RANDOMISER_START: IntentionRandomiser = {
+  on: false,
+  own: { on: true, count: 3 },
+  symbols: { on: true, count: 3 },
+};
+
+/**
+ * The top value a count can be dialled to.
+ *
+ * An **upper bound**, and deliberately not the exact pool: the rule that decides what a
+ * symbol's box holds lives in `compilePlan` alone (`groupForSymbols`) — a symbol's own
+ * lines pooled with each meditation's lines for it — and a second spelling of it here
+ * would be a rule free to drift from the one a session obeys. A cap only has to be large
+ * enough, because a count at or above a pool keeps **all** of it: dialled to the top, a
+ * session reads everything, which is the promise the top of the range makes.
+ */
+function randomiserCeiling(library: LibraryView, meditationIds: readonly string[]): number {
+  const mine = new Set(meditationIds);
+  const entryIds = new Set(
+    library.entries
+      .filter((row) => isLive(row) && row.meditationId !== null && mine.has(row.meditationId))
+      .map((row) => row.id),
+  );
+  return library.intentions.filter(
+    (row) => isLive(row) && row.entryId !== null && entryIds.has(row.entryId),
+  ).length;
+}
+
+/**
+ * One half of the randomiser: its switch, and — only while it is on — its count.
+ *
+ * The count is not drawn while the half is off, which is the app's own rule ("a control
+ * that cannot act is not drawn") and also the honest shape here: a half that is off reads
+ * every line, so a number beside it would be a promise nothing keeps.
+ */
+function RandomiserRow({
+  label,
+  hint,
+  half,
+  max,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  half: { on: boolean; count: number };
+  /** The dial's top value: this many lines, or more, means all of them. */
+  max: number;
+  onChange: (next: { on: boolean; count: number }) => void;
+}): React.ReactNode {
+  return (
+    <div className="flex flex-col gap-1">
+      <LatchButton
+        label={label}
+        pressed={half.on}
+        onChange={(on) => onChange({ ...half, on })}
+      />
+      {half.on ? (
+        <Stepper
+          label="How many"
+          value={half.count}
+          min={0}
+          max={Math.max(1, max)}
+          onChange={(count) => onChange({ ...half, count })}
+        />
+      ) : null}
+      <p className="text-sm text-muted">{hint}</p>
+    </div>
+  );
+}
+
+function symbolsForBlock(library: LibraryView, meditationIds: readonly string[]) {
+  if (meditationIds.length === 0) return [];
+  const wanted = new Set(meditationIds);
   const bound = new Set(
     library.entries
-      .filter((row) => row.archivedAt == null && row.meditationId === meditationId)
+      .filter(
+        (row) => row.archivedAt == null && row.meditationId != null && wanted.has(row.meditationId),
+      )
       .map((row) => row.symbolId)
       .filter((id): id is string => Boolean(id)),
   );
   return library.symbols.filter((row) => bound.has(row.id));
+}
+
+/**
+ * What a card calls a block: the meditations it runs, in order, joined.
+ *
+ * One point reads as its own name; a point block of three reads as three, which is the
+ * whole of what a card has to say about which points it clubs (the owner's round 22:
+ * *"each block will have different points clubbed together"*). A point the library no
+ * longer holds drops out rather than printing a hole.
+ */
+function blockTitle(block: PlanBlock, library: LibraryView): string {
+  const names = block.meditationIds
+    .map((id) => library.meditations.find((row) => row.id === id)?.name)
+    .filter((name): name is string => Boolean(name));
+  return names.length > 0 ? names.join(" · ") : "Choose";
 }
 
 /** The meditation's type name, for a card's or an editor's second line. */
@@ -206,7 +308,7 @@ function blockSummary(block: PlanBlock, library: LibraryView): string {
     formatDurationMs(length),
     `${block.stages.length} stage${block.stages.length === 1 ? "" : "s"}`,
   ];
-  if (symbolsForMeditation(library, block.meditationId).length > 0) {
+  if (symbolsForBlock(library, block.meditationIds).length > 0) {
     parts.push(symbolPickLabel(block, library));
   }
   return parts.join(" · ");
@@ -252,9 +354,9 @@ function SortableBlock({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: block.id,
   });
-  const meditation = library.meditations.find((row) => row.id === block.meditationId);
-  const typeName = typeNameOf(library, block.meditationId);
-  const name = meditation?.name ?? "Choose";
+  const meditation = library.meditations.find((row) => row.id === leadMeditationId(block));
+  const typeName = typeNameOf(library, leadMeditationId(block));
+  const name = blockTitle(block, library);
   // The meditation's own tint, on the one word that says what kind of thing this
   // is. A card whose meditation has a colour of its own carries it here too
   // (`accentStyle` paints a hex; a token tints the class).
@@ -360,7 +462,7 @@ function pickerItems(
       items: [
         { id: NONE_PICK_ID, label: "Rotate next", hint: "Walk this meditation's symbols" },
         { id: ALL_PICK_ID, label: "All symbols", hint: "Whole sheet for this focus" },
-        ...symbolsForMeditation(library, block.meditationId).map((s) => ({
+        ...symbolsForBlock(library, block.meditationIds).map((s) => ({
           id: s.id,
           label: s.name,
           hint: s.usage,
@@ -562,6 +664,7 @@ function SortableStage({
   onFlag: (flag: { binaural?: boolean; autoScroll?: boolean }) => void;
   onRemove: () => void;
 }) {
+  const { flags } = useSession();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: stage.key,
   });
@@ -605,15 +708,19 @@ function SortableStage({
       </div>
       <DurationSteppers durationMs={stage.durationMs} onChange={onDuration} size="sm" />
       <div className="flex flex-wrap items-center gap-2">
-        <LatchButton
-          size="sm"
-          label="Binaural"
-          pressed={stage.binaural}
-          onChange={(binaural) => onFlag({ binaural })}
-        />
+        {flags.binaural ? (
+          <LatchButton
+            size="sm"
+            label="Binaural"
+            pressed={stage.binaural}
+            onChange={(binaural) => onFlag({ binaural })}
+          />
+        ) : null}
         {/* Only the kinds that scroll carry the switch: `autoScrollForKind` is the one
-            sentence for that, shared with the template and the run screen. */}
-        {autoScrollForKind(stage.kind) ? (
+            sentence for that, shared with the template and the run screen — and the
+            `auto_scroll` flag is the second (`P0 · 35`, slice 35e). The stage keeps the
+            answer it was given; a flag that comes back finds it as it was. */}
+        {flags.auto_scroll && autoScrollForKind(stage.kind) ? (
           <LatchButton
             size="sm"
             label="Auto-scroll"
@@ -629,6 +736,9 @@ function SortableStage({
 function BlockEditor({
   block,
   library,
+  karunaOn,
+  binauralOn,
+  randomiserOn,
   planDisplay,
   planAlarmEnabled,
   onBack,
@@ -639,6 +749,21 @@ function BlockEditor({
 }: {
   block: PlanBlock;
   library: LibraryView;
+  /** Whether the Karuna table is offered at all — the `karuna_reiki` flag (`P0 · 35`, slice 35c). */
+  karunaOn: boolean;
+  /**
+   * Whether the card's randomiser is offered — the `intention_randomiser` flag (`P2 · 44`).
+   *
+   * Off, the section is not drawn **and** the compile reads every line: the flag subtracts
+   * the behaviour, not only the control, which is the `binaural` precedent.
+   */
+  randomiserOn: boolean;
+  /**
+   * Whether the sounds are part of this account — the `binaural` flag (`P0 · 35`, slice
+   * 35d). Off, the `Binaural` field and the stages' `♪` marks are not drawn: they are the
+   * plan's two ways into a tone, and the session compiles silent either way.
+   */
+  binauralOn: boolean;
   /** The plan's Display, which this block inherits until it is given its own. */
   planDisplay: PlanDisplay;
   /** The plan's `Alarm`, which this block inherits until it is given its own. */
@@ -675,10 +800,14 @@ function BlockEditor({
     setArmedStage(null);
     onPatch({ stages: block.stages.filter((row) => row.key !== key) });
   };
-  const meditation = library.meditations.find((row) => row.id === block.meditationId);
-  const name = meditation?.name ?? "Choose a meditation";
-  const typeName = typeNameOf(library, block.meditationId);
-  const symbols = symbolsForMeditation(library, block.meditationId);
+  const name = blockTitle(block, library);
+  const typeName = typeNameOf(library, leadMeditationId(block));
+  const symbols = symbolsForBlock(library, block.meditationIds);
+  // The randomiser as the screen shows it, and the dial's ceiling. A block that has never
+  // been asked shows the master **off** with the counts it would start from, so the switch
+  // is a switch rather than a mystery — and nothing is written until it is pressed.
+  const randomiser = block.intentionRandomiser ?? RANDOMISER_START;
+  const ceiling = randomiserCeiling(library, block.meditationIds);
   // What the session will actually show: the block's own Display once it has one,
   // and the plan's until then — the same order of precedence the compiler reads.
   const display = block.display ?? planDisplay;
@@ -700,7 +829,7 @@ function BlockEditor({
       }
     >
       <EditorSection
-        title="Meditation"
+        title={block.meditationIds.length > 1 ? "Points" : "Meditation"}
         action={
           <Button size="sm" onClick={() => onPick("meditation")}>
             Change
@@ -712,10 +841,69 @@ function BlockEditor({
           {typeName ? <span className="text-muted"> · {typeName}</span> : null}
         </p>
         <p className="text-sm text-muted">
-          Which meditation this block runs. The stages below are this block&apos;s own
-          and do not move when the meditation does.
+          {block.meditationIds.length > 1
+            ? "The points this block clubs together. They run the stages below as one pass, and their intentions read together — a symbol they have in common is shown once."
+            : "Which meditation this block runs. The stages below are this block's own and do not move when the meditation does."}
         </p>
       </EditorSection>
+
+      {/* The randomiser (the owner's round 24, `P2 · 45`): one master switch, and — while
+          it is on — a switch and a count for each half of what the intentions table reads.
+          It is not drawn at all for an account whose `intention_randomiser` flag is off
+          (`P2 · 44`), nor for a meditation that holds no lines for the counts to act on:
+          a control that cannot do anything is not drawn.
+
+          Nothing here touches the store. A draw happens at compile time, into the
+          session's own snapshot, so a plan that carries counts still owns every line it
+          ever did and the next session draws a different handful. */}
+      {randomiserOn && ceiling > 0 ? (
+        <EditorSection
+          title="Intentions"
+          action={
+            block.intentionRandomiser === null ? null : (
+              <Button
+                size="sm"
+                onClick={() => onPatch({ intentionRandomiser: null })}
+              >
+                Read every line
+              </Button>
+            )
+          }
+        >
+          <LatchButton
+            label="Draw a subset each session"
+            pressed={randomiser.on}
+            onChange={(on) => onPatch({ intentionRandomiser: { ...randomiser, on } })}
+          />
+          <p className="text-sm text-muted">
+            {randomiser.on
+              ? "Each session draws its own selection, so the lines change from one sitting to the next. Nothing is removed: a count at or above a list keeps all of it, and the selection lives in the session, not the plan."
+              : "Off. Every intention is read, in the order you arranged them."}
+          </p>
+          {randomiser.on ? (
+            <>
+              <RandomiserRow
+                label="Intentions of this meditation"
+                hint="The lines that belong to the meditation itself and to no symbol."
+                half={randomiser.own}
+                max={ceiling}
+                onChange={(own) => onPatch({ intentionRandomiser: { ...randomiser, own } })}
+              />
+              {symbols.length > 0 ? (
+                <RandomiserRow
+                  label="Intentions under a symbol"
+                  hint="One count for every symbol: each symbol's own lines together with this meditation's lines for it."
+                  half={randomiser.symbols}
+                  max={ceiling}
+                  onChange={(next) =>
+                    onPatch({ intentionRandomiser: { ...randomiser, symbols: next } })
+                  }
+                />
+              ) : null}
+            </>
+          ) : null}
+        </EditorSection>
+      ) : null}
 
       {/* The stages as a carousel of their own cards, one drag sideways to reorder and
           an `Add stage` at the end of the strip — the plan's own recipe one level down
@@ -794,7 +982,9 @@ function BlockEditor({
         <p className="text-sm text-muted">
           {symbols.length > 0
             ? `${name} has ${symbols.length} symbol${symbols.length === 1 ? "" : "s"} to walk, or show all of them at once.`
-            : `${name} has no symbols, so there is nothing to choose. Add a row for it in the Karuna table to give it one.`}
+            : karunaOn
+              ? `${name} has no symbols, so there is nothing to choose. Add a row for it in the Karuna table to give it one.`
+              : `${name} has no symbols, so there is nothing to choose.`}
         </p>
       </EditorSection>
 
@@ -803,11 +993,13 @@ function BlockEditor({
             round 19, item 7: *"long bars with a single button each, it is very
             shabby"*). */}
         <div className="grid gap-3 sm:grid-cols-2">
-          <FieldButton
-            label="Binaural"
-            value={nameOf(block.binauralPresetId, library.presets, "None")}
-            onClick={() => onPick("preset")}
-          />
+          {binauralOn ? (
+            <FieldButton
+              label="Binaural"
+              value={nameOf(block.binauralPresetId, library.presets, "None")}
+              onClick={() => onPick("preset")}
+            />
+          ) : null}
           <FieldButton
             label="Ambient"
             value={nameOf(block.ambientAssetId, library.mediaAssets, "None")}
@@ -896,7 +1088,43 @@ export function Planner() {
     ready: sessionReady,
     userId: sessionUserId,
     workspaceId: sessionWorkspaceId,
+    flags,
   } = useSession();
+  /**
+   * The library as the **pickers** see it (`P0 · 35`, slice 35a).
+   *
+   * The tiles and `Add meditation block` are offers, so a type a flag hides — and
+   * the meditations filed under it — are not in them. The rest of this screen keeps
+   * the whole library on purpose: a plan that already holds a chakra block still
+   * names it, still shows its stages and still runs, because a flag hides the offer
+   * and keeps the data.
+   */
+  const pickerTypes = useMemo(
+    () => (library ? visibleTypes(library.meditationTypes, flags) : []),
+    [library, flags],
+  );
+  const pickerMeditations = useMemo(() => {
+    const offered = new Set(pickerTypes.map((row) => row.id));
+    return (library?.meditations ?? []).filter((row) => offered.has(row.typeId));
+  }, [library, pickerTypes]);
+  const pickerSymbols = useMemo(
+    () => (library ? visibleSymbols(library.symbols, flags) : []),
+    [library, flags],
+  );
+  /**
+   * The library as a **picker** sees it, whichever door opened it.
+   *
+   * There are two — `Add meditation block`, and a block's own `Meditation` or `Symbol`
+   * field — and both ask `pickerItems`, so both are handed this. The one place the two
+   * doors can drift apart is a door that forgets to ask, which is why there is one
+   * function rather than two spreads.
+   */
+  const gatedLibrary = (source: LibraryView): LibraryView => ({
+    ...source,
+    meditationTypes: pickerTypes,
+    meditations: pickerMeditations,
+    symbols: pickerSymbols,
+  });
   const planRef = useRef<Plan | null>(null);
   const editGen = useRef(0);
   const persistChain = useRef(Promise.resolve());
@@ -1041,16 +1269,20 @@ export function Planner() {
                 autoScroll: false,
               },
             ],
-        meditationId,
+        // A new block starts as one meditation. A second point is added in the block's
+        // own editor, which is where a point block is put together (round 22).
+        meditationIds: [meditationId],
         symbolId: null,
         symbolScope: "rotate",
         binauralPresetId: meditationRow?.defaultBinauralPresetId ?? library.presets[0]?.id ?? null,
         ambientAssetId: null,
         alarmAssetId: null,
-        // Both take the plan's answer until the reader opens this meditation's
-        // editor and says otherwise (the owner's round 17, item 13).
+        // All three take the plan's answer — or, for the randomiser, read every line —
+        // until the reader opens this meditation's editor and says otherwise (the
+        // owner's round 17, item 13; round 24 for the randomiser).
         alarmEnabled: null,
         display: null,
+        intentionRandomiser: null,
       };
       return { ...current, blocks: [...current.blocks, next] };
     });
@@ -1203,8 +1435,8 @@ export function Planner() {
       <main className="flex flex-col gap-6">
         <p className="text-3xl font-semibold">No plan</p>
         <MeditationTiles
-          meditations={library.meditations}
-          types={library.meditationTypes}
+          meditations={pickerMeditations}
+          types={pickerTypes}
           onPick={(id) => void startFromMeditation(id)}
         />
         <Button tier="primary" size="lg" onClick={() => void createPlan()}>
@@ -1218,7 +1450,7 @@ export function Planner() {
   if (overlay?.type === "new") {
     // `Add meditation block` is the same picker a card's `Meditation` field opens —
     // every live meditation, every live type, with the type beside the name (§5).
-    const { title, items } = pickerItems(overlay.kind, plan.blocks[0], library);
+    const { title, items } = pickerItems(overlay.kind, plan.blocks[0], gatedLibrary(library));
     return (
       <main>
         <PickerPage
@@ -1253,6 +1485,9 @@ export function Planner() {
       <BlockEditor
         block={block}
         library={library}
+        karunaOn={flags.karuna_reiki}
+        binauralOn={flags.binaural}
+        randomiserOn={flags.intention_randomiser}
         planDisplay={plan.display}
         planAlarmEnabled={plan.alarmEnabled !== false}
         onBack={back}
@@ -1323,23 +1558,56 @@ export function Planner() {
   }
 
   if (overlay?.type === "block" && pickingBlock) {
-    const { title, items } = pickerItems(overlay.kind, pickingBlock, library);
+    const { title, items } = pickerItems(overlay.kind, pickingBlock, gatedLibrary(library));
     const returnToEditor = () =>
       setOverlay({ type: "blockEditor", blockId: overlay.from });
+    // The block's `Meditation` field is a **set** since round 22: a point block clubs
+    // several points, so every press toggles one in or out and `Done` returns to the
+    // editor. Nothing here commits on the press, which is the shape the single-pick
+    // pickers keep because they have a card to point at and this one has a list.
+    if (overlay.kind === "meditation") {
+      return (
+        <main>
+          <PickerPage
+            title="Points"
+            items={items}
+            onBack={returnToEditor}
+            multi={{
+              selected: pickingBlock.meditationIds,
+              onToggle: (id) =>
+                update((current) => ({
+                  ...current,
+                  blocks: current.blocks.map((b) =>
+                    b.id === pickingBlock.id
+                      ? toggleBlockMeditation(
+                          b,
+                          id,
+                          !b.meditationIds.includes(id),
+                          library.entries,
+                          library.meditations,
+                          library.meditationTypes,
+                        )
+                      : b,
+                  ),
+                })),
+              onDone: returnToEditor,
+            }}
+          />
+        </main>
+      );
+    }
     const selectedId =
-      overlay.kind === "meditation"
-        ? (pickingBlock.meditationId ?? undefined)
-        : overlay.kind === "symbol"
+      overlay.kind === "symbol"
+        ? pickingBlock.symbolId
           ? pickingBlock.symbolId
-            ? pickingBlock.symbolId
-            : pickingBlock.symbolScope === "all"
-              ? ALL_PICK_ID
-              : NONE_PICK_ID
-          : overlay.kind === "preset"
-            ? (pickingBlock.binauralPresetId ?? NONE_PICK_ID)
-            : overlay.kind === "ambient"
-              ? (pickingBlock.ambientAssetId ?? NONE_PICK_ID)
-              : (pickingBlock.alarmAssetId ?? NONE_PICK_ID);
+          : pickingBlock.symbolScope === "all"
+            ? ALL_PICK_ID
+            : NONE_PICK_ID
+        : overlay.kind === "preset"
+          ? (pickingBlock.binauralPresetId ?? NONE_PICK_ID)
+          : overlay.kind === "ambient"
+            ? (pickingBlock.ambientAssetId ?? NONE_PICK_ID)
+            : (pickingBlock.alarmAssetId ?? NONE_PICK_ID);
     return (
       <main>
         <PickerPage
@@ -1370,8 +1638,8 @@ export function Planner() {
       {/* No page title: the navigation bar above already says `Plan`, and the
           owner's call is that a screen the nav names does not repeat its name. */}
       <MeditationTiles
-        meditations={library.meditations}
-        types={library.meditationTypes}
+        meditations={pickerMeditations}
+        types={pickerTypes}
         onPick={(id) => void startFromMeditation(id)}
       />
       {/* The plan's own actions live in a toolbar rather than in the button wrap
@@ -1471,12 +1739,14 @@ export function Planner() {
           pressed={plan.autoAdvance}
           onChange={(autoAdvance) => update({ autoAdvance })}
         />
-        <LatchButton
-          size="sm"
-          label="Binaural beats"
-          pressed={plan.binauralEnabled}
-          onChange={(binauralEnabled) => update({ binauralEnabled })}
-        />
+        {flags.binaural ? (
+          <LatchButton
+            size="sm"
+            label="Binaural beats"
+            pressed={plan.binauralEnabled}
+            onChange={(binauralEnabled) => update({ binauralEnabled })}
+          />
+        ) : null}
         {/* The alarm is session-level like `Auto-advance` above (§12.21), so its switch
             sits with the plan's own switches rather than on a stage row: one control
             for one flag, and a stage row that carried it would be showing a switch

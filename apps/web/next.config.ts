@@ -4,10 +4,11 @@ import type { NextConfig } from "next";
  * Content-Security-Policy — production only, and deliberately.
  *
  * `next dev` compiles with `eval` and injects its own inline scripts, so a
- * policy strict enough to be worth having breaks the dev server. The e2e suite
- * runs against `next dev` (it boots `pnpm exec next dev` as its webServer), so
- * it could never have caught that — which is why this is scoped rather than
- * applied everywhere and hoped for.
+ * policy strict enough to be worth having breaks the dev server. The edit loop
+ * (`pnpm dev`) therefore runs without it. **Since item 17 the e2e suite is served
+ * a production build** (`next start`), so this policy *is* live during a run and
+ * a regression in it fails the suite — which used to be the reason the suite could
+ * never have caught it. That reason is gone.
  *
  * `script-src 'unsafe-inline'` is the honest weak spot. Two things require it:
  * the blocking inline text-size bootstrap in `app/layout.tsx`, which paints the

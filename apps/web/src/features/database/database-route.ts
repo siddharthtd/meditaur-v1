@@ -15,6 +15,11 @@ import type { DatabaseRequest } from "./DatabaseTab";
  * the navigation, so the request travels in the query string. That has a second
  * benefit the prop never had — `Add symbol` is a link a reader can reload, and
  * land back in the same row.
+ *
+ * **Only creating is left here** since the owner's round 22. Opening an existing record
+ * became an address of its own (`record-route.ts`), so the `record` mode this file used
+ * to carry is gone with the second screen it used to open; what remains is the grid's
+ * own two requests — put a new row in a table, and open a preset's empty editor.
  */
 export const DATABASE_HREF = "/database";
 
@@ -23,7 +28,6 @@ export type GridTable = "symbols" | MeditationTable;
 
 export function databaseHref(request: DatabaseRequest): string {
   const params = new URLSearchParams({ mode: request.kind, table: request.table });
-  if (request.kind !== "add" && request.kind !== "new-record") params.set("id", request.id);
   return `${DATABASE_HREF}?${params.toString()}`;
 }
 
@@ -52,16 +56,9 @@ export function readDatabaseRequest(search: string, types: MeditationType[]): Da
   const params = new URLSearchParams(search);
   const mode = params.get("mode");
   const table = params.get("table");
-  const id = params.get("id");
 
   if (mode === "add" && isGridTable(table, types)) {
     return { kind: "add", table };
-  }
-  if (mode === "edit" && isGridTable(table, types) && id) {
-    return { kind: "edit", table, id };
-  }
-  if (mode === "record" && table === "presets" && id) {
-    return { kind: "record", table, id };
   }
   if (mode === "new-record" && table === "presets") {
     return { kind: "new-record", table };

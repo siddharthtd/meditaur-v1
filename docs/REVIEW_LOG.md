@@ -1,6 +1,6 @@
 # Meditaur — the owner's review log
 
-**Status:** living. Newest round at the bottom. Last entry: 2026-09-21.
+**Status:** living. Newest round at the bottom. Last entry: 2026-09-23.
 
 ## What this is
 
@@ -1325,7 +1325,7 @@ Round notes:
 The owner came with two things: the feature flags first asked for in round 16 —
 per account, and set from an admin panel — and a decision that settles the reset
 question this log has carried since the accounts round. Both were answered before
-anything was built, and the plan is [ACCOUNT_FLAGS_PLAN.md](./ACCOUNT_FLAGS_PLAN.md),
+anything was built, and the answers are in [DECISIONS.md](./DECISIONS.md) §11,
 behind the register's `P0 · 23`, `P0 · 35` and `P1 · 36`.
 
 | # | The ask | What happened |
@@ -1356,6 +1356,388 @@ Round notes:
 
 ---
 
+## 2026-09-23 — the flags finish, and three answers in one pass (commits `ca5aeb5`, `a677d22`, `46b73f2`)
+
+Items 23 and 35 closed the same day, and the owner answered the three questions the work had
+raised instead of leaving them for later. The asks are short; what they decided is not.
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| 1 | *"session should never show items that are blocked on an account"* — and for a plan that already names one, an error message: *"your account rights prohibit you from accessing this symbol. Talk to the owner if this is a mistake."* Consulted again on the wording: *"the error message should be clear, naming the symbol, suggesting that deleting this symbol from your plan will fix the problem for now. If you want to access this item, talk to the owner."* | **Done** (`a677d22`). The compiled library carries the account's own symbols, so a run cannot show what a flag hides, and a block naming one outside the account is refused. The sentence names the symbol, says to point the block at another one (or `None`) so the session runs without it, and says to talk to whoever set up your account — the app's words for the owner, because no screen has ever used the word "owner". Nothing was migrated: **no account has been released**, which is what made refusing the honest answer rather than the harsh one. |
+| 2 | Which route for proving that a flag hides something — asked as *"what would be more helpful in the long run?"* | **`fake-indexeddb`, and no client-side hook** (`46b73f2`). The device's own store is now buildable in a test — the real `db`, the real mirror, the real seed — which is what the flags' device half always lacked and what `3a`'s device-side sync proof will use. What it cannot reach is a *screen*: showing a browser a gate needs an account, and that is `3a`'s own decision. |
+| 3 | The seed's symbol map: `Harth` and `Rama` riding the Karuna tag, and `Iava` where the owner's list said `iawa`. | **Confirmed correct as it stood** — `Iava` is the right spelling, `Harth` and `Rama` are Karuna Reiki, and the three Usui rows with `Dai Kyo Mo` as the master are exactly as named. What looked like two mismatches was the owner's shorter list, so nothing was re-authored; the four rows round 16 added still carry the Description and Usage the owner fills in (`DECISIONS.md` §4). |
+
+## 2026-09-23 — round 20: the row's controls, one edit surface, and the seeded circuit (commits `efa68f7`, `2145302`, `9c44256`)
+
+The owner came with seven UI asks, five bug reports and four seeded-data updates, and
+answered four questions before any of it was built ([DECISIONS.md](./DECISIONS.md) §14).
+The round was worked in two sittings: the first landed the self-contained UI asks
+(`efa68f7`), the second the unification (`2145302`) and the seeded circuit (`9c44256`).
+
+Two asks in the seeded list are **queued** rather than done, with their reasons in the rows
+below: they add rows to a device that already has a catalogue, which is a repair and not a
+seed edit, and one of them is authorship (the sentences).
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| UI 1 | *"There is no need for a separate back button, just have the Esc Back directive double as a back button, if people want to go back, they can use that button"* | **Done** (`efa68f7`). `KeyHint` gained an optional `onPress`, and the legend is a real button where it used to be a caption: `EditorChrome`, `PickerPage`, the run screen's `Esc end the session` and the Database's own bar. The `Back` buttons those four carried are gone — a screen that said "Esc back" beside a `Back` button was writing one instruction twice. `integrity.test.ts` reads all four shells and fails if a `Back` button comes back or a legend stops being pressable, which it did on the pre-change tree. One deliberate exception: the dead-end screens that draw "That meditation is gone." keep a lone `Back`, because they have no legend to make pressable — see [Still open](#still-open-from-the-reviews) |
+| UI 2 | *"it would look more classy if the stage's toggles for binaural and reload stage would be on the same side (currently binaural is on left and reload is on the right)"* | **Done** (`efa68f7`). The `♪` moved to the card's end, beside the `↺`. The e2e measures both boxes against the stage's own clock, so "the same side" is geometry rather than a description |
+| UI 3 | *"for the right and left arrows when pressed within a few seconds should change the meditation - reduce that timer to 1 second. If an arrow is pressed after a second, consider it a stage advancement not a meditation advancement"* | **Done** (`efa68f7`). `ARROW_CHAIN_MS` is 1000. What each gesture means is unchanged — a stage step is the default reading of an arrow, and a press that comes straight after another is what means "next meditation" — and the arrow test's own quiet window came down with it |
+| UI 4 | *"Clicking anywhere on meditation stage cards while the session has not started should take the user to that stage, if the user wants to start at that stage (same behavior as pressing the right arrow)"* | **Done** (`efa68f7`). Before Start the whole card is a labelled press target painted **under** the card's own controls, so the wheels stay editable and `♪`/`↺` keep their own presses. It is gone once the session has started, which is the state the ask names |
+| UI 5 | *"During Focus, again intentions are shown, that is not needed, keep it blank for now. During focus, we would want to show beautiful visuals of the chakra's picture in its colour, as well as all the symbols in the same colour breathing etc. occupying the entire space that was earlier occupied by the intentions table this is a next to-do item … adding a to-do item for this would be key right now"* | **Half done, half queued.** The blank half is done (`efa68f7`): a Focus stage's main region draws **nothing** and keeps its slot, so the space the artwork will fill is already the right size and shape — the region id is `focus` and the unit test asserts it. The visuals are **`P2 · 39`**, since the owner asked for the to-do by name |
+| UI 6 | *"Make the symbol strip horizontal. In the future, it is going to show the actual symbols in those boxes, so the boxes should be bigger, and occupy the space that the intention table occupies in the intention stage"* — asked which strip, and answered | **Done, as rewritten by the answer** (`efa68f7`). The answer: *"I am talking about the vertical rail of symbol names in the symbols stage … I don't want a rail or a strip of bigger symbols, I want individual scattered (yet arranged) boxes of individual symbol names (later going to be replaced by images of those symbols) on the screen."* So the rail is not drawn on a symbols stage at all (it was the same symbols twice, in the width the boxes needed), the boxes are large, and the arrangement is a fixed stagger — a pattern rather than a shuffle, so the screen is the same every time. Guarded by the scatter's own geometry in `run.spec.ts`: neighbours on one row that do not line up |
+| UI 7 | *"for all the tabs' tables the 1st column is the open button, drag handle and remove row. This needs to go, it is occupying space we don't have today … Ideally, drag and remove row should be innate to the row itself, open actually opens the table's key menu. Please suggest some options for handling this"* | **Done, in the shape the owner picked.** Four options were put to them and the answer was **the hover band, nothing pinned** ([DECISIONS.md](./DECISIONS.md) §14). The leading column is gone, the row's own press opens the record (mouse anywhere on the row's surface, or Enter/Space with the row focused), and the grip, the `＋` insert and the `×` are the row's own in its last cell. **One departure, and it is deliberate:** that cell stays at the row's right edge while the columns scroll under it. The first cut read "nothing pinned" literally and a table wider than its room scrolled drag and remove out of reach — a defect the new e2e now measures. No *column* is pinned any more, which is what the ask was about; §12.27's rule is retired with the column it was written for |
+| Bug 1 | *"I added an affirmation to database/affirmations and then added for thighs (a new point that I created then and there). Thighs was created on the spot, but my intention wasn't (I believe this is due to the save button not being pressed, but an error message to leave the screen was also not displayed here, it just took me to the open record right from the database)"* | **The discarding half is fixed** (`2145302`). A row press now *leaves* the screen — it goes to the record's page — and leaving a grid with unsaved cells used to throw them away silently. It writes the draft first, which is what `Tune` already did. What is left of the report — whether an intention associated with a point shows on that point's page in the library — needs the store to be asked rather than read, so it is **`P1 · 41`** |
+| Bug 2 | *"in the edit record for the point, there is a default duration timer wheel. The minute wheel is able to scroll horizontally as well, while the seconds wheel only scrolls vertically as it should. Fix the minute wheel to only move vertically."* | **Done** (`efa68f7`). The column's `overflow-x` is hidden and its `touch-action` allows a vertical pan and a pinch-zoom and nothing lateral. The cause is recorded where the class is: three digits are wider than the column, and a scroll container with one axis scrolling computes the other to `auto`, so the minute column had somewhere to go. The e2e asserts the declared axis *and* that a sideways swipe leaves `scrollLeft` at 0 |
+| Bug 3 | *"Clicking Open item from the database opens the database's page description of the item. This is completely different from the library page for the same item … if a database's open button is pressed, the user should be taken to the library's open page. It should have an edit button which renders to the database's edit page. If Database's information is updated from the tables, the library's open view should be updated as well. If edit button is pressed from the library - it should be the database's edit page which should ultimately update the information into the database."* | **Done** (`2145302`). One **page** per record and one **editor**, each one screen for every door: the library's page is the reader's view of a meditation or a symbol (`library-route.ts` carries the request in the address), and the Database's record page is the only editor, reached by that page's `Edit`. The `edit` request — "land in the grid with the caret in the name", the second path this report is about — is retired. A preset is the exception: it has no read-only page, so its page *is* its editor. The editor's own way back returns to the page the reader came from |
+| Bug 4 | *"I understand that there is extra information in the database's open/edit interface which are not available in the tables that library's edit button updates. I think these should be allowed to be configured and maintained as hidden items only available to the backend. The option to edit these items should be available from the library's item's edit button as it is available today in the database's open item's editable page."* | **Done** (`2145302`), and it fell out of Bug 3 rather than needing its own machinery: the fields the grid has no column for — a chakra's `Governs`, `Colour`, `Element`, its picture, its default sound, the binaural config — live on the record page, and the library's `Edit` now opens exactly that page. The new e2e asserts one of them (`Governs`) is there after the trip |
+| Bug 5 | *"information updated in the table for intentions for example - isn't updated in the database's open item page's view but properly updated in the library's open view"* | **Done** (`2145302`), and the new e2e is the guard: a cell is edited in the grid, saved, and then read off **both** the record's page and its editor. With one store, one page and one editor there is one thing to check instead of three, which is why this is a test now rather than a paragraph |
+| Seed 1 | *"Update thanks giving meditation's affirmation stage timing to 1 minute, alarm should be off by default, even though plan's default is ON and the global default is also ON"* | **Done** (`9c44256`), and **the alarm half was already true**: `DEFAULT_ALARM_ENABLED` is `false` and the seeded plan takes it, so a Thanks Giving block arrives with the alarm off. The stage is a minute now, in the template and in the duration the seed writes, and Dexie **v30** carries it to a device that already seeded itself — only while the stage is still exactly 3:00, and only on Thanks Giving, because Protection opens with a 3:00 affirmation of its own |
+| Seed 2 | *"Remove crown chakra from the seeded meditation plan, it is not required"* | **Done** (`9c44256`). The circuit is eight blocks and Crown's is out; the **meditation row stays** in the catalogue, because the plan is what was asked to change. v30 removes that block by the id the seed gave it **and** the meditation it names, so a block the reader added themselves is not the app's to delete |
+| Seed 3 | *"Add hon-sha-ze-sho-nen, sei-hei-ki and cho-ku-rei to all chakra meditations and point if the reiki feature flag (which defaults to true) is true. Add day-kyo-mo if reiki-master is true, karuna symbols that exist today should be gated under the karuna reiki feature flag"* | **Queued — `P1 · 40a`.** One half is already true and worth saying so: the eight Karuna rows carry `karuna_reiki` and `visibleSymbols`/`isSymbolSystemEnabled` gate them on the flag, so the *gating* asked for here is in place. What is missing is the **bindings** — one entry row per meditation × symbol — which is a repair for a device that already has a catalogue. The rows are spelled `Hon Sha Ze Sho Nen`, `Sei Hei Ki`, `Cho Ku Rei`, `Dai Kyo Mo` (the owner's own spelling of the last, `DECISIONS.md` §4) |
+| Seed 4 | *"Add new points:"* — then the list of thirteen: eyes, temples, ears, thyroid and thymus, shoulders, tips of the lungs, liver, kidneys, pancreas and spleen, thighs, knees, lower legs, ankles, soles of the feet, with the intentions each is for and *"Construct sentences for all of these in present perfect tense like - 'My eyes have been healed whole and complete. My vision has improved manifold'."* | **Queued — `P1 · 40b`.** The list arrived complete (the first message ended mid-sentence) and it is the longest of the seeded asks: thirteen `Point` meditations, their intentions, and the sentences written in the present perfect — the one part of this round that is authorship rather than data entry. The same repair constraint applies, and the new pairs go at the **end** of the seeded list so no stored id shifts |
+
+Round notes:
+
+- **A repair, not a seed edit.** The seed runs once. Everything the owner asked to change in
+  the *seeded* data therefore had to be carried to a device that already has a catalogue by a
+  later Dexie version calling a pure function — the shape v24 established. Two of the four
+  seeded asks are exactly this and are queued for it.
+- **Two answers of fact, recorded so the next round does not re-open them.** The alarm
+  default was already off, and the Karuna symbols were already gated on the flag. Both were
+  checked in the code rather than assumed, and both are named in the rows above.
+- **The row-press write.** The row press leaving the screen is what closed the first half of
+  the owner's Bug 1, and it is worth not re-learning: the grid is the one screen in this app
+  where leaving discards, so *every* control that leaves it writes the draft first — `Tune`
+  did, and now the row press does.
+- **What the owner chose that I would have chosen differently.** The retired pin: the `Name`
+  column scrolls with the rest now, which is what "nothing pinned" means, and it is a
+  behaviour the owner asked for the opposite of in an earlier round. It is in the register's
+  own words ([DECISIONS.md](./DECISIONS.md) §14) so it can be reversed deliberately rather
+  than by accident.
+- **The minute wheel's sideways pan was not reproduced in a browser.** Bug 2's fix names a
+  demonstrable cause — a three-digit minute is wider than the column, and a scroll container
+  with one axis on `scroll` computes the other to `auto`, so the column had somewhere to go —
+  and it removes that cause and pins the wheel's axis. What the new e2e *proves* is the
+  declared axis and that a sideways swipe leaves `scrollLeft` at 0, not the owner's original
+  repro: the browser session that reported it was not reconstructed. If the wheel still
+  moves sideways on the owner's machine, the cause is something this fix does not name.
+- **The gate took four runs, and the last failure was the round's own.** The first two
+  exited 1 in the **hosted** live suite — a *different* test each time (`rls.test.ts`'s
+  flags policy, then `account-close.test.ts`), which is the shape of an environment
+  failure rather than a defect: that suite alone is green (**7 files, 17 passed, 2
+  skipped**) and so is a hand-run of the gate's own concurrent step. Why either failed is
+  not recoverable — the runner prints only the last twelve lines of each suite's log, and
+  vitest prints a failure's message *above* the frame it keeps; that gap is `P4 · 42` now.
+  The third run got past both live suites and failed in **e2e**, and there the gate was
+  right: `library.spec.ts`'s "adding a meditation …" still described the door this round
+  retired — the library's `Edit` landing in the grid with the caret in the row's name — and
+  it failed on both attempts, so no retry hid it. The test asserts what was built now (the
+  Database's record page, `Meditation name` = `Navel`). **The fast loop cannot catch that
+  one:** `check` never runs Playwright, so a test naming a retired door stays green until
+  the gate.
+- **The gate.** `./scripts/meditaur check:full`, green on its fourth run: **77 unit files
+  / 561 tests**, both live databases (hosted 17 passed, local 14 passed, the rest
+  local-only skips), the production build, and **91 e2e tests, 0 flaky** at
+  `PLAYWRIGHT_WORKERS=3`. Two asks this round did not reach — see
+  [Still open](#still-open-from-the-reviews).
+
+## 2026-09-24 — round 21: the queue behind round 20, and the two calls it left (commits `860be95`)
+
+The owner: *"whatever is not built, go build it?"* Two open calls from round 20 were put back
+as simple questions at the same time, and both were answered before this pass finished
+([DECISIONS.md](./DECISIONS.md) §15): the `Name` column is **pinned** again, and the four
+dead-end screens **draw the legend** — decided by the owner's own round-20 rule rather than by
+a question, and reversible on a word.
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| 40a | *"Add hon-sha-ze-sho-nen, sei-hei-ki and cho-ku-rei to all chakra meditations and point if the reiki feature flag (which defaults to true) is true. Add day-kyo-mo if reiki-master is true…"* | **Done.** Four symbols × seven chakras and fourteen points: eighty-four `entries` rows, each the association and nothing else. The flag half needed no work — a symbol carries its own `reikiSystem` and `visibleSymbols` hides the one whose flag is off, so the flag was already a visibility gate and never a write gate (`seeded-bindings.ts` says so where the next person will look). The seeded rows are appended, so a chakra's own symbols still read first, and the seeded pairs' ids do not move |
+| 40b | *"Add new points:"* — the owner's list, and *"Construct sentences for all of these in present perfect tense"* | **Done, as twelve points.** The list holds fourteen items; `Liver` and `Kidneys` were already seeded as points, so twelve rows are new: Eyes, Temples, Ears, Thyroid and thymus, Shoulders, Tips of the lungs, Pancreas and spleen, Thighs, Knees, Lower legs, Ankles, Soles of the feet. Each is a `Point` with a place and its own sentences — the present perfect, the owner's own eyes example kept word for word — on the row that names no symbol, which is the row a point's intentions stage reads. The owner said "thirteen", which the arithmetic does not reach; if `Thyroid and thymus` was meant as two points, that is the thirteenth, and it is one row today because `FOCUS_ORDER` has listed it that way since round 14 |
+| 41 | The first report of round 20, from the point's side: *"when I visit the point that I have associated with that intention should be able to see the intention there in the library"* | **Done, and the store had two things to say.** The reading half was already right — a point's page draws every live row that names it — so the missing piece was the guard, which now exists end to end (a point made beside an affirmation, its sentence saved, read back off that point's page). **But reproducing it found two real defects and both are fixed:** a meditation created from an affirmation's own association chip was typed as the **first live type** (a chakra), so the point the owner made by hand landed in the wrong tab with a chakra's page fields on it, and **Save was not atomic** — a point created on the spot was stored by its own write while the sentence written for it was refused, which is exactly the state the report describes |
+| 39 | *"During focus, we would want to show beautiful visuals of the chakra's picture in its colour, as well as all the symbols in the same colour breathing etc. occupying the entire space that was earlier occupied by the intentions table"* | **Done.** The region holds the meditation's picture — the reader's own upload, or the glyph `focus-glyphs.tsx` draws for it — and the block's symbols beneath it, all in the meditation's accent, breathing on a stagger, filling the box the intentions table fills on every other stage. A chakra's petal count is its own (2, 4, 6, 10, 12, 16, and a bloom for Crown), a place on the body gets a location mark, the symbol the stage has reached is drawn larger, and `prefers-reduced-motion` gets the same picture still. The accent is `currentColor` on every stroke: an accent is ink here, never a fill |
+| 42 | Round 20's own finding: a red live suite kept a code frame and no reason | **Done.** `check:full` and `test:integration:both` now print a suite's **whole log** when it fails and a summary when it passes |
+
+Round notes:
+
+- **A seed change is two changes, and they have to agree by construction.** Both seeded items
+  had to reach a device that already has a catalogue, so both are Dexie **v31** repairs calling
+  pure functions — and this round is the first time a repair had to mint ids that a *fresh*
+  seed would mint too, because sync merges by id. So the ids come from the row's own slot
+  (`seeded-ids.ts`), the slot lists are constants both callers read, and the tests compare the
+  repaired answer with the fresh one id for id. Every seeded id the app had already handed out
+  is untouched: the new rows are appended to their lists.
+- **The owner's own `Thighs`.** Round 20's report says they created that point by hand. The
+  repair matches a point by its seeded id and then by its name, so their row *is* the point and
+  gains the sentences rather than being joined by a second one — which is the rule v24 set and
+  the reason it is worth restating.
+- **The gate caught a crash the fast loop cannot see.** The Focus visuals shipped in the tree
+  with a constant missing from the glyph module: the module compiled, every unit test passed,
+  and the stage **blanked the whole screen** at runtime. The e2e found it as a click timeout,
+  and so did a browser: worth saying plainly, because "it typechecks" was true at the time.
+- **Two defects found while reproducing a report, neither of them the one in the register.**
+  The type an inline-created meditation gets, and Save writing part of a draft before refusing
+  the rest. Both are now rules in [IMPLEMENTATION.md](./IMPLEMENTATION.md), because both are
+  shapes rather than incidents: a cell that creates a record should ask its own table what kind
+  of record it is, and a screen that writes several rows must be able to say the whole change is
+  writable before the first one lands.
+- **The `Name` column is pinned again.** Round 20's "nothing pinned" took the sticky name with
+  the controls column, and the owner has now answered the question that was left: *"Pin Name so
+  it stays visible"*. Two pins, one per edge, and neither costs width.
+- **`vitest` had no JSX.** The unit suite could not import a `.tsx` file at all —
+  `esbuild: { jsx: "automatic" }` in `tests/unit/vitest.config.ts` is what makes the app's
+  components testable, and the glyph tests are the first to need it.
+- **The gate took two runs, and the first one was the host rather than the app.** The first
+  `check:full` on this round's commit was red in the **hosted** live suite alone: three tests
+  timed out at exactly 5s — the two Edge Functions (`close-account`, `admin`) and the flags
+  RLS read — while the local suite ran the same three paths green in 1–1.5s each. The hosted
+  suite passed on its own immediately after (17 passed, 2 skipped) and the whole gate was
+  green on the re-run (**94 e2e, 0 flaky**). Load average read 18.31 on 12 cores at the time,
+  which is this machine's usual state: check `uptime` before believing a red live stage.
+
+
+## 2026-09-24 — round 22: the point blocks, the grid's own filters, and the symbols stage (commits `2adb2a3`, `ebf66c8`, `e4f5e38`, `f267e82`)
+
+One feature and four bug reports. Six questions went back before anything was built — how a
+block of several points runs, whether the reader or the app decides the grouping, which points
+the seed should hold, whether Karuna's selector should be fixed or removed, whether the old
+filter box stays, and how a filter's text is read — and the answers are in
+[DECISIONS.md](./DECISIONS.md) §16.
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| 1 | *"I want to introduce another plan for a points circuit — Each point block can have multiple points in it (no limit on the number of points). All the points in that block will share the same intentions, symbol and focus stages and timers … Intentions that are tied to only the point … should be shown in the intentions stage in the initial rows of the table, followed by the intentions tied to point + symbol which should be grouped by the common symbols"* | **Done.** `PlanBlock.meditationIds` is a list; the lead point carries the stages, the sound, the Display facts and the Focus picture; `compilePlan` reads every point's own lines first and then **one group per symbol the points share**, holding each point's lines for it. The block editor's field is a set — `PickerPage` gained an additive multi mode — and the seed plants a second plan, `Points circuit`, three blocks of five over the catalogue's points. A symbol two points share is shown once, and point-only lines carry no label, which is what was asked for. |
+| 2 | *"In the database table … that column is very narrow and the only 3 letters for the entire intention can be seen at a time … Also … all the intentions in all the intention columns have up and down arrows along with the drag handle. The up/down arrows … are not required, only retain the drag handle"* | **Done.** The width had a named cause: `BUILTIN_WIDTH` had no `intentions` entry and Karuna's own heading had none either, so the auto layout gave the column its minimum content width. Both now ask for `min-w-[28rem]` through one constant. The `↑`/`↓` pair is deleted from an intention row (the drag handle and the keyboard sensor remain), the dead `moveLine` helper went with it, and the one-time hint no longer advertises the arrows. |
+| 3 | *"there is a section … called MEDITATION All Meditations. Clicking on it only offers a single button - Cancel. I think this is a remainent of some older functionality, it needs to be removed if it is not usable"* | **Done, removed.** The press opened the chip's "acting" panel — `Open record` and `✕ Clear`, neither of which means anything for a heading — so its only button was `Cancel`. Karuna draws the whole stack now, the column filters are what narrow it, and `karunaSelection` went with the state behind it. `P5 · 24` closes as no longer a question. |
+| 4 | *"Clicking on any column header should convert that into a filter bar … if multiple columns' filters are activated, it should be an 'AND' action. Each search table should be able to do an \| for OR, regular expression search should also be supported"* | **Done.** A quiet `⌕` on every heading opens that column's input in a filter row under the header band; `grid-filter.ts` is the whole rule (`\|` splits alternatives at the top level, each one a case-insensitive regex, an unparseable one read as plain text), and every open column has to match. The one box over the table is gone. This completes `P3 · 9`. |
+| 5 | *"I didn't mean floating on a giant panel … that background strip or panel is not required, just the boxes and maybe spread them … they still need to follow an organized grid structure, but, something like hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in first row 2 in the 2nd row in the middle. This is worse than that list btw, I need you to fix it desperately"* | **Done.** The panel behind the boxes is gone and so is the single staggered line. `symbolRows` arranges them in balanced rows with the extra box of an odd count in the middle row (6 → 3 + 3, 5 → 3 + 2, 7 → 2 + 3 + 2), every other row nudged half a box across, and each box is a framed `h-36 w-36` cell a picture can live in. |
+| 6 | *"the select/space as well on the session screen"* — asked whether the `Space` legend should be pressable the way `Esc end the session` is | **Discarded at the owner's word:** *"leave it be for now, the start button has its own thing, let us not disturb it, discard this change."* Nothing in the footer changed. |
+
+Round notes:
+
+- **A shipped defect was found while wiring v33, and it is the outage class.** The `plans`
+  table keeps a plan's blocks as JSON, and v30 handed those rows straight to
+  `thanksGivingMinute`, which reads `plan.blocks`. That threw inside the upgrade, which aborts
+  the open — so a device at v29 could never open the app again, exactly what 2026-09-21's
+  outage was. It was invisible to every test because a test always starts from an empty
+  database (a fresh store never runs an upgrade), and to the type system because
+  `tx.table(name)` is untyped. Fixed in the same commit, with the rows now going through
+  `planFromRow`/`planRowForStore` and the row keeping its own `updatedAt` and delete mark so a
+  repair cannot resurrect a deleted plan. **The upgrade path below the newest version is still
+  untested by construction**, and that gap is worth a row of its own.
+- **Two defects of this round's own were found after `check` was green, and the e2e suite found
+  both.** The first was an outage in one screen: the grid's filter read a cell helper declared
+  340 lines *below* the first line that called it, which is a `ReferenceError` at render — every
+  meditation table and `Symbols` fell to the screen's error boundary, while `Karuna`, whose rows
+  never reach that fallback, kept working. `check` stayed green through all of it: typecheck,
+  lint and 598 unit tests cannot see a call order. The second was smaller and reader-facing: the
+  new `⌕` is a labelled control of its own, so a heading answered to *"Name Open the filter for
+  Name"* — what a screen reader would read out, and what one `exact` name lookup in the suite
+  refused. Both are fixed (`e4f5e38`, `f267e82`), every heading is named by its own column now,
+  and the first is guarded in the edit loop by `no-use-before-define`; the five files that still
+  call a helper above its line are named in `eslint.config.js` as a ratchet, because the call
+  that crashed looked exactly that harmless from far away.
+- **Seven failures that look like load are not necessarily load.** The first full run of the
+  suite had seven, on a machine at load 20+ — the trap `P4 · 17` records — and the honest way to
+  read them was to re-run those seven **alone** on a quiet host, where they failed again, and
+  then to drive the built app by hand and read the console. `PLAYWRIGHT_WORKERS=3` on an idle
+  machine, and a targeted re-run before any conclusion, are the two halves of a believable e2e
+  number.
+- **The seed and the repair are one module, for the third round running.** `seeded-plans.ts`
+  holds the plan and the version that carries it, and the test compares the repaired answer
+  with a fresh seed **id for id** — the rule round 21 established, and the reason a seeded plan
+  is not a one-line change.
+- **A filter's `|` was a real bug in my own rule.** Splitting on every bar broke
+  `heal(s|ing)$` into two invalid halves, which is the first regex a reader reaches for; the
+  splitter now respects groups, character classes and escapes, and a test pins each.
+- **The gallery's old guard was geometry, and it was the thing being changed.** `run.spec.ts`
+  asserted a *stagger* between neighbours on one row; the new shape asserts balanced rows, the
+  half-box nudge and that no panel is painted (`getComputedStyle(...).backgroundColor`).
+- **The gate's evidence for this round.** `check:full` green on 2026-09-24, with the numbers the
+  headline commits carry: `check` (82 files / **598 unit tests**), the **hosted** live suite (7
+  files, 17 passed, 2 skipped) and the **local** stack (14 passed, 5 skipped), the production
+  build, and the whole **e2e** suite — **95 passed**, both fixes above included.
+
+## 2026-09-24 — round 23: one screen per record, and an address of its own (commit `c30b111`)
+
+The owner: *"Make a plan to unify the database/library open/edit pathways, so that someone else
+can efficiently implement it"* — and then, on the plan's three questions: **B**, opening a record
+and editing it are one screen; a record gets **an address of its own**; **`Edit` does not change
+that address**; and **presets keep their exception**.
+
+Round 20 had already given the two screens one read page and one editor (`2145302`). What it left
+was the machinery around them, and this round is that machinery going away.
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| 1 | **Unify the open/edit pathways** | **Done.** A record has an address of its own — `/record?kind=…&id=…`, carrying the door it was opened from as `from` — and `RecordScreen` is the one screen: it reads first (`MeditationSheet`/`SymbolSheet`, the same components the library drew) and `Edit` swaps in `DatabaseRecord`, the same editor the Database drew. Editing is screen **state**, not address state, so one link per record always opens for reading, and `Esc` uses `from` to go back to the list the reader came from. The library's stack loses its two sheet screens, `readLibraryRequest` and `libraryHref`; the Database loses the `record` request, `recordFromLibrary` and `backFromRecord`; `library-route.ts` is one constant again. What the Database keeps is **creating** — `?mode=add` and a preset's empty editor — because a row that does not exist yet has no id for an address to name, and it keeps its own `Tune` |
+| 2 | The route's three checklist entries | **Done.** `ROUTES` and the offline `SHELL` gain `/record`, and the cache `VERSION` goes v5 → v6. A static path with a query rather than `/record/<kind>/<id>`, because the shell caches *documents*: a per-id path would mean choosing one record to cache |
+
+Round notes:
+
+- **A reading half and an editing half merged into one screen must not lose the read-only rule** —
+  the owner's round 4, library item 8, *"there should be no editable or selectable options, only
+  displaying current statuses and values"*. `RecordScreen` mounts the two halves **exclusively**,
+  so arriving never draws an input, and exactly one shell owns `Esc` at any moment: the Database
+  used to have two listening on the same screen at once, which is why its e2e clicks the legend
+  rather than pressing the key. The new spec asserts this rule first, because it is the one thing
+  a merge of this shape is most likely to break.
+- **The register's own prediction held**: the tests that describe the two-step trip were "the
+  accurate record of what is being deliberately changed", and only two passages — the grid's
+  row test in `database.spec.ts` and the dead-end test in `library.spec.ts` — needed rewriting.
+  The rest of the suite already described what a reader *sees*, which is unchanged.
+- **`Tune` from a record writes the draft before the swap**, and the first cut of `RecordScreen`
+  did not. The new spec caught it: a name typed and not saved came back empty from the binaural
+  config. That rule is the one a merge like this is most likely to drop.
+- **`no-use-before-define` reaches one of its ratcheted files.** `DatabaseTab.tsx` leaves the list
+  with `changeTable` moved above the effect that calls it — proved by taking the file out of the
+  ratchet first and reading the single error it reported.
+- **A flake of this round's own:** the `Tune` round trip hit Playwright's 5s default on its first
+  run after a rebuild (two screens and a write between them). `test.slow()` and three consecutive
+  passes settled it.
+- **`Save` still leaves the record, which is what it did before.** The editor's own `Save`
+  writes and then calls its `onBack`, and on the merged screen that is "leave the record for the
+  door" — the same thing the two-screen shape did (the grid, or the library's page). Staying on
+  the record in reading mode after a save is the nicer shape and belongs with the layout merge,
+  not with this round: it means teaching the editor the difference between "saved" and "left",
+  which is a change to `DatabaseRecord.tsx`, a file this round deliberately did not touch.
+- **The gate took two runs, and the first one was this round's own fault.** `check:full` came
+  back with **1 failed / 98 passed** — `library.spec.ts`'s "the editor hands back to the page it
+  was opened from", failing on both attempts, so no retry hid it — and the failure was the
+  behaviour this round deliberately changed, described in a test that never named the pathway.
+  Rewritten to the door the address names, it presses the **key** where the old two-screen shape
+  could not. The second run was green: **82 files / 598 unit tests**, both live databases (17
+  hosted, 14 local, the rest local-only skips), the production build, and **99 e2e, 0 flaky** at
+  `PLAYWRIGHT_WORKERS=3`.
+- **One wart left, unchanged and now easier to see.** `DatabaseRecord` draws "That record is
+  gone." for the frame before its draft effect seeds the row, and the record route re-mounts it
+  on the way back from `Tune`. It predates this round (the Database's own record view did the
+  same) and is a one-frame flash; the fix belongs with the layout merge that this plan staged and
+  did **not** do — one layout for reading and editing, with each fact drawn once.
+
+## 2026-09-24 — round 24: the randomiser, the eight schemes, and a session's own colour (commits `8d97cae`)
+
+Two features arrived in one message and the owner separated them himself — *"The
+colour-scheme change and the chakra hues for meditation screen is a completely different
+ask"* — and asked for a flag on each. Six questions went back before anything was built, and
+the answers are [DECISIONS.md](./DECISIONS.md) §17.
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| 1 | *"randomize intentions … If we will have a plenty of intentions, we will randomly choose the fixed number of intentions to use for this particular session. The list keeps shuffling and different intentions can then be meditated upon without having the burden to choose the intentions, or go fast at the intention stage in order to meditate on all the intentions."* | **Done (`P2 · 45`).** One nullable `PlanBlock.intentionRandomiser`; the draw happens in `compilePlan` and lands in the session's snapshot, so the plan keeps every line, a repeat cycle shows the same pick, and the next session draws a different set. A count is a **ceiling** — at or above a list it keeps all, `0` keeps none, nothing duplicates — and the flat list the spoken-intentions read uses is rebuilt from the drawn halves. `SNAPSHOT_SCHEMA_VERSION` 8. |
+| 2 | *"I want to allow users to use some color-scheme picker so that they can update the appearance, accents, button colours, background etc as per their choice … Only a pre-offered diverse 8 different themes should be good enough."* | **Done (`P2 · 46`).** Eight schemes, one choice, stored as the scheme's **name** beside the text size. Warm Earth is the untouched `@theme` default, so a reader who never opens Settings paints exactly as they did. The picker draws three dots of each scheme over a patch of its ground, and a press repaints the whole app at once because nothing but the picker names a colour. |
+| 3 | *"The chakra hues for the session … has to be only for the sessions screen, which would change with each meditation. This is an attempt to make the star of the show even better."* | **Done (`P2 · 47`).** The run shell carries `data-chakra`, and one rule per chakra takes the ground, the surfaces, the hairline **and** the accent for that subtree — the controls and the page, which is the option the owner chose. The wash mixes into a base of the reader's own scheme's lightness, so a dark scheme gets a dark session and a light one a light one. |
+| 4 | *"Feature flags are required for all of them."* | **Done (`P2 · 44`).** `intention_randomiser`, `colour_scheme` and `chakra_immersion`, one per feature, in the registry, the key check and the admin function — with a `GATES` row each. **Off means the behaviour is off**, not only the control: with the randomiser off the compile reads every line, and with the session colours off a run looks as it did. |
+
+Round notes:
+
+- **The flags guard forbade the only way to add a flag.** `feature-flags.test.ts` joined
+  *every* migration that mentioned `account_flags` and asserted no key appeared twice —
+  which passes while there is one migration and fails the moment a second legitimately
+  re-states the check, because re-stating **is** how the additive shape adds a name. It reads
+  the **newest** statement as the contract now, and asserts every statement drops the
+  constraint before adding it (which it did on the pre-change pair, so the teeth are proved).
+- **The scheme guard caught the first palettes being dull, which is the point of asking it
+  to be checkable.** The first cut gave every scheme a tinted ground, an ink from the same
+  family and one accent — by the guard's own measure, *"at least 3 different colours"* was
+  false for seven of the eight. The seven were redesigned around complementary pairs
+  (indigo/sea-green, forest/amber, slate/copper, aubergine/gold, paper/teal, sea-glass/coral,
+  sakura/violet), and the guard now asserts each scheme's ground and accent are a real
+  distance apart on the wheel, plus contrast for every scheme's ink and accent. Two homes for
+  one palette is the price of painting before React runs; the guard is what pays it.
+- **A chakra hue was hard-coded in a switch.** `LatchButton`'s pressed track was
+  `bg-chakra-heart` — the one control in the app that ignored the reader's accent, and
+  therefore the one that would have sat wrong on all seven new schemes. It is `bg-accent` now.
+- **`global-error.tsx` copies the palette by hand** (it replaces the root layout, so it can
+  use neither the tokens nor the stylesheet). That copy is now guarded against the default
+  scheme, so a palette change cannot leave a crash screen in colours that no longer exist.
+- **The e2e stage was decided by the host, not by the tree.** `check:full` printed **3 failed
+  / 9 flaky / 89 passed in 14.8m** at `PLAYWRIGHT_WORKERS=3`, with `uptime` at load **12–22**
+  (the Docker VM at 80% CPU and VS Code's renderer at 70%) and the failures spread across
+  `database`, `library`, `plans` and `run` — every one a 15s `toBeVisible`/navigation timeout,
+  and one a `Runtime.callFunctionOn … session closed`. **Neither of this round's two specs
+  failed.** Every other stage of the same run was green: 83 files / **615 unit tests**, the
+  hosted suite (17 passed, 2 skipped) and the local one (14 passed, 5 skipped), and the
+  production build. That is item 17's class, and it is named there rather than here.
+- **What the round does not prove, and is now a row.** The randomiser's e2e presses the card's
+  control and shows the count is stored; that a **run** then reads fewer lines is proven over
+  `compilePlan` in unit tests. `P3 · 48` holds the one spec that would close it.
+
+## 2026-09-24 — round 25: the pancreas and the spleen, the circuit's five groups, and the legend's place (commits `adec606`, `23ada50`)
+
+Two asks in one message — one about the seed, one about the screen — plus three answers given
+while the plan was being drawn. Every answer is [DECISIONS.md](./DECISIONS.md) §19.
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| 1 | *"I want the seeded points - pancreas and spleen to be seperate points. Also, the points circuit should be seeded with all the points remaining … 'Eyes, Ears, Temples', 'Thyroid, thymus, shoulders, tips of the lungs', 'liver, kidneys, pancreas, spleen', 'thighs, knees, lower legs' and 'ankles, soles of the feet' as the groups. Where 4 points are combined, the timer should be 6 total minutes … and for 3 points' group - total time of 5 minutes"* — then, as a correction: *"this is not just a plan's change, I want to update the point itself. There should be 2 seperate points called pancreas and spleen. All the records for both the points will need to be created."* | **Done** (`adec606`). `Pancreas and spleen` splits the way round 22 split `Thyroid and thymus`: the row the app wrote is renamed to `Pancreas` and **keeps its id**, and `Spleen` is planted beside it with the whole of a point — its own row, its own symbol-less row with its sentences, and its four reiki bindings (Dexie **v34**). The circuit is the owner's five groups, each with the circuit's own timers (1:00 of intentions, 1:00 of symbols, one minute a point of focus with a three-minute floor) and one tone a group (Dexie **v35**). Sixteen points, one group each — which is the half that also stops the sixteenth being dropped, because the round-22 circuit sliced the catalogue five at a time. |
+| 2 | *"I want you to move the Esc Back button to the legend on the foot-bar. This is for all the places where it exists (ask clarifying questions instead of making assumptions)"* | **Done** (`23ada50`). The legend is in the foot bar in `EditorChrome`, drawn on every screen it builds whether or not the screen has an action of its own; the dead-end screens draw one at the foot of the window; and the picker draws one holding the legend and its own action — `Choose` leaves the form for the bar (`Enter` still commits) and `Done` moves with its sentence. The Database grid and the run footer already kept theirs there, and the guard now says so. |
+| 3 | The groups' tones, put as a conditional: *"find out what binaural beats are good for the group - find it out and set it properly, otherwise remove all of them"* | **Built in, as the app's own convention.** The evidence for region-specific beat effects is not there — the 2023 systematic review (Ingendoh/Posny/Heine, *PLOS ONE* 18(5): e0286023) found the studies incomparable and the results inconclusive — so the groups take the catalogue's own Solfeggio rows: 852 Hz for the head, 741 for the throat and the chest, 528 for the organs, 396 for the legs and the feet. A tone is named **only while the store still holds that preset**: `requireListed` fails hard on a missing reference, and a plan that refuses to start is worse than a silent block. |
+| 4 | The upgrade guard the register asked for, put as a question — build it now or later | **Built now** (`adec606`). `tests/unit/db/upgrade-path.test.ts` fabricates a v33 store — round 24's catalogue, its three-block circuit, one row of each shape the two versions read — from the schema the class itself declares, then opens the real database and asserts the open completes with the repaired catalogue behind it. |
+
+Round notes:
+
+- **A shipped defect, found by the new guard.** v32's merge helper handed the rename to
+  `withReikiBindings` but not the rows its own walk planted, so the `Thymus` it added reached a
+  device **without its four symbols** — while the version's own comment claimed it had them. Every
+  other suite missed it because they all start from an empty database, and no upgrade body ran
+  anywhere. `withChanges` appends what a repair adds, and v34's run plants the missing bindings as
+  it goes.
+- **The legend's place was never guarded, only its press.** Round 8 landed it "next to the
+  save/edit button, the bottom bar that retains even if scrolled", and `UI_DESIGN.md` §1.8 still
+  said so — but `EditorChrome` had drifted back up beside the title and `integrity.test.ts`, which
+  read that each shell drew a *pressable* legend, had nothing to say about where. The guard reads
+  the place as well now, and the dead-end shell round 24 left out is in its list.
+- **Teeth, proved by disabling each half.** Removing the appended rows from `withChanges` fails
+  "Spleen's four symbols"; moving the legend out of the bar fails "keeps the legend in its bar
+  rather than beside the title", and taking it away entirely fails the pressability half first.
+- **The circuit's tones are a convention and are recorded as one.** The owner's sentence invited a
+  finding, and there is none to be had, so `DECISIONS.md` §19 says plainly what the mapping is and
+  what it is not: the app's own region language, not evidence.
+- **Still the tree's one repair that may overrule a press.** *"Regroup always"* means the seeded
+  plan's blocks are rewritten on a device that already holds round 22's five-at-a-time ones,
+  whether or not the reader had edited them. The plan's name, switches, Display and `revision` are
+  kept, and a marked plan is never resurrected.
+
+## 2026-09-25 — the e2e job that never started, and the guard for it (commit `f7d9adc`)
+
+The owner reported *"the remote e2e is failing"* and linked the run. The reading was worth
+more than the report: **the job died forty seconds in and Playwright never started**, so
+nothing in it was a fact about the app.
+
+| What the run said | What it was |
+| --- | --- |
+| `turbo build` → `1 successful, 1 total / Time: 38.353s` | the production build works in CI — item 17's first question is confirmed there |
+| `pretest:e2e` → delete of two paths failed with "Device or resource busy", `ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL`, exit 1 | the run container's two bind mounts sat on `/app/tests/e2e/test-results` and `/app/tests/e2e/playwright-report` — the same paths `scripts/clean-run.sh` sweeps. A bind mount cannot be removed from inside the container, and the script is under `set -e`, so the pre-script failed before the suite began (run `36078531241`) |
+| no test count anywhere in the log | the tell: a suite that never started, which `AGENTS.md` now records |
+
+**It could not be seen here.** Docker Desktop on macOS does not present a bind mount the
+way a Linux daemon does: the same command, in the same image, succeeded locally — the
+00:40 gate ran 101 tests — so `check:full` was green while CI was red. It was proven on
+Linux instead, in a throwaway container: deleting a tmpfs mount point gave "Resource busy"
+and exit 1, while emptying it gave exit 0.
+
+**Fixed by moving the mounts out of reach of the sweep**, not by teaching the sweep to
+tolerate them: the artifacts land under `tests/e2e/artifacts/` on the host and `/artifacts/`
+in the container, with `PLAYWRIGHT_OUTPUT_DIR` and `PLAYWRIGHT_HTML_REPORT` pointing
+Playwright at them. That is also the honest choice for the guard, which cannot be given
+teeth once nothing is mounted under a swept path.
+
+**Guarded by `tests/unit/architecture/e2e-mounts.test.ts`** — the rule, not the layout: it
+reads the sweep's paths out of `scripts/clean-run.sh` and the mounts out of
+`infra/compose.e2e.yaml`, and fails if a mount lands on a swept path inside the container.
+Teeth proved by feeding it the compose file at `HEAD`: it fails there, naming both paths,
+and that layout is kept in the file as a fixture so the live assertion cannot rot into
+something nothing can fail.
+
+Landed in the same pass: `P4 · 57`'s cost report (`scripts/cost.sh`, the gate's machine and
+per-stage timings) and `session.sh release`, which is now ownership-checked so a refused
+gate cannot clear another session's lock. Gate: `check` green — 89 files / 662 unit tests.
+
+**Still owed:** the two questions left in item 17 (sharding the e2e job in CI, and the
+duplicate `pnpm test:integration` in `deploy.yml`), and the CI reading itself — the next
+run is the first one in which the production-build suite actually executes there.
+
 ## Still open from the reviews
 
 Named here so a later round does not have to remember them. Nothing here is on a
@@ -1365,7 +1747,7 @@ owner rather than an agent.
 
 | From | Item | Where it goes |
 | --- | --- | --- |
-| Round 16, item 10 | **The admin panel, the flags' real home, and what `usui_reiki` / `reiki_master` gate.** Both are `true` today by the owner's answer — *"it should default to true until the admin-panel is ready"* — so the enabled set is a domain constant and a preference with no writer was deliberately not added. The four new symbols also came with empty Description and Usage, which the owner said they would fill in the Database. | The owner's, entirely: the panel is *"more on that later"*, and it decides whether the flags are owner-scoped or account-scoped. Plan §6 and §14. **UNPARKED 2026-09-22** — answered: per account, with the panel as the only writer (`P0 · 23`, `P0 · 35`; [DECISIONS.md](./DECISIONS.md) §11, [ACCOUNT_FLAGS_PLAN.md](./ACCOUNT_FLAGS_PLAN.md)). The Karuna gate this row names is the plan's `35c`, and the four symbols' empty Description and Usage stay the owner's to fill in the Database. |
+| Round 16, item 10 | **The admin panel, the flags' real home, and what `usui_reiki` / `reiki_master` gate.** Both are `true` today by the owner's answer — *"it should default to true until the admin-panel is ready"* — so the enabled set is a domain constant and a preference with no writer was deliberately not added. The four new symbols also came with empty Description and Usage, which the owner said they would fill in the Database. | The owner's, entirely: the panel is *"more on that later"*, and it decides whether the flags are owner-scoped or account-scoped. Plan §6 and §14. **UNPARKED 2026-09-22** — answered: per account, with the panel as the only writer (`P0 · 23`, `P0 · 35`; [DECISIONS.md](./DECISIONS.md) §11, [HISTORY.md](./HISTORY.md)). **Delivered 2026-09-23:** the flags, their table, the read path and the panel are in, and every surface they name hides (`HISTORY.md`). The Karuna gate this row asked for landed as item 35's `35c`, and the four symbols' empty Description and Usage stay the owner's to fill in the Database. |
 | Round 16, item 10 | **Karuna's selector, as built, is the general rule**: every live meditation with at least one symbol-carrying row, so Protection (whose seeded Zonar sentence is one) has a table instead of no home. The owner's words were *"chakra … with points-scoped as well"*. | Owner's confirmation. Narrowing it to chakras and points would leave Protection's sentence visible only in the Affirmations tab. Plan §13.5. |
 | Round 16, item 9 | **A symbol with no meditation is a heading no selector can name.** Those sentences draw under `No meditation` at the foot of Karuna's stack, and the heading is deliberately not an option (it has no id, and `null` already means "no filter"). | Owner's call: if they want that heading selectable, it needs an id of its own rather than a shared `null`. Plan §13.6. |
 | Round 3, library item 1 | **A table view for the card-only tabs.** The `Table` switch is hidden on them, because there is no table to switch to. | Deferred by the owner's answer ("make it visible only on the tabs that support the table view"). The Database build narrowed the list: `Fields` and `Views` are gone, so the card-only tabs are now `Audio files`, `Presets`, `Plans` and `History`. Each would need fixed columns plus a `CatalogDataTable` row list. |
@@ -1387,3 +1769,10 @@ owner rather than an agent.
 | Owner's round 14 | **The record page still holds what the grid does not.** A chakra's `Description`, its custom fields and its duration live behind the row's `Open`. The rule that decided this is "a model field gets a built-in column, a custom field is a custom column" — and a custom field definition cannot simply be handed to the grid as a column, because a definition and a model field are indistinguishable by label. | Owner's call. Promoting one to a column needs a column *per field* rather than per definition, which is a real question about the grid rather than a piece of work. Until it is answered, the page is where a chakra's own fields live. |
 | Owner's round 15, session item 1 | **The chakra's columns have to be visible on the session page.** Quoted: *"I still need the information about the chakra (its columns) be displayed on this sessions page, but there is no place for it, the current screen is already crowded. (I want you to do this, so record it somewhere so that you can get to it after we address the below overhaul problem)"* | **Closed 2026-09-19 — it landed in phase 8** of the round-15 work ([HISTORY.md](./HISTORY.md)), which is where the row said it would go. The overhaul made the room: `MeditationPanel` heads itself with the meditation over its type and draws the meditation's own Display columns (`meditationFacts`), and the symbol's columns are in the panel beside it, which is `SymbolPanel`'s `facts` + `entryFacts`. `tests/e2e/plans.spec.ts` reads them off the live screen and asserts they follow the plan's Display, so the promise is guarded rather than remembered. |
 | This round, item 3 | **Three items from the suite audit are waiting on the owner.** (a) Serve e2e a production build instead of `next dev`: `check:full` already builds moments earlier, the duration override is a `sessionStorage` key that survives a production build, and it would remove both the warmup and the per-test dev boot — but it changes what the suite exercises, because the CSP is deliberately production-only today *because* e2e runs dev, and `ServiceWorkerSync` would start registering. (b) Shard the e2e job in CI, and stop `deploy.yml` re-running the `check` + `test:integration` that `ci.yml` has just run on another runner: more runners, half the wall clock, one red job per root cause instead of two. (c) Fold the cheap layout assertions together — three `plans.spec.ts` tests each boot `/plan` to measure the toolbar's geometry, and one test with three assertions keeps every guard, minus two app boots. | Owner's call, 2026-09-18: *"you should go ahead with 1-8 while I decide on 9-11."* |
+| Round 20, Bug 1 | **The intention a point is associated with, seen from the point.** The report was two things: an inline-created point was discarded (fixed — the row press writes the draft first), and *"my expectation is that I have added a new intention to the affirmations - when I visit the point that I have associated with that intention should be able to see the intention there in the library"*. | **CLOSED 2026-09-24.** The reading path was already right — a point's page draws every live row that names it — so what was missing was the guard, and it exists end to end now. Reproducing it found **two real defects**, both fixed: an inline-created meditation was typed as the first live type (a chakra, so the owner's `Thighs` landed in the wrong tab), and a commit wrote part of a draft before refusing the rest. Both are rules in [IMPLEMENTATION.md](./IMPLEMENTATION.md). |
+| Round 20, UI 1 | **The lone `Back` on the dead-end screens.** | **CLOSED 2026-09-24 — no question was needed.** The owner's own round-20 sentence (*"There is no need for a separate back button, just have the Esc Back directive double as a back button"*) is a rule, and these four screens were the one place it had not been applied because they drew a button and no legend. They draw the legend now (`GoneScreen`, Escape included), and it is reversible on a word if a legend on an otherwise empty screen reads wrong ([DECISIONS.md](./DECISIONS.md) §15). |
+| Round 20, UI 7 | **The `Name` column.** | **ANSWERED 2026-09-24 — pinned.** *"Pin Name so it stays visible."* The first data column stays at the left edge while the rest scroll under it (`LEAD_CELL`, `LEAD_HEAD`), mirroring the row's own controls at the right edge; neither pin costs width ([DECISIONS.md](./DECISIONS.md) §15). |
+| Round 20, Seed 1–2 | **A seed change only reaches a device through a repair**, which is why round 20's seeded work was mostly plumbing: Dexie **v30** is that repair. | Not a question — recorded so the next seeded ask is not costed as a one-line change. **Round 21 proved the rule twice over:** v31 carries the reiki bindings and the twelve points, and it was the first repair that had to mint ids a *fresh* seed would mint too — so the seed and the repair now share one module per seeded change (`seeded-points.ts`, `seeded-bindings.ts`). |
+| Round 21, Seed 4 | **"Thirteen" or twelve?** The owner's list of body parts holds **fourteen** items and said *"thirteen"*; `Liver` and `Kidneys` were already seeded as points, so twelve rows are new. The arithmetic only reaches thirteen if `Thyroid and thymus` was meant as **two** points (whose and thymus are different places), and it is one row today because `FOCUS_ORDER` has listed it as one since round 14. | **CLOSED — and twice over.** Round 22 split `Thyroid and thymus` (Dexie **v32**) and round 25 split `Pancreas and spleen` (**v34**): the seed writes fourteen body points beside the two organs, and every one of them carries its own row, its own sentences and its four reiki bindings. This row had gone stale the moment round 22 landed and nothing noticed, which is why it is closed here rather than left to read as an open question. |
+| Round 22, item 1 | **A point block's `Display` facts are its lead point's.** With several points in one block, the top strip draws the **first** point's columns, because a block runs one set of stages and one sound and every block-level fact follows them. Showing each point's would need a labelled band per point, which is a different shape rather than a fix. | Owner's call. |
+| Round 22, found while wiring v33 | **The upgrade path below the newest version has no test at all.** Every suite starts from an empty database, so no Dexie upgrade callback runs in CI — and a defect this round found in the shipped v30 lived exactly there: a plan row is not a plan, the rule read `plan.blocks`, and the throw **aborted the open** on any real device at v29. The guard is a spec that fabricates an older store (a Dexie version below the newest, one row of each shape the upgrade reads) and then loads a screen, which is what 2026-09-21's outage also asked for and never got. `fake-indexeddb` is already an allowlisted devDependency, so the harness exists. | **HALF DELIVERED 2026-09-24 (round 25).** `tests/unit/db/upgrade-path.test.ts` fabricates a v33 store from the schema the class declares, opens the real database and asserts the open completes with the repaired catalogue behind it — the first test in the repo that runs an upgrade body at all, and it immediately found a **shipped defect** (v32's merge helper left `Thymus` without its four symbols; `withChanges` is the fix). What it still does not reach is the path below v33 — a device at v19, which is the 2026-09-21 outage's own class — and a *screen* load, since it opens the store rather than a page. The register keeps the row open for that remainder (`P2 · 43`). |

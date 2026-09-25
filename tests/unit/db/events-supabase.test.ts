@@ -20,6 +20,10 @@ describe("the supabase events port", () => {
       // is their caller (P2 · 3).
       selectRange: async () => [],
       selectIn: async () => [],
+      // `events` is the one table this port writes by `insert`, because a duplicate
+      // there is a fact rather than a merge; the catalogue's `save`s are the
+      // caller of `upsert`.
+      upsert: async () => [],
       updateWhere: async () => [],
       insert: async (table, values) => {
         expect(table).toBe("events");

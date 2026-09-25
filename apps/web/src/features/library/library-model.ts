@@ -4,7 +4,9 @@ import {
   createId,
   DEFAULT_FOCUS_DURATION_MS,
   defaultEarEq,
+  flagIsOn,
   type BinauralPreset,
+  type FeatureFlags,
   type FieldDef,
   type FieldScope,
   type FieldValue,
@@ -63,46 +65,38 @@ export function isListTab(table: TableId | null): boolean {
 }
 
 /** The whole strip: one tab per live type, then the fixed ones (§12.23). */
-export function libraryTabs(types: MeditationType[]): { id: TableId; label: string }[] {
+export function libraryTabs(
+  types: MeditationType[],
+  flags?: FeatureFlags | null,
+): { id: TableId; label: string }[] {
   return [
     ...liveTypes(types).map((row) => ({ id: typeTabId(row.id), label: row.name })),
-    ...FIXED_LIBRARY_TABS,
+    // The Presets tab is the binaural sound catalogue, and every row in it opens the
+    // preset editor — so it leaves with the `binaural` flag (`P0 · 35`, slice 35d). The
+    // rows stay in the store and come back with the flag.
+    ...FIXED_LIBRARY_TABS.filter((row) => row.id !== "presets" || flagIsOn(flags, "binaural")),
   ];
 }
 
 export type ListMode = "cards" | "table";
 
 /**
- * What a screen is, in the stack the library keeps.
- *
- * Three screens, and every one of them reads: the list, a chakra's sheet and a
- * symbol's sheet. Everything that *writes* — a record's editor, the binaural
- * config, the grid — belongs to the Database, which is a route of its own, so the
- * library cannot reach an editor even by accident.
+ * One screen, and it reads: the list. A chakra's and a symbol's page used to be screens in
+ * this stack as well, and the owner's round 22 made them a **route** of their own
+ * (`record-route.ts`) — one record, one address, opened and edited on one screen. Everything
+ * that *writes* was already out of reach here, so what is left is the list and the two
+ * questions the list asks about a table: what the tabs are, and which one is open.
  */
-export type Screen =
-  | { type: "list" }
-  | { type: "focus-sheet"; meditationId: string }
-  | { type: "symbol-sheet"; symbolId: string };
+export type Screen = { type: "list" };
 
 /**
  * What one screen *is*, for the scroll memory (`useScreenScroll`).
  *
- * A screen's position belongs to the entry it is about, not to the screen type:
- * coming back to this chakra's sheet should land where you left it, and opening a
- * different one should start at the top. It is the id, not the draft, so typing a
- * name does not look like a different screen.
+ * A screen's position belongs to the list's own tab, so the id is the table's — see
+ * `Library`'s call. A record's position is keyed by the record, in `RecordScreen`.
  */
 export function screenId(screen: Screen): string {
-  switch (screen.type) {
-    case "focus-sheet":
-      return `focus-sheet:${screen.meditationId}`;
-    case "symbol-sheet":
-      return `symbol-sheet:${screen.symbolId}`;
-    default:
-      // `list` (keyed by its tab, in `Library`).
-      return screen.type;
-  }
+  return screen.type;
 }
 
 /**

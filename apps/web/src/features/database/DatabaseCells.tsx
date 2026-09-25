@@ -159,9 +159,11 @@ export const REVEAL =
   "pointer-fine:group-focus-within:opacity-100";
 
 /**
- * The same, one level in: a line's own grip and arrows answer *that line*, not
- * the row. A row with six intentions would otherwise light up eighteen controls
- * at once the moment the pointer crossed it.
+ * The same, one level in: a line's own grip answers *that line*, not the row. A
+ * row with six intentions would otherwise light up six grips at once the moment
+ * the pointer crossed it. The `↑`/`↓` pair they used to share is gone — the
+ * owner's round 22 kept the handle alone (*"only retain the drag handle"*) — and
+ * the keyboard sensor is still the second way in.
  */
 const REVEAL_LINE =
   "opacity-100 transition-opacity duration-150 " +
@@ -687,8 +689,6 @@ export function LinesCell({
   onEdit,
   onArm,
   armedId,
-  onMoveUp,
-  onMoveDown,
   onMoveTo,
 }: {
   lines: DraftLine[];
@@ -697,8 +697,6 @@ export function LinesCell({
   onEdit: (id: string, text: string) => void;
   onArm: (id: string | null) => void;
   armedId: string | null;
-  onMoveUp: (id: string) => void;
-  onMoveDown: (id: string) => void;
   /** Where a dropped line lands, counted among this entry's own lines. */
   onMoveTo: (id: string, to: number) => void;
 }) {
@@ -736,24 +734,6 @@ export function LinesCell({
                   >
                     <span aria-hidden="true">⠿</span>
                   </button>
-                  <div className={`flex shrink-0 flex-col ${REVEAL_LINE}`}>
-                    <button
-                      type="button"
-                      aria-label="Move line up"
-                      className="px-0.5 text-[0.625rem] leading-none text-muted hover:text-text"
-                      onClick={() => onMoveUp(line.id)}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Move line down"
-                      className="px-0.5 text-[0.625rem] leading-none text-muted hover:text-text"
-                      onClick={() => onMoveDown(line.id)}
-                    >
-                      ↓
-                    </button>
-                  </div>
                   <TextCell value={line.text} long onCommit={(text) => onEdit(line.id, text)} />
                   <span className={`shrink-0 ${armedId === line.id ? "opacity-100" : REVEAL_LINE}`}>
                     <LineX line={line} armed={armedId === line.id} onArm={onArm} />

@@ -19,6 +19,7 @@ export function Tuner() {
     ready: sessionReady,
     userId: sessionUserId,
     workspaceId: sessionWorkspaceId,
+    flags,
   } = useSession();
 
   useEffect(() => {
@@ -65,6 +66,14 @@ export function Tuner() {
     mixer.suspend();
     setPlaying(false);
   };
+
+  if (!flags.binaural) {
+    // This screen exists only for the tones, and the app draws no way in — the flag is
+    // the `binaural` one (`P0 · 35`, slice 35d). A typed address gets the same answer the
+    // doors do: nothing here is offered, and nothing stored is lost. The engine is never
+    // touched, so there is no note playing under this sentence.
+    return <p className="text-lg text-muted">Binaural is not enabled for this account.</p>;
+  }
 
   if (!preset) {
     return error ? (

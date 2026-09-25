@@ -149,6 +149,15 @@ Both are one-way, so **ask before reversing either**:
   nothing is gated on the other two yet. **Extended 2026-09-22:** the enabled set is
   no longer a constant — the flags are per account and the admin panel is their
   writer, so the "until an admin panel exists" this bullet rests on has arrived (§11).
+  **Extended 2026-09-23:** the "nothing is gated on the other two yet" is spent — all
+  eight flags hide their surfaces now (`docs/ROADMAP.md` item 35, slices (a) to (g)) —
+  and the seeded map this bullet names was checked against the owner's three lists: the
+  Karuna tag also carries `Harth` and `Rama`, and the seed spells `Iava` where the owner
+  wrote `iawa`. **Confirmed by the owner, 2026-09-23 — the seed was right as it stood:**
+  `Iava` is the correct spelling, `Harth` and `Rama` are Karuna Reiki, and the three Usui
+  rows with `Dai Kyo Mo` as the master symbol are exactly as named. What looked like two
+  mismatches was the owner's shorter list, so nothing was re-authored — and the four rows
+  round 16 added still carry the Description and Usage the owner fills in.
 - **Auto-scroll lives in the footer next to Alarm** and is drawn only for a stage
   that scrolls.
 - **A sentence's leading cell is its `text`, never `name`** — a `name`-keyed cell
@@ -302,9 +311,9 @@ Four questions were put back before anything was built, and the answers are bind
 
 The owner asked for feature flags that could gate account management and a panel, and
 settled the reset in the same exchange: it is manual, so the beta integrates no
-mailer. The detail — the slices, their order and how each is verified — is
-[ACCOUNT_FLAGS_PLAN.md](./ACCOUNT_FLAGS_PLAN.md); the register rows are `P0 · 23`,
-`P0 · 35` and `P1 · 36`.
+mailer. The detail is in [HISTORY.md](./HISTORY.md), which absorbed the plan document and
+carries both items' at-a-glance rows (`P0 · 23` for the flags, the table and the
+panel; `P0 · 35` for the surfaces they hide); the answers themselves are here.
 
 - **A feature flag belongs to an account, and the admin panel is its only writer.**
   *"I want the feature flags to be enabled per account, the admin-panel should be the
@@ -323,6 +332,17 @@ mailer. The detail — the slices, their order and how each is verified — is
   no sign-in, no sign-up and no account half of the Account screen; the `This device`
   half stays, and the app is otherwise complete and local-first. The owner's first
   reading — a demo over the seeded catalogue — was put back and not taken.
+  **Extended 2026-09-23, written out from the code (`35f`) and approved:** "no account
+  half" means the session's own doors, not every surface that says *account*. What goes:
+  the sign-in link, the create-an-account link, **`Sign out`** — with the sign-in door
+  shut the way back is the same flag, so signing out would be a one-way exit — the Home
+  screen's `Account` link, and the auth panel, which is the whole of `/login` and
+  `/signup`, so both addresses answer with one sentence saying who to ask instead. What
+  stays: the status line, because it is a **fact** about this device rather than an offer,
+  and the two erasures — `Erase this device's data` and `Close this account`. Erasure is a
+  right rather than management: a flag about who *manages* an account must not take away
+  what `/privacy` and the guides promise, which is the same line the Archive draws when it
+  keeps a row a flag hides.
 - **Administering is a marker in the database**, not an env allowlist and not a
   hard-coded address, and the panel may **create accounts** and **set a new password**.
   *"For every account that I create"* is the flow it is built for.
@@ -334,6 +354,335 @@ mailer. The detail — the slices, their order and how each is verified — is
   and the one place a flag's value is written.
 - **The beta ships everything working** — account management, the panel and the flags
   all live — with the per-account values the owner's to set.
+
+- **A session never shows what an account's flags hide, and it says so.** The owner, 2026-09-23: *"session should never show items that are blocked on an account"*, and where a plan already names one: *"your account rights prohibit you from accessing this symbol. Talk to the owner if this is a mistake."* The compiled library therefore carries the account's own symbols, and a block naming one outside it is **refused** rather than quietly walked as something else. The sentence the reader gets is the owner's ask in the app's words — it names the symbol, says to point the block at another one (or `None`) so the session runs without it, and says to talk to *whoever set up your account*, which is what the sign-in screen already calls the owner. Nothing is migrated for it: **no account has been released**, so there is no stored plan whose continuity refusing would cost. (Asked and answered 2026-09-23, the day after the gates landed.)
+- **The panel's door is a link on `/account`, shown to an admin only.** Not a nav
+  entry — `AppNav` is the reader's five destinations — and `/admin` still refuses a
+  non-admin who types the address, because the marker is checked in the function rather
+  than by hiding a link. (Asked and answered 2026-09-23, before the panel was built.)
+- **With `binaural` off the tones are silent.** The feature *is* its sound, so hiding
+  only the knobs would leave a flag that does not do what it says; the session still runs
+  every stage, and the stored rows are untouched, so turning the flag back on restores
+  exactly what was there. (Asked and answered 2026-09-23, before the gate was written.)
+- **A reader's "delete my data" does not drop the flags row.** `delete_my_data()` is the
+  reader's own purge and knows nothing about `account_flags`; the row is the account's
+  metadata — the owner's say about that account — rather than the reader's material, and
+  it goes when the account goes, by the `auth.users` cascade that `close-account`
+  reaches. Corroborated against the migration, `ARCHITECTURE.md` and the function on
+  2026-09-23: the close flow is the only reader-facing door, so it is the case that
+  matters; editing an applied purge function for the other one would buy no honesty.
+
+## 12. The sync protocol's local state (the owner's answer, 2026-09-23)
+
+The protocol has to know which local rows to push, and there are only two ways to know:
+a flag on every row, written by every write path, or a watermark per table, compared
+against the row's own `updatedAt`. Asked which, the owner answered **per-table**:
+
+> *"I would rather not have a per-row flag, that would be too much. but per-table seems
+> okay."*
+
+- **What that buys:** no write path changes. Every row already carries `revision` and
+  `updatedAt` (`Versioned`), and a push reads the rows whose `updatedAt` is past the
+  table's watermark. A flag would have meant every save, in every adapter, remembering
+  to set it — and the failure mode of forgetting is a change that never syncs, silently.
+- **What it costs, said plainly:** the watermark is the table's, not the row's, so the
+  push is per table (`P2 · 3` says so anyway), and the watermark may only move to the
+  last row actually written. A row edited *during* a push is then pushed next time
+  rather than missed, because the mark never passes it.
+- **It does not replace the revision.** The watermark says *what to send*; the revision
+  is still what settles two devices (`§7`). A row that arrives behind a watermark and a
+  row that arrives ahead of it are settled the same way.
+- **The first consequence to get right:** a local delete is a **removal** today
+  (`db.symbols.delete(...)` and its siblings). A removed row is not there to be pushed,
+  so a delete made offline cannot travel at all — which is the exact failure the delete
+  mark exists to prevent, one level down. The local store has to mark instead of
+  removing, and its reads have to leave the marked rows out, exactly as the cloud
+  adapter's do. That is the protocol's first unit, not a detail of it.
+
+## 13. Sync's live proof, and the lock-screen run (the owner's answers, 2026-09-23)
+
+Two register rows were put back to the owner in the same pass, because neither is
+an agent's call to take.
+
+**`P2 · 3a` — the live proof gets both routes.** The protocol is proven over fakes
+and no run has ever touched a database. The register offered `fake-indexeddb` as a
+test-only dependency, *or* an e2e build pointed at the local Supabase stack. Asked
+which:
+
+> *"I want both 1 and 2."*
+
+Both, then — and that is not redundancy, because they prove different halves.
+`fake-indexeddb` puts a real Dexie store under the **integration** suite in Node,
+so the protocol meets real RLS and the write path's own revision triggers against
+the hosted project. The e2e build boots the **app** against the local stack, so the
+run `SessionProvider` fires is exercised end to end with a signed-in session and
+the real rules applying. The first costs a `DEPENDENCIES.md` entry and an allowlist
+line; the second costs the e2e image a Supabase pair it deliberately does not carry
+today, plus a way to sign in inside the suite.
+
+**`P2 · 8` — the phone run is held.** The row opens with a device run, and a
+lock-screen claim cannot be tested without a lock screen:
+
+> *"Hold item 8 until a phone is available."*
+
+So the row stays open with nothing built ahead of the evidence. The fix it names —
+a Media Session registered over a real silent audio element, because Web Audio alone
+does not keep a session alive on either platform — stays a candidate until a device
+says whether the existing `navigator.mediaSession` handlers surface at all.
+
+## 14. The row's controls, the symbols stage, and the round's scope (the owner's answers, 2026-09-23)
+
+Round 20 arrived as one long list, and four things in it were put back as questions before
+anything was built. The answers are what the work was shaped by.
+
+**The Database row's controls.** The leading cell — `Open`, the drag handle, the `×` in
+one column — was offered as four shapes: the row is the button; one narrow `Row` cell with
+a `⋯` menu; selection plus one toolbar; a hover band with nothing pinned. The answer was
+**the hover band, nothing pinned**, with *"ideally, drag and remove row should be innate to
+the row itself, open actually opens the table's key menu."*
+
+What landed honours it and departs from it in one place, and the departure is worth
+knowing: the row's controls **stay at the row's right edge** while the columns scroll
+under them. The first cut read "nothing pinned" literally — an ordinary last cell — and a
+table wider than its room then scrolled drag and remove out of reach. Pinning *furniture*
+is not pinning a *column*: no column is charged for it, and the reader's `Name` column
+scrolls with the rest exactly as the owner chose. §12.27's rule is retired; the
+reachability it was really about is not.
+
+**The symbols stage.** *"I don't want a rail or a strip of bigger symbols, I want
+individual scattered (yet arranged) boxes of individual symbol names (later going to be
+replaced by images of those symbols) on the screen."* So the rail beside a symbols stage
+is gone (it drew the same symbols twice, in the width the boxes needed), the boxes are
+large, and the arrangement is a fixed stagger rather than a grid of equal cells — a
+pattern, not a shuffle, so it is the same screen every time.
+
+**The round's scope.** Asked whether the five database/library reports — one edit surface
+per record, the library's `Open` reaching it, the hidden backend-only fields — should land
+in the same pass as everything else or get their own item, the answer was **everything**.
+They are one change and they landed together.
+
+**The points.** The seeded points arrived as a list of body parts with the intentions the
+owner had in mind for each, and one instruction: *"Construct sentences for all of these in
+present perfect tense like - 'My eyes have been healed whole and complete. My vision has
+improved manifold'."* That was `P1 · 40b`, and it was built in round 21: the twelve missing
+points, each with its own place and its own sentences in the present perfect.
+
+## 15. The name stays visible, and the dead ends join the rule (2026-09-24)
+
+The owner's answer to round 20's two open calls, given while the queue behind them was being
+built.
+
+**The `Name` column is pinned.** Round 20 offered four shapes for a row's controls and the
+owner chose "the hover band, nothing pinned", which took the sticky `Name` with the controls
+column it had been written beside. That reversed a round-14 ask, so it was put back as a
+question with the cost stated (nothing: it is a column the table already had), and the answer
+was **pin it** — *"Pin Name so it stays visible"*. The pin is a **lead cell** now (`LEAD_CELL`,
+`LEAD_HEAD`): the first data column stays at the left edge while the rest scroll under it,
+mirroring the row's own controls at the right edge. Nothing else about round 20's shape
+changed.
+
+**The dead-end screens draw the legend.** Three files — `Library.tsx`, `DatabaseScreen.tsx`,
+`DatabaseRecord.tsx`, four screens between them — said *"That meditation is gone."* with a lone
+`Back` button, which was the last plain `Back` in the app. They were not asked about: round
+20's own words are the rule — *"There is no need for a separate back button, just have the Esc
+Back directive double as a back button"* — and this was the one place it had not been applied
+because there was no legend to make pressable. They draw one now (`GoneScreen`), Escape works
+there as it does everywhere else, and it is reversible on a word: a legend on an otherwise
+empty screen is a look the owner may dislike, and nothing depends on it.
+
+## 16. The point blocks, the grid's own filters, and the symbols stage (the owner's answers, 2026-09-24)
+
+Round 22 arrived as one list of bugs and one feature, and six things were put back as
+questions before anything was built. The answers are what the work was shaped by, and two of
+them retire an earlier answer of the owner's own.
+
+**A point block is one pass.** Asked whether a block that clubs several points runs its
+stages once for the whole block or once per point, the answer was **once**: *"All the points
+in that block will share the same intentions, symbol and focus stages and timers."* So a
+block's `meditationIds` is a list, its lead point carries the stages, the sound, the Display
+facts and the Focus picture, and the intentions stage reads all of them at once — each
+point's own lines first, then a symbol two of them share **once**, holding both points'
+lines. Point-only lines carry no label, exactly as a chakra's own lines do.
+
+**Points carry their own symbols, and blocks group by them.** *"Today, points don't have a
+symbol column. Each point must have user-defined symbols. Symbols may be repeated between
+different points (also different points that are grouped together, you will display the
+intentions together for points that have common symbols…)"* So a point block walks every
+symbol its points carry (`symbolScope: "all"`) and the compiler merges the ones they share.
+Nothing new was needed for this: an `entry` already is a meditation × symbol row.
+
+**The reader groups the points, not the app.** *"Multiple blocks, ability to add as many
+blocks as the user wants. Each block will have different points clubbed together, need not be
+based on region or anything, it is completely up to the user"* — and the card is the chakra
+card, with an `Edit` that opens the block's own settings. So the seeded circuit's split
+(five points a block, in catalogue order) is a suggestion and nothing more, and the block's
+`Meditation` field became a **set** picker in the same round rather than a later follow-up.
+Chakras and points may be chained in one circuit but never inside one block.
+
+**The grid's filter is per column.** *"Clicking on any column header should convert that into
+a filter bar … This should be for all columns. Including having multiple filterable columns,
+if multiple columns' filters are activated, it should be an 'AND' action. Each search table
+should be able to do an | for OR, regular expression search should also be supported."* So
+the single box over the table is **gone** — the answer to round 17's ask is a `⌕` on every
+heading — and one column's filter is a case-insensitive regular expression list split on
+`|`, with an alternative that will not compile read as plain text. This closes `P3 · 9`.
+
+**Karuna's selector is removed, not fixed.** The `Meditation · All meditations` strip opened
+the chip's "acting" panel, whose only useful entries (`Open record`, `✕ Clear`) mean nothing
+for a heading — so the press offered one button, `Cancel`. The owner's call: *"I think this is
+a remainent of some older functionality, it needs to be removed if it is not usable"* →
+remove. Karuna draws the whole stack, and the column filters are what narrow it. `karunaSelection`
+and the state behind it go with it, and `P5 · 24` closes as no longer being a question.
+
+**The symbols stage is boxes in rows, and no panel.** On round 20's sheet: *"I didn't mean
+floating on a giant panel … that background strip or panel is not required, just the boxes and
+maybe spread them … they still need to follow an organized grid structure, but, something like
+hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in first row 2 in the 2nd
+row in the middle."* So the panel behind the boxes is gone, and `symbolRows` arranges them in
+balanced rows with the extra box of an odd count in the middle — 6 → 3 + 3, 5 → 3 + 2, 7 →
+2 + 3 + 2 — each row nudged half a box across from the one above it. §14's *arrangement*
+sentence is superseded by this; the half of it that said no rail, big boxes and not a list
+stands.
+
+**Set aside at the owner's word.** The `Space` hint in the session footer was the subject of a
+question — should it be pressable, the way `Esc end the session` is? The answer: *"leave it be
+for now, the start button has its own thing, let us not disturb it, discard this change."*
+Nothing in the footer changed.
+
+## 17. The randomiser, the eight schemes, and a session's own colour (the owner's answers, 2026-09-24)
+
+Three things arrived in one message and the owner separated them himself: *"The colour-scheme
+change and the chakra hues for meditation screen is a completely different ask."* Six
+questions were put back before anything was built, and the answers are what the round was
+shaped by.
+
+**The randomiser is a plan card's setting, and it changes no data.**
+*"The randomize setting should ONLY live in the plan's card's edit page. Where the
+stages/symbols/display etc live. This is a plan specific setting, no data should be altered
+due to this."* So it sits with the per-meditation answers (`alarmEnabled`, `display`) rather
+than on the meditation row or in the Database, and it is read **at compile time**: the
+selection lands in the session's own snapshot, which is what makes a chosen subset
+reproducible, keeps a repeat cycle showing the same lines, and leaves every stored line
+exactly where the reader put it.
+
+- **Its shape: a master switch, then two switch-and-count rows.** The one for the
+  meditation's own intentions, and the one for what it shares with symbols — *"Another
+  toggle for chakra/symbol intentions along with their count. The count set to chakra/symbol
+  intentions applies to all the symbols for that chakra, and includes the symbol-only
+  intentions which should be randomly chosen together (the final result should be intentions
+  from symbol only as well as chakra/symbol pair)."* So the per-symbol count is drawn over
+  the whole box that symbol's name stands over: its own lines pooled with the meditation's
+  lines for it.
+- **A count is a ceiling, not a quota.** At or above the list it keeps all of it, `0` keeps
+  none, and nothing is ever duplicated. The dial's top value is therefore an upper bound
+  rather than an exact pool — the pairing rule lives in one place, and a cap only has to be
+  large enough.
+- **The affirmations stage is not drawn from.** The counts name *intentions*, and a block's
+  sentences are a different reading of the same table; a Thanks Giving block's affirmations
+  stage still reads every sentence it did.
+- **The flag's off answer is "run every line, and hide the knob"** (offered against "keep the
+  counts working"). It is the `binaural` precedent: the flag subtracts the behaviour, not
+  only the control, and nothing stored is touched — so the counts are heard again the day the
+  flag comes back.
+
+**The schemes are eight, and they are the whole of the customisation.** *"To increase the
+visual appeal, I want to allow users to use some color-scheme picker so that they can update
+the appearance, accents, button colours, background etc as per their choice. There is no need
+to have huge customization in this area, Only a pre-offered diverse 8 different themes should
+be good enough."* Asked what a scheme is made of, the owner asked for variety rather than
+subtlety: *"none of them should be single colour, it should have at least 3 different colours
+complimenting each-other per theme."*
+
+- **One choice of eight, not two axes.** An earlier answer would have been "appearance
+  (dark/light/system) and an accent hue"; this one replaces it with a single pick from eight
+  complete schemes.
+- **The scheme is a preference**, stored beside `textSize` and therefore per account and
+  synced — not a device setting.
+- **The app's own scheme is the default and is not repainted.** `warm` stays exactly as it
+  was, which is what makes a device with no row, a build with no cloud and a reader who has
+  never opened Settings all paint as they did.
+- **What is stored is the name**, so a scheme can be tuned without rewriting anybody's row.
+- **Build, then look.** *"Sure, built and then we can examine and update based on my
+  opinion"* — the eight palettes are a first cut for the owner's eye, and the round's numbers
+  are the ones the gate printed.
+
+**A session wears the meditation's colour, and it is the one screen allowed to.** *"The
+chakra hues for the session is a different ask, it has to be only for the sessions screen,
+which would change with each meditation … an attempt to make the star of the show even
+better."* Asked how far the colour should reach, the owner took the fullest option: the
+controls **and** a tinted page and surface — which deliberately overrules §12's "never a
+large background wash" for that screen alone. The library, the Database and the planner keep
+the reader's chosen scheme.
+
+**Three flags**, one per feature: `intention_randomiser`, `colour_scheme` and
+`chakra_immersion`. Four register items carry the work — the flags themselves, the
+randomiser, the schemes and the session's colour — because the flag half is the piece that
+touches the table, the Edge Function and the guard, exactly as `P0 · 23` and `P0 · 35` were
+split.
+
+## 18. The lock-screen run waits for the polish pass (the owner's answer, 2026-09-24)
+
+**`P2 · 8`'s device run is the owner's own, by hand, and it waits.** *"I will
+manually do the lock screen test, but that has to wait for some more time, until
+the app is more polished."* This replaces the reason §13 gave: the blocker was
+never the phone as such, it is the app's own polish, so the row is `parked` at
+`P5` and it closes when the run has been made and its findings recorded.
+Everything else stands — the run's list is as the row prints it, the silent-audio
+Media Session fix stays the candidate rather than a decision, and no agent builds
+toward it until a device says whether the existing `navigator.mediaSession`
+handlers surface at all.
+
+## 19. The pancreas and the spleen, the circuit's five groups, and the legend's place (the owner's answers, 2026-09-24)
+
+The owner's round 25 came in two parts — a seed change and a UI correction — and the answers
+below are what the work was shaped by. One of them retires an exception the round-8 answer had
+made for the pickers.
+
+**`Pancreas` and `Spleen` are two points, and the row already written as one is renamed rather
+than replaced.** *"There should be 2 seperate points called pancreas and spleen. All the records
+for both the points will need to be created."* Asked whether to reuse the combined row or mint two
+new ones, the answer was the reuse: `Pancreas` keeps the id every other device already knows, and
+`Spleen` is planted beside it — the same shape as round 22's split of `Thyroid and thymus`. A
+point's records are its row, its own symbol-less row with its sentences, and its four reiki
+bindings, and both points end up with all of them (Dexie **v34**).
+
+**The circuit is the owner's five groups, and the timers are the circuit's own.** The groups:
+the head's three points (`Eyes, Temples, Ears`), the throat's four (`Thyroid, Thymus, Shoulders,
+Tips of the lungs`), the organs' four (`Liver, Kidneys, Pancreas, Spleen`), the legs' three
+(`Thighs, Knees, Lower legs`) and the feet's two (`Ankles, Soles of the feet`). Every point the
+catalogue holds is in exactly one, which is also what stops the sixteenth being dropped — the
+round-22 circuit sliced the catalogue five at a time. Each block runs **1:00 of intentions, 1:00
+of symbols, and one minute a point of focus with a three-minute floor**, which is the owner's own
+arithmetic: four points → 6:00, three → 5:00, and the two-point group → 5:00 as well. The order
+*within* a group is `FOCUS_ORDER`'s, not the order the ask listed them in — one ordering rule, and
+the order the library's Points tab shows.
+
+**Each group gets a tone, named from rows the catalogue already ships.** *"Find out what binaural
+beats are good for the group … and set it properly, otherwise remove all of them."* What the
+research supports is a **convention**, not a finding: the evidence for region-specific binaural
+effects is not there (the 2023 systematic review, Ingendoh/Posny/Heine, *PLOS ONE* 18(5):
+e0286023, found 5 of 14 studies agreeing with brainwave entrainment, 8 contradictory and 1 mixed,
+and calls the evidence inconclusive), and the Solfeggio frequency system is a modern convention
+too. So the groups read the app's own region language — 852 Hz for the head, 741 for the throat
+and the chest, 528 for the organs, 396 for the legs and the feet — from presets the seed already
+has, which is the owner's "build them in" rather than a new claim or a new row. A tone is named
+**only while the store still holds that preset**: `requireListed` fails hard on a missing
+reference, and a plan that refuses to start is worse than a silent block.
+
+**A device that already holds the circuit is regrouped: *"regroup always"*.** Asked whether the
+repair should leave the round-22 blocks alone on the chance the reader had regrouped them, the
+owner took the opposite: the blocks are the app's grouping, and it changes whether or not they
+had been edited. The plan's own name, switches, Display and `revision` are kept, because what
+changed is the app's grouping and not the reader's plan. This is the tree's one repair that may
+overrule a press, and Dexie **v35** is where it happens.
+
+**The `Esc back` legend lives in the foot bar, and pickers are no longer the exception.** Round 8
+put the legend "with the screen's own primary action, in the bar that survives scrolling" and
+excused the picker, which had no bar. Round 25 asked for one place everywhere: `EditorChrome`
+draws its bar on every screen it builds (action or not), the dead-end screens get a bar at the
+foot of the window, and the picker gets one holding the legend and its own action — `Choose`
+leaves the form for the bar, and `Enter` still commits because the form's submit is unchanged.
+The legend is never drawn beside the title.
 
 ## 10. Still the owner's
 

@@ -75,17 +75,20 @@ export function makeStarterPlan(input: {
   const meditation: PlanBlock = {
     id: input.meditationBlockId,
     sortOrder: 0,
-    meditationId: input.meditationId,
+    // A one-tap session is one meditation, so a list of one (round 22 made it a list).
+    meditationIds: input.meditationId ? [input.meditationId] : [],
     stages: copyStages(input.stages ?? INTENTION_STAGES),
     symbolId: null,
     symbolScope: "rotate",
     binauralPresetId: input.binauralPresetId,
     ambientAssetId: null,
     alarmAssetId: null,
-    // Both `null`: the block has no answer of its own yet, so the plan's stands —
-    // and a one-tap session is one block, whose editor is where either changes.
+    // All three `null`: the block has no answer of its own yet, so the plan's stands — or,
+    // for the randomiser, every line is read — and a one-tap session is one block whose
+    // editor is where any of them changes.
     alarmEnabled: null,
     display: null,
+    intentionRandomiser: null,
   };
   return {
     id: input.id,

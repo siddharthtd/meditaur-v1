@@ -28,15 +28,16 @@ Analytics is first-party — a domain event port plus an `events` table. No
 analytics SDK (PostHog, Plausible, Segment, …) is allowed without an allowlist
 change here and in the integrity test.
 
-**The `close-account` Edge Function is a deploy surface, not a package**, and it
-is the repo's only server-side code: it holds the service-role key — injected
-into it by Supabase, never committed — so it can remove the `auth.users` row,
-which no browser may do. It carries **no imports at all**, on purpose: three
-`fetch` calls, because the one-module rule above is about importers and a
-function is a second runtime rather than a second importer. It is deployed by
-`./scripts/meditaur cloud --yes`, after the migrations and against the same
-project. `ALLOWED_ORIGINS` is the optional and tightening setting: unset, any
-origin may call it, which is the closed beta's default.
+**The Edge Functions are deploy surfaces, not packages**, and they are the repo's
+only server-side code: `close-account` holds the service-role key — injected into
+it by Supabase, never committed — so it can remove the `auth.users` row, which no
+browser may do, and `admin` holds the same key so it can write `account_flags`,
+which no account may write for itself (`P0 · 23`). Both carry **no imports at all**,
+on purpose: a handful of `fetch` calls, because the one-module rule above is about
+importers and a function is a second runtime rather than a second importer. Both are
+deployed by `./scripts/meditaur cloud --yes`, after the migrations and against the
+same project. `ALLOWED_ORIGINS` is the optional and tightening setting: unset, any
+origin may call them, which is the closed beta's default.
 
 ## Toolchain (dev / CI / Docker — not product UI)
 
@@ -48,6 +49,7 @@ origin may call it, which is the closed beta's default.
 | `turbo` | Monorepo `check` / `build` graph |
 | `tailwindcss`, `@tailwindcss/postcss` | Utility CSS already in the app |
 | `@playwright/test` | Run-mode e2e |
+| `fake-indexeddb` | IndexedDB in Node, so a test can build **the device's own store** rather than a hand-written fake: the flags mirror, the Dexie upgrade paths, and the sync proof's device side. Dev-only — nothing in a bundle imports it, and the suites that use it are the ones that cannot reach a browser |
 
 ## Platform (not npm)
 

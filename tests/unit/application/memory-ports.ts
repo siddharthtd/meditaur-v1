@@ -4,6 +4,8 @@ import {
   SESSION_LOG_LIST_LIMIT,
   fail,
   type AccountPort,
+  type AdminPort,
+  type FeatureFlagsPort,
   type AuthPort,
   type EventPort,
   type BinauralPreset,
@@ -19,10 +21,13 @@ import {
   type SessionLogRepository,
   type SessionSnapshot,
   type SnapshotRepository,
+  type SyncPort,
   type UserPreferences,
   type WorkspaceRepository,
 } from "@meditaur/domain";
 import { createLocalAccountPort } from "../../../packages/db/src/account-local.ts";
+import { createLocalAdminPort } from "../../../packages/db/src/admin-local.ts";
+import { createLocalFlagsPort } from "../../../packages/db/src/flags-local.ts";
 
 export function memoryPorts(input: {
   context: SessionContext;
@@ -32,9 +37,12 @@ export function memoryPorts(input: {
   prefs: UserPreferences | null;
   auth?: AuthPort;
   account?: AccountPort;
+  admin?: AdminPort;
+  flags?: FeatureFlagsPort;
   events?: EventPort;
   workspaces?: WorkspaceRepository;
   maintenance?: MaintenancePort;
+  sync?: SyncPort;
   nextId?: () => string;
   clock?: FakeClock;
 }): AppPorts {
@@ -310,8 +318,11 @@ export function memoryPorts(input: {
     snapshots: snapshotRepo,
     logs: logRepo,
     account: input.account ?? createLocalAccountPort(),
+    admin: input.admin ?? createLocalAdminPort(),
+    flags: input.flags ?? createLocalFlagsPort(),
     events: input.events ?? { append: async () => {} },
     maintenance: input.maintenance ?? { wipeLocalData: async () => {} },
+    sync: input.sync ?? { run: async () => ({ sent: 0, received: 0, written: 0 }) },
     clock,
     runInTransaction: (work) => work(),
     nextId: input.nextId ?? (() => "snap-1"),

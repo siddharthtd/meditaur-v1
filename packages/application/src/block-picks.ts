@@ -40,7 +40,7 @@ export function applyBlockPick(
   const id = pickedId === NONE_PICK_ID || pickedId === ALL_PICK_ID ? null : pickedId;
   if (kind === "meditation") {
     if (!id) {
-      return { ...block, meditationId: null, symbolId: null };
+      return { ...block, meditationIds: [], symbolId: null };
     }
     // The association is an entry that names both sides, so that is what says
     // whether the symbol the block was pointing at still applies.
@@ -61,7 +61,7 @@ export function applyBlockPick(
       : block.stages;
     return {
       ...block,
-      meditationId: id,
+      meditationIds: [id],
       symbolId: symbolOk ? block.symbolId : null,
       binauralPresetId: focus?.defaultBinauralPresetId ?? null,
       stages,
@@ -88,4 +88,57 @@ export function applyBlockPick(
   // Unreachable for a typed caller and a failure rather than a silent no-op for
   // any other: a pick that changes nothing is worse than one that says so.
   return fail("catalog.pickUnknown", "That choice is not one a block can make");
+}
+
+/**
+ * A block with one meditation toggled **in or out** — a point block's edit.
+ *
+ * The owner's round 22: a point block clubs several points into one pass, so its
+ * `Meditation` field is a set rather than a choice. What the block reads *as a whole* is
+ * its lead's — the stages it runs and the sound it opens with — so those follow the lead:
+ * removing the first point hands them to the next one, and adding the first point to an
+ * empty block gives the block that point's timers. A toggle that leaves the lead where it
+ * was leaves the block's own settings alone, which is the rule the editor states out loud
+ * ("the stages below are this block's own and do not move when the meditation does").
+ *
+ * `on` says which way the press goes, so the caller does not have to difference the list
+ * before asking.
+ */
+export function toggleBlockMeditation(
+  block: PlanBlock,
+  meditationId: string,
+  on: boolean,
+  entries: Pick<Entry, "meditationId" | "symbolId">[],
+  meditations: Pick<
+    Meditation,
+    "id" | "defaultBinauralPresetId" | "defaultDurationMs" | "stages" | "typeId"
+  >[] = [],
+  types: Pick<MeditationType, "id" | "stages">[] = [],
+): PlanBlock {
+  const meditationIds =
+    on && !block.meditationIds.includes(meditationId)
+      ? [...block.meditationIds, meditationId]
+      : block.meditationIds.filter((id) => id !== meditationId);
+  const leadChanged = (block.meditationIds[0] ?? null) !== (meditationIds[0] ?? null);
+  const lead = meditations.find((row) => row.id === meditationIds[0]);
+  // A symbol no remaining point carries would be a block walking nothing, so it goes —
+  // the same guard a meditation swap makes. One point of several losing it is not the
+  // block losing it.
+  const symbolStillBound =
+    block.symbolId == null ||
+    meditationIds.some((id) =>
+      entries.some((row) => row.symbolId === block.symbolId && row.meditationId === id),
+    );
+  return {
+    ...block,
+    meditationIds,
+    symbolId: symbolStillBound ? block.symbolId : null,
+    binauralPresetId: leadChanged
+      ? (lead?.defaultBinauralPresetId ?? null)
+      : block.binauralPresetId,
+    stages:
+      leadChanged && lead
+        ? blockStages({ stages: [] }, lead, types.find((type) => type.id === lead.typeId) ?? null)
+        : block.stages,
+  };
 }

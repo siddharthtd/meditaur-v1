@@ -2,6 +2,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FOCUS_ORDER, SYMBOL_ORDER, rankOf } from "../../../packages/db/src/catalog-order.ts";
 import { buildDefaultWorkspace } from "../../../packages/db/src/default-workspace.ts";
+import {
+  BOUND_MEDITATION_SLOTS,
+  BOUND_SYMBOL_SLOTS,
+  seededBindingId,
+} from "../../../packages/db/src/seeded-bindings.ts";
+import { SEEDED_POINTS, seededPointEntryId } from "../../../packages/db/src/seeded-points.ts";
 
 /**
  * The catalogue's order, and the places that have to agree about it.
@@ -35,6 +41,11 @@ describe("catalog order", () => {
     // which is how the seed's own last symbol, and its custom Protection row, stay
     // last instead of being sorted away somewhere in the middle.
     expect(rankOf(FOCUS_ORDER, "Heart Chakra")).toBe(rankOf(FOCUS_ORDER, "Heart"));
+    // Round 22 split the combined name into two places, and the old spelling is still an
+    // alias of the first: a device that has not run v32 holds a row written that way.
+    expect(rankOf(FOCUS_ORDER, "Temples")).toBeLessThan(rankOf(FOCUS_ORDER, "Thyroid"));
+    expect(rankOf(FOCUS_ORDER, "Thyroid")).toBeLessThan(rankOf(FOCUS_ORDER, "Thymus"));
+    expect(rankOf(FOCUS_ORDER, "Thyroid and thymus")).toBe(rankOf(FOCUS_ORDER, "Thyroid"));
     expect(rankOf(SYMBOL_ORDER, "Rama")).toBe(SYMBOL_ORDER.length);
     expect(rankOf(FOCUS_ORDER, "Protection")).toBe(FOCUS_ORDER.length);
   });
@@ -57,6 +68,25 @@ describe("catalog order", () => {
       "Crown Chakra",
       "Liver",
       "Kidneys",
+      // The body points the owner listed in round 21 — fourteen of them now: round 22 split
+      // `Thyroid and thymus` in two and round 25 split `Pancreas and spleen`. They are
+      // ranked, so they read in the list's own order, and they are seeded **after** the rows
+      // the app already shipped: those are on a reader's device with their place already
+      // stored.
+      "Eyes",
+      "Temples",
+      "Ears",
+      "Thyroid",
+      "Thymus",
+      "Shoulders",
+      "Tips of the lungs",
+      "Pancreas",
+      "Spleen",
+      "Thighs",
+      "Knees",
+      "Lower legs",
+      "Ankles",
+      "Soles of the feet",
     ]);
     expect(symbolNames.filter((name) => rankOf(SYMBOL_ORDER, name) < SYMBOL_ORDER.length)).toEqual([
       "Harth",
@@ -73,7 +103,9 @@ describe("catalog order", () => {
     ]);
     // …and the rows neither list names follow them rather than being dropped —
     // Protection and Thanks Giving are types of their own, not places on the body.
-    expect(focusNames.slice(-2)).toEqual(["Protection", "Thanks Giving"]);
+    expect(
+      focusNames.filter((name) => rankOf(FOCUS_ORDER, name) === FOCUS_ORDER.length),
+    ).toEqual(["Protection", "Thanks Giving"]);
     expect(symbolNames.at(-1)).toBe("Rama");
   });
 
@@ -85,12 +117,33 @@ describe("catalog order", () => {
     const catalogue = buildDefaultWorkspace("ws-test");
     const chakraPlace = new Map(catalogue.meditations.map((row) => [row.id, row.sortOrder]));
     const rows = [...catalogue.entries].sort((a, b) => a.sortOrder - b.sortOrder);
-    const places = rows.map((row) => chakraPlace.get(row.meditationId ?? "") ?? -1);
 
-    expect(places, "each chakra's pairs are together, in the chakras' own order").toEqual(
-      [...places].sort((a, b) => a - b),
+    // Round 21's rows are recognisable: their ids come from a slot the seed derives
+    // (`seeded-points.ts`, `seeded-bindings.ts`) rather than from the running counter
+    // this walk hands out, so the additions can be held to the same rule separately.
+    const added = new Set([
+      ...SEEDED_POINTS.map((point) => seededPointEntryId(point.slot)),
+      ...BOUND_MEDITATION_SLOTS.flatMap((slot) =>
+        BOUND_SYMBOL_SLOTS.map((symbol) => seededBindingId(slot, symbol)),
+      ),
+    ]);
+    const places = (list: typeof rows) =>
+      list
+        .map((row) => chakraPlace.get(row.meditationId ?? "") ?? -1)
+        .filter((place, at, all) => at === 0 || place !== all[at - 1]);
+
+    const pairs = places(rows.filter((row) => !added.has(row.id)));
+    expect(pairs, "each chakra's pairs are together, in the chakras' own order").toEqual(
+      [...pairs].sort((a, b) => a - b),
     );
-    expect(new Set(places).size, "and more than one chakra is in the list").toBeGreaterThan(1);
+    expect(new Set(pairs).size, "and more than one chakra is in the list").toBeGreaterThan(1);
+
+    // The additions read the same way, in the same walk's order: a point's own row and
+    // then the four reiki symbols on every chakra and point.
+    const additions = places(rows.filter((row) => added.has(row.id)));
+    expect(additions, "and the round's additions are grouped the same way").toEqual(
+      [...additions].sort((a, b) => a - b),
+    );
     expect(
       rows.map((row) => row.sortOrder),
       "one running list, not a counter that restarts per chakra",

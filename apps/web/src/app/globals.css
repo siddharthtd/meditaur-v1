@@ -36,6 +36,122 @@
      `--font-*` values themselves are declared by next/font in layout.tsx. */
   --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-fraunces), ui-serif, georgia, serif;
+
+  /* The Focus stage's breathing (the owner's round 20, item 5: *"all the symbols in
+     the same colour breathing etc."*). Slow on purpose: a session is minutes long and
+     a picture that pulses at a breath's own rate pulls at the reader's attention,
+     which is the opposite of what the stage is for. `FocusVisuals` staggers the delay
+     per symbol and drops the class entirely under `prefers-reduced-motion` (§6.3). */
+  --animate-breathe: breathe 7s ease-in-out infinite;
+
+  @keyframes breathe {
+    0%,
+    100% {
+      opacity: 0.85;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1.045);
+    }
+  }
+}
+
+/*
+ * The seven other colour schemes (`P2 · 46`).
+ *
+ * The `@theme` block above is the document's **default** — Warm Earth, the scheme the app
+ * has always painted — so a reader who has never chosen one, a device with no stored row and
+ * a browser with scripting off all paint exactly as they did. Each block here overrides the
+ * same seven tokens for the whole document, which is why one attribute swap repaints every
+ * screen, every button, every ring and the scrollbar at once: none of this is a new class,
+ * and no component learns that a theme exists.
+ *
+ * `warm` deliberately has **no block of its own**: `:root` already holds its values, and a
+ * second copy of one palette in one file is how two copies start to disagree.
+ *
+ * These are the same values `apps/web/src/lib/themes.ts` declares, and
+ * `tests/unit/web/themes.test.ts` reads both files and fails if they drift — the picker
+ * draws its swatches from the TypeScript and the document paints from here.
+ *
+ * `color-scheme` travels with the three light schemes so form controls, the caret and the
+ * native scrollbar follow them; the dark ones keep the `:root` declaration below.
+ */
+[data-theme="midnight"] {
+  color-scheme: dark;
+  --color-bg: #0e1020;
+  --color-surface: #171a2e;
+  --color-surface-raised: #202442;
+  --color-text: #eaeaf2;
+  --color-muted: #a9aab8;
+  --color-line: #2c3253;
+  --color-accent: #4fbfa0;
+}
+
+[data-theme="forest"] {
+  color-scheme: dark;
+  --color-bg: #0f1511;
+  --color-surface: #18211a;
+  --color-surface-raised: #202b22;
+  --color-text: #eceee6;
+  --color-muted: #b3ac9c;
+  --color-line: #2c3b30;
+  --color-accent: #d9a24a;
+}
+
+[data-theme="copper"] {
+  color-scheme: dark;
+  --color-bg: #12161b;
+  --color-surface: #1b2027;
+  --color-surface-raised: #242b34;
+  --color-text: #e9edf2;
+  --color-muted: #a3adb8;
+  --color-line: #2d343e;
+  --color-accent: #d0834f;
+}
+
+[data-theme="plum"] {
+  color-scheme: dark;
+  --color-bg: #140d17;
+  --color-surface: #1e1424;
+  --color-surface-raised: #281b30;
+  --color-text: #f0eaf3;
+  --color-muted: #b5a8bd;
+  --color-line: #33243c;
+  --color-accent: #e0bb52;
+}
+
+[data-theme="paper"] {
+  color-scheme: light;
+  --color-bg: #f6f1e7;
+  --color-surface: #fffdf8;
+  --color-surface-raised: #efe6d6;
+  --color-text: #2a2118;
+  --color-muted: #6b5c4a;
+  --color-line: #d9ccb6;
+  --color-accent: #2f6f86;
+}
+
+[data-theme="sea"] {
+  color-scheme: light;
+  --color-bg: #eef3f5;
+  --color-surface: #fbfdfe;
+  --color-surface-raised: #dfeaee;
+  --color-text: #16232a;
+  --color-muted: #4e6570;
+  --color-line: #c2d5dc;
+  --color-accent: #a34c38;
+}
+
+[data-theme="sakura"] {
+  color-scheme: light;
+  --color-bg: #faf0f1;
+  --color-surface: #fffbfb;
+  --color-surface-raised: #f6e3e6;
+  --color-text: #2b1d20;
+  --color-muted: #6d5357;
+  --color-line: #e4c9ce;
+  --color-accent: #5b4fa8;
 }
 
 :root {
@@ -131,4 +247,160 @@ input {
 
 .time-wheel::-webkit-scrollbar {
   display: none;
+}
+
+/*
+ * The session's own colour (the owner's round 24, `P2 · 47`).
+ *
+ * *"For meditation sessions, use the colour scheme of the chakra that is being meditated on,
+ * on buttons, accent colours, it should feel like a completely immersive experience."* So the
+ * run screen takes the hue of the meditation it is running: `Runner` puts
+ * `data-chakra="root|hara|…"` on its `<main>` and these rules replace the ground, the two
+ * surface tiers, the hairline **and the accent token** for that subtree. Every screen inside
+ * follows at once, because nothing else in the app names a colour: the stage strip, the
+ * latches, the table borders, the focus ring and the scrollbar all read `--color-*`.
+ *
+ * **This deliberately overrides §1.2's "never a large background wash".** That rule protects
+ * the *app*, which is where a reader reads and edits and where a chakra wash would be a
+ * decoration; a session is the one screen whose whole job is to hold one meditation, and the
+ * owner asked for the wash by name. The library, the Database and the planner are untouched.
+ *
+ * **The wash is mixed into a base of the theme's own lightness** — `oklab` keeps the
+ * perceived lightness steady while the hue moves, which is why the same percentage works for
+ * a gold chakra and a violet one. A dark theme gets a dark wash and a light theme a light
+ * one, so the reader's own scheme still decides how bright the screen is while the chakra
+ * decides what colour it is. The two bases below are that rule and nothing else: an ink or a
+ * surface tone is never mixed, so contrast is preserved by construction.
+ *
+ * `custom` and `neutral` accents get no rule at all: a reader's own hex is not one of the
+ * seven, and a point or a custom meditation has no chakra hue to take — they keep the app's
+ * ground and the ink accents the controls already carry.
+ */
+[data-chakra="root"] {
+  --color-bg: color-mix(in oklab, #b5533c 14%, #16110d);
+  --color-surface: color-mix(in oklab, #b5533c 12%, #231b15);
+  --color-surface-raised: color-mix(in oklab, #b5533c 12%, #2e241c);
+  --color-line: color-mix(in oklab, #b5533c 30%, #3a2e23);
+  --color-accent: #b5533c;
+}
+
+[data-chakra="hara"] {
+  --color-bg: color-mix(in oklab, #c97a3d 14%, #16110d);
+  --color-surface: color-mix(in oklab, #c97a3d 12%, #231b15);
+  --color-surface-raised: color-mix(in oklab, #c97a3d 12%, #2e241c);
+  --color-line: color-mix(in oklab, #c97a3d 30%, #3a2e23);
+  --color-accent: #c97a3d;
+}
+
+[data-chakra="solar-plexus"] {
+  --color-bg: color-mix(in oklab, #c9a227 14%, #16110d);
+  --color-surface: color-mix(in oklab, #c9a227 12%, #231b15);
+  --color-surface-raised: color-mix(in oklab, #c9a227 12%, #2e241c);
+  --color-line: color-mix(in oklab, #c9a227 30%, #3a2e23);
+  --color-accent: #c9a227;
+}
+
+[data-chakra="heart"] {
+  --color-bg: color-mix(in oklab, #6b8f5e 14%, #16110d);
+  --color-surface: color-mix(in oklab, #6b8f5e 12%, #231b15);
+  --color-surface-raised: color-mix(in oklab, #6b8f5e 12%, #2e241c);
+  --color-line: color-mix(in oklab, #6b8f5e 30%, #3a2e23);
+  --color-accent: #6b8f5e;
+}
+
+[data-chakra="throat"] {
+  --color-bg: color-mix(in oklab, #4e85a3 14%, #16110d);
+  --color-surface: color-mix(in oklab, #4e85a3 12%, #231b15);
+  --color-surface-raised: color-mix(in oklab, #4e85a3 12%, #2e241c);
+  --color-line: color-mix(in oklab, #4e85a3 30%, #3a2e23);
+  --color-accent: #4e85a3;
+}
+
+[data-chakra="third-eye"] {
+  --color-bg: color-mix(in oklab, #5b5c99 14%, #16110d);
+  --color-surface: color-mix(in oklab, #5b5c99 12%, #231b15);
+  --color-surface-raised: color-mix(in oklab, #5b5c99 12%, #2e241c);
+  --color-line: color-mix(in oklab, #5b5c99 30%, #3a2e23);
+  --color-accent: #5b5c99;
+}
+
+[data-chakra="crown"] {
+  --color-bg: color-mix(in oklab, #8a6baf 14%, #16110d);
+  --color-surface: color-mix(in oklab, #8a6baf 12%, #231b15);
+  --color-surface-raised: color-mix(in oklab, #8a6baf 12%, #2e241c);
+  --color-line: color-mix(in oklab, #8a6baf 30%, #3a2e23);
+  --color-accent: #8a6baf;
+}
+
+/* The same seven, washed into the light base the three light schemes share. The accent is
+   mixed toward the ink as well, because a mid-tone gold on a near-white page cannot carry a
+   label — the wash changes the ground, never the readability of a control. */
+[data-theme="paper"] [data-chakra="root"],
+[data-theme="sea"] [data-chakra="root"],
+[data-theme="sakura"] [data-chakra="root"] {
+  --color-bg: color-mix(in oklab, #b5533c 10%, #f4efe6);
+  --color-surface: color-mix(in oklab, #b5533c 8%, #fdfaf4);
+  --color-surface-raised: color-mix(in oklab, #b5533c 12%, #ece3d4);
+  --color-line: color-mix(in oklab, #b5533c 34%, #d8cbb6);
+  --color-accent: color-mix(in oklab, #b5533c 78%, #2a2118);
+}
+
+[data-theme="paper"] [data-chakra="hara"],
+[data-theme="sea"] [data-chakra="hara"],
+[data-theme="sakura"] [data-chakra="hara"] {
+  --color-bg: color-mix(in oklab, #c97a3d 10%, #f4efe6);
+  --color-surface: color-mix(in oklab, #c97a3d 8%, #fdfaf4);
+  --color-surface-raised: color-mix(in oklab, #c97a3d 12%, #ece3d4);
+  --color-line: color-mix(in oklab, #c97a3d 34%, #d8cbb6);
+  --color-accent: color-mix(in oklab, #c97a3d 82%, #2a2118);
+}
+
+[data-theme="paper"] [data-chakra="solar-plexus"],
+[data-theme="sea"] [data-chakra="solar-plexus"],
+[data-theme="sakura"] [data-chakra="solar-plexus"] {
+  --color-bg: color-mix(in oklab, #c9a227 10%, #f4efe6);
+  --color-surface: color-mix(in oklab, #c9a227 8%, #fdfaf4);
+  --color-surface-raised: color-mix(in oklab, #c9a227 12%, #ece3d4);
+  --color-line: color-mix(in oklab, #c9a227 34%, #d8cbb6);
+  --color-accent: color-mix(in oklab, #c9a227 72%, #2a2118);
+}
+
+[data-theme="paper"] [data-chakra="heart"],
+[data-theme="sea"] [data-chakra="heart"],
+[data-theme="sakura"] [data-chakra="heart"] {
+  --color-bg: color-mix(in oklab, #6b8f5e 10%, #f4efe6);
+  --color-surface: color-mix(in oklab, #6b8f5e 8%, #fdfaf4);
+  --color-surface-raised: color-mix(in oklab, #6b8f5e 12%, #ece3d4);
+  --color-line: color-mix(in oklab, #6b8f5e 34%, #d8cbb6);
+  --color-accent: color-mix(in oklab, #6b8f5e 82%, #2a2118);
+}
+
+[data-theme="paper"] [data-chakra="throat"],
+[data-theme="sea"] [data-chakra="throat"],
+[data-theme="sakura"] [data-chakra="throat"] {
+  --color-bg: color-mix(in oklab, #4e85a3 10%, #f4efe6);
+  --color-surface: color-mix(in oklab, #4e85a3 8%, #fdfaf4);
+  --color-surface-raised: color-mix(in oklab, #4e85a3 12%, #ece3d4);
+  --color-line: color-mix(in oklab, #4e85a3 34%, #d8cbb6);
+  --color-accent: color-mix(in oklab, #4e85a3 86%, #2a2118);
+}
+
+[data-theme="paper"] [data-chakra="third-eye"],
+[data-theme="sea"] [data-chakra="third-eye"],
+[data-theme="sakura"] [data-chakra="third-eye"] {
+  --color-bg: color-mix(in oklab, #5b5c99 10%, #f4efe6);
+  --color-surface: color-mix(in oklab, #5b5c99 8%, #fdfaf4);
+  --color-surface-raised: color-mix(in oklab, #5b5c99 12%, #ece3d4);
+  --color-line: color-mix(in oklab, #5b5c99 34%, #d8cbb6);
+  --color-accent: color-mix(in oklab, #5b5c99 86%, #2a2118);
+}
+
+[data-theme="paper"] [data-chakra="crown"],
+[data-theme="sea"] [data-chakra="crown"],
+[data-theme="sakura"] [data-chakra="crown"] {
+  --color-bg: color-mix(in oklab, #8a6baf 10%, #f4efe6);
+  --color-surface: color-mix(in oklab, #8a6baf 8%, #fdfaf4);
+  --color-surface-raised: color-mix(in oklab, #8a6baf 12%, #ece3d4);
+  --color-line: color-mix(in oklab, #8a6baf 34%, #d8cbb6);
+  --color-accent: color-mix(in oklab, #8a6baf 84%, #2a2118);
 }

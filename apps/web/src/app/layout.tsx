@@ -1,7 +1,10 @@
 import { SessionProvider } from "@/features/auth/SessionProvider";
 import { ServiceWorkerSync } from "@/features/pwa/ServiceWorkerSync";
 import { TextSizeSync } from "@/features/settings/TextSizeSync";
+import { ThemeSync } from "@/features/settings/ThemeSync";
 import { TEXT_SIZE_BOOTSTRAP } from "@/lib/text-size";
+import { THEME_BOOTSTRAP } from "@/lib/theme";
+import { DEFAULT_THEME } from "@meditaur/domain";
 import type { Metadata } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import type { ReactNode } from "react";
@@ -24,19 +27,22 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html
       lang="en"
       data-text-size="md"
+      data-theme={DEFAULT_THEME}
       className={`${manrope.variable} ${fraunces.variable}`}
     >
       <head>
-        {/* Paints the reader's last text size before the first paint, so the
-            document never renders at the default and jumps. The attribute above
-            is the no-JS default — the app's designed 18px — and
-            TEXT_SIZE_BOOTSTRAP overrides it early. */}
+        {/* Paints the reader's last text size and colour scheme before the first paint, so
+            the document never renders at a default and jumps — a light scheme arriving
+            after hydration is a white flash. The attributes above are the no-JS defaults:
+            the app's designed 18px, and its own Warm Earth. */}
         <script dangerouslySetInnerHTML={{ __html: TEXT_SIZE_BOOTSTRAP }} />
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
       <body className="min-h-screen bg-bg font-sans text-text antialiased">
         <SessionProvider>
           <ServiceWorkerSync />
           <TextSizeSync />
+          <ThemeSync />
           {children}
         </SessionProvider>
       </body>

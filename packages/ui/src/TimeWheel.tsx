@@ -49,6 +49,13 @@ import {
  * - **A drag still turns it, for the mouse.** Touch is left to the browser: the
  *   column is not `touch-none`, so a finger pans it natively and never drags the
  *   page instead.
+ * - **It turns on one axis, and only one.** A horizontal swipe across a column used
+ *   to pan the minute wheel sideways, because three digits overflow its width by a
+ *   couple of pixels and a scroll container with one axis scrolling computes the
+ *   other to `auto` — so there was somewhere to go (the owner's round 20: *"the
+ *   minute wheel is able to scroll horizontally as well … fix the minute wheel to
+ *   only move vertically"*). `overflow-x` is hidden now, and the column's
+ *   `touch-action` allows a vertical pan and a pinch-zoom and nothing lateral.
  * - **A press that does not turn the wheel opens a text box** over the value
  *   (Enter or blur commits, Escape puts it back, a non-number is refused). The
  *   owner's round 7: "the textbox one is working fine" — so it is unchanged.
@@ -349,11 +356,24 @@ export function TimeWheel({
         <div
           ref={scroller}
           aria-hidden="true"
-          className="time-wheel relative h-full w-full cursor-ns-resize snap-y snap-mandatory overflow-y-scroll overscroll-contain"
+          className="time-wheel relative h-full w-full cursor-ns-resize snap-y snap-mandatory overflow-y-scroll overflow-x-hidden overscroll-contain"
           style={{
             // A drag writes the offset itself, and mandatory snapping would fight
             // it for the offset on every write.
             scrollSnapType: dragging ? "none" : undefined,
+            // The wheel turns on one axis and only one (the owner's round 20: *"The
+            // minute wheel is able to scroll horizontally as well, while the seconds
+            // wheel only scrolls vertically as it should. Fix the minute wheel to
+            // only move vertically."*). `overflow-x` above is the half that answers a
+            // trackpad, because a two-finger swipe is a wheel event and not a touch —
+            // and this is the half that answers a finger, while still letting one
+            // pan the column (the reason it is not `touch-none`) and still letting a
+            // reader pinch to zoom the page.
+            //
+            // The minute column can overflow sideways by a pixel or two at three
+            // digits (`180` is its ceiling), which is what gave it somewhere to go:
+            // an axis nobody can reach is not the same as an axis that moves.
+            touchAction: "pan-y pinch-zoom",
             maskImage: FADE,
             WebkitMaskImage: FADE,
           }}

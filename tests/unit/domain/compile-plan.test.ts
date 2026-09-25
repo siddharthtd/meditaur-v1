@@ -4,6 +4,7 @@ import {
   MAX_TONES_PER_EAR,
   SNAPSHOT_SCHEMA_VERSION,
   type CompiledSymbolGroup,
+  type PlanBlock,
 } from "@meditaur/domain";
 import {
   makeBlock,
@@ -107,7 +108,7 @@ describe("compilePlan", () => {
 
   it("uses the pair's own lines for the current chakra when a symbol is shared", () => {
     const snapshot = compilePlan(
-      makePlan([makeBlock("b1", 0, { meditationId: "fp2", symbolId: "s1" })]),
+      makePlan([makeBlock("b1", 0, { meditationIds: ["fp2"], symbolId: "s1" })]),
       makeLibrary({
         meditations: [makeMeditation("fp1", "Root"), makeMeditation("fp2", "Heart")],
         symbols: [makeSymbol("s1", "Lam")],
@@ -121,6 +122,73 @@ describe("compilePlan", () => {
     expect(snapshot.blocks[0].symbolName).toBe("Lam");
     expect(snapshot.blocks[0].intentions).toEqual(["Heart Lam"]);
     expect(snapshot.blocks[0].symbolGroups[0]?.intentions).toEqual(["Heart Lam"]);
+  });
+
+  it("clubs a point block's points: their own lines first, then one group per shared symbol", () => {
+    // The owner's round 22: a point block runs several points in **one** pass, and its
+    // intentions read as one list — each point's own lines first, in the block's order,
+    // and then a **single** group for each symbol the points share. The points are what
+    // the reader is moving through and the symbol is what they are holding, so a group
+    // per pair would print the same symbol name twice and split one reading in two.
+    const snapshot = compilePlan(
+      makePlan([
+        makeBlock("b1", 0, { meditationIds: ["fp1", "fp2"], symbolId: null, symbolScope: "all" }),
+      ]),
+      makeLibrary({
+        meditations: [makeMeditation("fp1", "Liver"), makeMeditation("fp2", "Kidneys")],
+        symbols: [makeSymbol("s1", "Lam"), makeSymbol("s2", "Yam")],
+        ...makeEntries([
+          { meditationId: "fp1", symbolId: null, texts: ["Liver own"] },
+          { meditationId: "fp2", symbolId: null, texts: ["Kidneys own"] },
+          { meditationId: "fp1", symbolId: "s1", texts: ["Liver Lam"] },
+          { meditationId: "fp2", symbolId: "s1", texts: ["Kidneys Lam"] },
+          { meditationId: "fp2", symbolId: "s2", texts: ["Kidneys Yam"] },
+        ]),
+      }),
+      { now: 1, id: () => "inst1" },
+    );
+    const block = snapshot.blocks[0];
+    expect(block.meditationNames).toEqual(["Liver", "Kidneys"]);
+    // The line a group is about is the one no symbol is attached to, so it is tied to
+    // its own point and reads before anything symbol-shaped.
+    expect(block.focusIntentions).toEqual(["Liver own", "Kidneys own"]);
+    expect(block.symbolGroups.map(groupShape)).toEqual([
+      { name: "Lam", intentions: ["Liver Lam", "Kidneys Lam"] },
+      { name: "Yam", intentions: ["Kidneys Yam"] },
+    ]);
+    // The whole reading, in the order the intentions table prints it.
+    expect(block.intentions).toEqual([
+      "Liver own",
+      "Kidneys own",
+      "Liver Lam",
+      "Kidneys Lam",
+      "Kidneys Yam",
+    ]);
+  });
+
+  it("keeps a point block standing when one of its points is archived", () => {
+    // A reader's archive is not a missing row: the block stays in the plan, drops that
+    // point, and reads the ones that are left — which is the same treatment a single
+    // meditation's block has always had at `compilePlan`'s step-aside.
+    const snapshot = compilePlan(
+      makePlan([makeBlock("b1", 0, { meditationIds: ["fp1", "fp2", "fp3"] })]),
+      makeLibrary({
+        meditations: [
+          makeMeditation("fp1", "Liver"),
+          makeMeditation("fp2", "Kidneys", { archivedAt: 5 }),
+          makeMeditation("fp3", "Spleen"),
+        ],
+        symbols: [makeSymbol("s1", "Lam")],
+        ...makeEntries([
+          { meditationId: "fp1", symbolId: "s1", texts: ["Liver Lam"] },
+          { meditationId: "fp2", symbolId: "s1", texts: ["Kidneys Lam"] },
+          { meditationId: "fp3", symbolId: "s1", texts: ["Spleen Lam"] },
+        ]),
+      }),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(snapshot.blocks[0].meditationNames).toEqual(["Liver", "Spleen"]);
+    expect(snapshot.blocks[0].intentions).toEqual(["Liver Lam", "Spleen Lam"]);
   });
 
   it("deep-copies tone lists and EQ into the snapshot", () => {
@@ -217,6 +285,29 @@ describe("compilePlan", () => {
     expect(untyped.blocks[0]?.meditationTypeName).toBeNull();
   });
 
+  it("carries the meditation's picture and colour, so a Focus stage can draw them", () => {
+    // The owner's round 20, item 5: a Focus stage shows *"the chakra's picture in its
+    // colour, as well as all the symbols in the same colour breathing"*. A session reads
+    // the snapshot rather than the store, so both are stamped here beside the name — the
+    // same reason the type's name is.
+    const snapshot = compilePlan(makePlan([makeBlock("b1", 0)]), {
+      ...library,
+      meditations: [
+        makeMeditation("fp1", "Root Chakra", {
+          representationAssetId: "asset-9",
+          colour: "#b5533c",
+        }),
+      ],
+    });
+    expect(snapshot.blocks[0]?.representationAssetId).toBe("asset-9");
+    expect(snapshot.blocks[0]?.colour).toBe("#b5533c");
+    // A meditation the reader has given neither is stamped as having neither, rather than
+    // left to be looked up later: the run screen is where it would have to be looked up.
+    const bare = compilePlan(makePlan([makeBlock("b1", 0)]), library);
+    expect(bare.blocks[0]?.representationAssetId).toBeNull();
+    expect(bare.blocks[0]?.colour).toBeNull();
+  });
+
   it("gives an affirmations stage the sentences of the block's own meditation", () => {
     // The owner's round 16, §2.1 and §4: a stage reads the sentences written about
     // the block's **own** meditation — every row of it, in `sortOrder`, and the
@@ -274,7 +365,7 @@ describe("compilePlan", () => {
     const snapshot = compilePlan(
       makePlan([
         makeBlock("b1", 0, {
-          meditationId: "fp1",
+          meditationIds: ["fp1"],
           stages: [
             stageFixture(180_000, {
               key: "affirmations",
@@ -560,5 +651,187 @@ describe("compilePlan", () => {
       { now: 1, id: () => "inst1" },
     );
     expect(snapshot.blocks[0].binaural).toBeNull();
+  });
+});
+
+/**
+ * The plan card's randomiser (the owner's round 24, `P2 · 45`).
+ *
+ * The draw is injected — `CompileOptions.pick` — so every case below says what it expects
+ * rather than seeding a generator: `firstPick` takes the head of the list, which is what
+ * makes "exactly two of these four" an assertion rather than a hope.
+ */
+describe("the intention randomiser", () => {
+  const firstPick = (count: number, lines: readonly string[]): string[] =>
+    [...lines].slice(0, count);
+
+  /** Four of the meditation's own lines and two in a symbol's box, in a known order. */
+  const mixed = makeLibrary({
+    ...makeEntries([
+      { meditationId: "fp1", symbolId: null, texts: ["one", "two", "three", "four"] },
+      { meditationId: null, symbolId: "s1", texts: ["solo a", "solo b"] },
+      { meditationId: "fp1", symbolId: "s1", texts: ["pair a", "pair b"] },
+    ]),
+  });
+
+  const block = (intentionRandomiser: PlanBlock["intentionRandomiser"]) =>
+    makePlan([makeBlock("b1", 0, { symbolScope: "all", intentionRandomiser })]);
+
+  it("keeps exactly the count the card asked for of the meditation's own lines", () => {
+    const snapshot = compilePlan(
+      block({
+        on: true,
+        own: { on: true, count: 2 },
+        symbols: { on: false, count: 0 },
+      }),
+      mixed,
+      { now: 1, id: () => "inst1", pick: firstPick },
+    );
+    const compiled = snapshot.blocks[0]!;
+    expect(compiled.focusIntentions).toEqual(["one", "two"]);
+    // The symbol half is off, so its box is untouched — the two halves are independent.
+    expect(compiled.symbolGroups[0]!.intentions).toEqual(["solo a", "solo b", "pair a", "pair b"]);
+    expect(compiled.intentions).toEqual(["one", "two", "solo a", "solo b", "pair a", "pair b"]);
+  });
+
+  it("draws a symbol's own lines together with the meditation's lines for it", () => {
+    const snapshot = compilePlan(
+      block({
+        on: true,
+        own: { on: false, count: 0 },
+        symbols: { on: true, count: 3 },
+      }),
+      mixed,
+      { now: 1, id: () => "inst1", pick: firstPick },
+    );
+    const compiled = snapshot.blocks[0]!;
+    // One count for every symbol, applied to the **whole box** — the solo lines and the
+    // pair's lines pooled and drawn together, which is what the session prints under that
+    // symbol's name.
+    expect(compiled.symbolGroups[0]!.intentions).toEqual(["solo a", "solo b", "pair a"]);
+    // The meditation's own half is off: all four of its lines are read.
+    expect(compiled.focusIntentions).toEqual(["one", "two", "three", "four"]);
+  });
+
+  it("treats the count as a ceiling rather than a quota", () => {
+    const everything = compilePlan(
+      block({ on: true, own: { on: true, count: 99 }, symbols: { on: true, count: 99 } }),
+      mixed,
+      { now: 1, id: () => "inst1", pick: firstPick },
+    );
+    expect(everything.blocks[0]!.focusIntentions).toHaveLength(4);
+    expect(everything.blocks[0]!.symbolGroups[0]!.intentions).toHaveLength(4);
+
+    const nothing = compilePlan(
+      block({ on: true, own: { on: true, count: 0 }, symbols: { on: true, count: 0 } }),
+      mixed,
+      { now: 1, id: () => "inst1", pick: firstPick },
+    );
+    expect(nothing.blocks[0]!.focusIntentions).toEqual([]);
+    expect(nothing.blocks[0]!.intentions).toEqual([]);
+    // A symbol box with nothing in it is still a box: the symbol is in play, and the
+    // session's own grouping is what decides whether it is drawn.
+    expect(nothing.blocks[0]!.symbolGroups.map((group) => group.intentions)).toEqual([[]]);
+  });
+
+  it("reads every line when the block has not been asked, and when the flag is off", () => {
+    // Neither state may even *ask* the draw, so the proof is a draw that throws: a
+    // session that reads every line has no business calling one.
+    const explode = () => {
+      throw new Error("the draw was asked for a session that reads every line");
+    };
+    const untouched = compilePlan(block(null), mixed, {
+      now: 1,
+      id: () => "inst1",
+      pick: explode,
+    });
+    const masterOff = compilePlan(
+      block({ on: false, own: { on: true, count: 1 }, symbols: { on: true, count: 1 } }),
+      mixed,
+      { now: 1, id: () => "inst1", pick: explode },
+    );
+    const flagged = compilePlan(
+      block({ on: true, own: { on: true, count: 1 }, symbols: { on: true, count: 1 } }),
+      mixed,
+      { now: 1, id: () => "inst1", pick: explode, randomiseIntentions: false },
+    );
+
+    for (const snapshot of [untouched, masterOff, flagged]) {
+      expect(snapshot.blocks[0]!.focusIntentions).toEqual(["one", "two", "three", "four"]);
+      expect(snapshot.blocks[0]!.intentions).toEqual([
+        "one",
+        "two",
+        "three",
+        "four",
+        "solo a",
+        "solo b",
+        "pair a",
+        "pair b",
+      ]);
+    }
+  });
+
+  it("never duplicates a line, and keeps the flat list in step with the two halves", () => {
+    // A count is a selection from the reader's own list, never a repetition of it.
+    const snapshot = compilePlan(
+      block({ on: true, own: { on: true, count: 3 }, symbols: { on: true, count: 3 } }),
+      mixed,
+      { now: 1, id: () => "inst1", pick: firstPick },
+    );
+    const compiled = snapshot.blocks[0]!;
+    // `intentions` is the whole list the session draws — the two halves' union — so it is
+    // the list a duplicate would have to appear in.
+    expect(new Set(compiled.intentions).size).toBe(compiled.intentions.length);
+    expect(compiled.intentions).toHaveLength(6);
+    // The flat list is what the session's spoken-intentions read uses, so it has to be the
+    // two drawn halves and not a stale copy of the whole list.
+    expect(compiled.intentions).toEqual([
+      ...compiled.focusIntentions,
+      ...compiled.symbolGroups.flatMap((group) => group.intentions),
+    ]);
+  });
+
+  it("leaves the affirmations stage whole", () => {
+    // A block's sentences are a different reading of the same table, and the card's counts
+    // name **intentions** — so a Thanks Giving block's affirmations stage still reads every
+    // sentence it read before, however few lines the intentions stage drew. (Asked and
+    // answered in the round-24 design: intentions only.)
+    const withAffirmations = makePlan([
+      makeBlock("b1", 0, {
+        symbolScope: "all",
+        intentionRandomiser: {
+          on: true,
+          own: { on: true, count: 1 },
+          symbols: { on: true, count: 1 },
+        },
+        stages: [
+          {
+            key: "affirmations",
+            label: "Affirmations",
+            kind: "affirmations",
+            durationMs: 1000,
+            binaural: false,
+            autoScroll: true,
+          },
+        ],
+      }),
+    ]);
+    const compiled = compilePlan(withAffirmations, mixed, {
+      now: 1,
+      id: () => "inst1",
+      pick: firstPick,
+    }).blocks[0]!;
+
+    expect(compiled.focusIntentions).toEqual(["one"]);
+    // Every sentence written about the meditation, in the pair order — and the symbol-only
+    // row is nobody's sentence, so it is not here.
+    expect(compiled.affirmations).toEqual([
+      "one",
+      "two",
+      "three",
+      "four",
+      "pair a",
+      "pair b",
+    ]);
   });
 });

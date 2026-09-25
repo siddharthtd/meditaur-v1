@@ -85,26 +85,88 @@ case "${CMD}" in
     # still is not required to build or lint — the hosted half skips itself when
     # no keys are configured (which is why CI stays green without secrets), and
     # the local half needs the stack this starts.
-    "${SCRIPT_DIR}/clean-run.sh"
-    if command -v supabase >/dev/null 2>&1; then
-      # Idempotent: starts the stack if it is down and re-applies the migrations,
-      # so the local half is testing this checkout's schema, not a stale one.
-      "${SCRIPT_DIR}/local-up.sh"
-    else
-      echo "meditaur: no Supabase CLI on the host; the local half of the live tests cannot run."
-      echo "meditaur: ./scripts/meditaur test:integration:hosted covers the hosted project alone."
-    fi
-    run pnpm check
-    local_credentials
-    run bash -c 'SUPABASE_TARGET=hosted pnpm test:integration > /tmp/hosted.log 2>&1 & h=$!
+    #
+    # One gate at a time on one machine. Two gates make **both** e2e readings meaningless:
+    # round 24 printed 3 failed / 9 flaky / 89 passed in 14.8m while another session's dev
+    # server and suite shared the host, and round 25's subset re-run on the same evening
+    # failed the same way — `page.goto: Timeout 30000ms exceeded` and a crashed page in
+    # specs that round never opened. So the lock is held for the whole gate and released by
+    # the exit trap below, so a stage that fails releases it too; a gate killed mid-flight
+    # leaves a dead pid, which the next session takes over (`scripts/session.sh`). The edit
+    # loop (`check`) takes no lock and is never blocked.
+    # **What the gate costs (`P4 · 57`).** A reading is only worth as much as the machine it
+    # was taken on: round 24 printed `3 failed / 9 flaky / 89 passed in 14.8m` on a host at a
+    # load average of 12–47, and round 25's subset re-run failed the same way, and both were
+    # read as app readings for longer than they should have been. So the gate says which
+    # machine it is taking, warns once the load average is above half the cores, shows what
+    # the previous run cost stage by stage, and times every stage it runs (`scripts/cost.sh`).
+    # A stage that fails still records its seconds: the run that went wrong is the interesting
+    # one.
+    TIMINGS=()
+    stage() {
+      local label="$1"
+      shift
+      local start=${SECONDS} code=0
+      "$@" || code=$?
+      local elapsed=$((SECONDS - start))
+      TIMINGS[${#TIMINGS[@]}]="${label} ${elapsed}"
+      printf 'meditaur: %s — %ss\n' "${label}" "${elapsed}"
+      return "${code}"
+    }
+    finish() {
+      local line total=0
+      if [[ ${#TIMINGS[@]} -gt 0 ]]; then
+        for line in "${TIMINGS[@]}"; do
+          total=$((total + ${line##* }))
+        done
+        printf 'meditaur: this run — %ss (total %ss)\n' \
+          "$(printf '%s · ' "${TIMINGS[@]}" | sed 's/ · $//')" "${total}"
+        printf '%s\n' "${TIMINGS[@]}" | "${SCRIPT_DIR}/cost.sh" save || true
+      fi
+      # The lock is released from here, so a stage that fails releases it too — and the
+      # release is ownership-checked, so it can never clear another session's.
+      "${SCRIPT_DIR}/session.sh" release || true
+    }
+    # The lock is taken **before** the trap is armed, so a gate that is refused never reaches
+    # a release at all. Only a gate killed outright leaves a stale file, and a stale file
+    # holds a dead pid — which the next session takes over.
+    "${SCRIPT_DIR}/session.sh" hold "the gate"
+    trap finish EXIT
+    export MEDITAUR_PREP_LOCK_HELD=1
+    "${SCRIPT_DIR}/cost.sh" machine
+    "${SCRIPT_DIR}/cost.sh" show
+    # Idempotent: starts the stack if it is down and re-applies the migrations,
+    # so the local half is testing this checkout's schema, not a stale one.
+    prepare_gate() {
+      "${SCRIPT_DIR}/clean-run.sh"
+      if command -v supabase >/dev/null 2>&1; then
+        "${SCRIPT_DIR}/local-up.sh"
+      else
+        echo "meditaur: no Supabase CLI on the host; the local half of the live tests cannot run."
+        echo "meditaur: ./scripts/meditaur test:integration:hosted covers the hosted project alone."
+      fi
+    }
+    live_databases() {
+      local_credentials
+      run bash -c 'SUPABASE_TARGET=hosted pnpm test:integration > /tmp/hosted.log 2>&1 & h=$!
       SUPABASE_TARGET=local pnpm test:integration > /tmp/local.log 2>&1 & l=$!
       wait "$h"; hc=$?
       wait "$l"; lc=$?
-      echo "=== live: hosted (exit ${hc}) ==="; tail -n 12 /tmp/hosted.log
-      echo "=== live: local (exit ${lc}) ==="; tail -n 12 /tmp/local.log
+      # A green suite prints a summary; a **red** one prints its whole log, because
+      # vitest prints a failure message above the code frame it prints last, so a
+      # short tail keeps the frame and loses the reason. Round 20 lost two red
+      # hosted suites that way (`P4 · 42`).
+      echo "=== live: hosted (exit ${hc}) ==="
+      if [ "${hc}" -eq 0 ]; then tail -n 12 /tmp/hosted.log; else cat /tmp/hosted.log; fi
+      echo "=== live: local (exit ${lc}) ==="
+      if [ "${lc}" -eq 0 ]; then tail -n 12 /tmp/local.log; else cat /tmp/local.log; fi
       [ "${hc}" -eq 0 ] && [ "${lc}" -eq 0 ]'
-    run pnpm build
-    "${SCRIPT_DIR}/e2e.sh"
+    }
+    stage "prepare" prepare_gate
+    stage "check" run pnpm check
+    stage "live databases" live_databases
+    stage "build" run pnpm build
+    stage "e2e" "${SCRIPT_DIR}/e2e.sh"
     ;;
   test | test:unit)
     run pnpm test:unit "$@"
@@ -138,12 +200,17 @@ case "${CMD}" in
       SUPABASE_TARGET=local pnpm test:integration > /tmp/local.log 2>&1 & l=$!
       wait "$h"; hc=$?
       wait "$l"; lc=$?
-      echo "=== hosted (exit ${hc}) ==="; tail -n 20 /tmp/hosted.log
-      echo "=== local (exit ${lc}) ==="; tail -n 20 /tmp/local.log
+      # The whole log when it is red — see the note in `check:full` (`P4 · 42`).
+      echo "=== hosted (exit ${hc}) ==="
+      if [ "${hc}" -eq 0 ]; then tail -n 20 /tmp/hosted.log; else cat /tmp/hosted.log; fi
+      echo "=== local (exit ${lc}) ==="
+      if [ "${lc}" -eq 0 ]; then tail -n 20 /tmp/local.log; else cat /tmp/local.log; fi
       [ "${hc}" -eq 0 ] && [ "${lc}" -eq 0 ]'
     ;;
   e2e | test:e2e)
-    "${SCRIPT_DIR}/e2e.sh"
+    # Optional arguments name a spec or a Playwright filter: the cheap reading of one
+    # behaviour, which needs no preparation and is not blocked by another session's gate.
+    "${SCRIPT_DIR}/e2e.sh" "$@"
     ;;
   build)
     "${SCRIPT_DIR}/clean-run.sh"
@@ -186,6 +253,12 @@ meditaur — Node/pnpm run in Docker (infra/Dockerfile.tools, node:24.20.0-bookw
   ./scripts/meditaur dev               stop leftover preview, then Next.js
   ./scripts/meditaur check             typecheck, lint, unit tests
   ./scripts/meditaur check:full        check + integration + build + e2e (Docker)
+                                           one gate at a time: refuses while another
+                                           session holds the machine (scripts/session.sh)
+  ./scripts/meditaur e2e [spec|args]   the e2e suite, or one spec — no preparation,
+                                           never blocked by another session
+                                           (MEDITAUR_SESSION=alpha names your own project,
+                                           image tag and containers)
   ./scripts/meditaur build             wipe last build, production Next.js build
   ./scripts/meditaur preview           wipe last preview, Docker prod-like image
   ./scripts/meditaur up                host Supabase CLI only; optional (Dexie is the default)

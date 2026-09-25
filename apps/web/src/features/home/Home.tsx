@@ -13,7 +13,7 @@ export function Home() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const { userId, workspaceId } = useSession();
+  const { userId, workspaceId, flags } = useSession();
 
   const startSessionNow = async () => {
     setError(null);
@@ -59,12 +59,14 @@ export function Home() {
       >
         Open planner
       </Link>
-      <Link
-        href="/login"
-        className="inline-flex h-14 w-full items-center justify-center rounded-2xl border border-line px-6 text-lg text-text"
-      >
-        Account
-      </Link>
+      {flags.account_management ? (
+        <Link
+          href="/login"
+          className="inline-flex h-14 w-full items-center justify-center rounded-2xl border border-line px-6 text-lg text-text"
+        >
+          Account
+        </Link>
+      ) : null}
       {error ? <p className="text-lg text-destructive">{error}</p> : null}
     </main>
   );

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { BinauralPreset, FieldDef, FieldScope, Meditation, Symbol } from "@meditaur/domain";
 import type { LibraryView, MeditaurApp } from "@meditaur/application";
 import { errorText } from "@/lib/error-text";
+import { GoneScreen } from "../library/GoneScreen";
 import { MeditationEditor, MeditationPresetPicker, SymbolEditor } from "../library/MeditationTable";
 import { PresetEditor } from "../library/PresetsTable";
 import type { RecordTable } from "./database-tables";
@@ -284,7 +285,7 @@ export function DatabaseRecord({
   }
 
   if (screen.table === "presets") {
-    if (!draft.preset) return <Gone onBack={onBack} />;
+    if (!draft.preset) return <GoneScreen message={GONE} onBack={onBack} />;
     return (
       <PresetEditor
         {...commonProps}
@@ -298,7 +299,7 @@ export function DatabaseRecord({
   }
 
   if (screen.table === "symbols") {
-    if (!draft.symbol) return <Gone onBack={onBack} />;
+    if (!draft.symbol) return <GoneScreen message={GONE} onBack={onBack} />;
     const symbol = draft.symbol;
     return (
       <SymbolEditor
@@ -312,7 +313,7 @@ export function DatabaseRecord({
   }
 
   if (screen.table === "meditation") {
-    if (!draft.focus) return <Gone onBack={onBack} />;
+    if (!draft.focus) return <GoneScreen message={GONE} onBack={onBack} />;
     const focus = draft.focus;
     return (
       <MeditationEditor
@@ -332,7 +333,7 @@ export function DatabaseRecord({
     );
   }
 
-  return <Gone onBack={onBack} />;
+  return <GoneScreen message={GONE} onBack={onBack} />;
 }
 
 function draftsFor(entityId: string, view: LibraryView, scope: FieldScope): Record<string, string> {
@@ -346,17 +347,12 @@ function draftsFor(entityId: string, view: LibraryView, scope: FieldScope): Reco
   return out;
 }
 
-function Gone({ onBack }: { onBack: () => void }) {
-  return (
-    <main className="flex flex-col gap-6">
-      <p className="text-lg">That record is gone.</p>
-      <button type="button" className="text-left text-muted" onClick={onBack}>
-        Back
-      </button>
-    </main>
-  );
-}
-
+/**
+ * What every dead end in this screen says: the row the address asked for is not in the
+ * store. One constant rather than four copies, because a screen that says four things
+ * about one situation says nothing.
+ */
+const GONE = "That record is gone.";
 /**
  * Writes a picture for one record and answers with its asset id.
  *

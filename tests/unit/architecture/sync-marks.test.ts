@@ -110,7 +110,10 @@ describe("the catalogue's delete mark", () => {
   });
 
   it("writes the mark into the rows a device already holds", () => {
-    const v27 = dexie.slice(dexie.indexOf("this.version(27)"), dexie.indexOf("export const db"));
+    // v27's own body, up to the next version: the slice used to run to the end of the
+    // file, so an *unrelated* later version that names a table made this guard fail.
+    const start = dexie.indexOf("this.version(27)");
+    const v27 = dexie.slice(start, dexie.indexOf("this.version(28)", start));
     expect(v27.length, "v27 is gone").toBeGreaterThan(0);
     for (const [, table] of MARKS) {
       expect(v27, `${table} is not backfilled`).toContain(`"${table}"`);
@@ -123,5 +126,63 @@ describe("the catalogue's delete mark", () => {
     // `plans` is deliberately out: a plan is versioned by `revision` alone, so its
     // tombstone belongs to the slice that adds its cloud adapter.
     expect(v27).not.toContain('"plans"');
+  });
+
+  it("hides a marked row from the cloud's reads, in both adapters", () => {
+    // A delete in the cloud is a **write** — the row, marked — so the reads have to undo
+    // it. Slice 2 landed with this rule applied in one adapter and not the other: the
+    // plan repository filtered `deleted_at == null` and the catalogue's reads did not,
+    // which is the half-applied rule `DECISIONS.md` §12 is about. Both go through the
+    // one helper now, so a row a reader deleted cannot be drawn by one of them.
+    for (const file of ["packages/db/src/catalog-cloud.ts", "packages/db/src/plan-cloud.ts"]) {
+      expect(readRepo(file), `${file} does not leave the marked rows out`).toContain("liveRows(");
+    }
+  });
+
+  it("marks a catalogue row on the device instead of removing it", () => {
+    // Slice 3's first unit (`DECISIONS.md` §12). A device used to *remove* the row
+    // (`db.symbols.delete(id)` and its siblings), and a removal is the one shape a push
+    // cannot carry: a row that is not there cannot be sent, so a delete made offline
+    // could never travel and the other device would hand the row back.
+    const ports = readRepo("packages/db/src/ports.ts");
+    // Whitespace is flattened, because a chain may be broken across lines.
+    const flat = ports.replace(/\s+/g, " ");
+
+    // The Dexie *property* names, which are not the store names (`meditations` holds the
+    // store `focusPoints`), and one mark per store — so a delete that goes back to
+    // removing a row is a failure rather than a change nobody notices.
+    const STORES = [
+      "meditations",
+      "meditationTypes",
+      "symbols",
+      "entries",
+      "intentions",
+      "fieldDefs",
+      "fieldOptions",
+      "mediaAssets",
+      "presets",
+      "plans",
+    ];
+    for (const store of STORES) {
+      expect(flat, `${store} is removed rather than marked`).toContain(`markLocally(db.${store}`);
+    }
+    // The two that cannot use it: `field_values` is keyed by a pair rather than an id,
+    // and an entry's lines are a set rather than one row.
+    expect(flat).toContain("markFieldValueLocally(");
+    expect(flat).toContain("markIntentionsOfEntry(");
+
+    // ...and nothing removes a catalogue row. Both spellings, because the second is
+    // where a removal hides: `db.intentions.where("entryId").equals(entryId).delete()`.
+    for (const store of [...STORES, "fieldValuesByEntity"]) {
+      expect(flat, `${store} is removed rather than marked`).not.toMatch(
+        new RegExp(`db\\.${store}\\.(?:(?!db\\.)[^;]){0,160}?\\.delete\\(`),
+      );
+    }
+
+    // The reads keep the other half of the rule. The number is today's count of read
+    // filters rather than a floor: a read that stops filtering is exactly what this
+    // guards, so it may only rise — lower it only when a read is genuinely gone, and
+    // say which in the commit.
+    expect((flat.match(/withoutDeleted\(/g) ?? []).length).toBeGreaterThanOrEqual(21);
   });
 });

@@ -6,18 +6,23 @@ import { catalogRestoreError, errorText } from "@/lib/error-text";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import { PLAN_ERRORS, type CatalogChangeSet, type LibraryView } from "@meditaur/application";
 import { Button, EYEBROW_CLASS } from "@meditaur/ui";
-import type { BinauralPreset, Meditation, MediaAsset, Symbol } from "@meditaur/domain";
+import {
+  visibleSymbols,
+  visibleTypes,
+  type BinauralPreset,
+  type MediaAsset,
+} from "@meditaur/domain";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArchiveList } from "../database/ArchiveTable";
 import { databaseHref } from "../database/database-route";
 import { meditationTableId } from "../database/database-tables";
+import { recordHref, type RecordKind } from "../record/record-route";
 import type { DatabaseRequest } from "../database/DatabaseTab";
 import { AudioList } from "./AudioTable";
 import { CatalogBackupPanel } from "./CatalogBackupPanel";
 import { LibraryColumnPicker } from "./CatalogDataTable";
 import { patchLibrary, withRow } from "./library-patch";
-import { MeditationSheet } from "./MeditationSheet";
 import { MeditationList, SymbolsList } from "./MeditationTable";
 import { HistoryList } from "./HistoryTable";
 import {
@@ -31,16 +36,13 @@ import {
   writeLibraryTable,
   writeListMode,
   writeTableColumns,
-  screenId,
   SYMBOL_BUILTIN_COLUMNS,
   typeTabTypeId,
   type ListMode,
-  type Screen,
   type TableId,
 } from "./library-model";
 import { PlansList } from "./PlansTable";
 import { PresetsList } from "./PresetsTable";
-import { SymbolSheet } from "./SymbolSheet";
 
 /**
  * The library (§5, §8).
@@ -54,15 +56,18 @@ import { SymbolSheet } from "./SymbolSheet";
  */
 export function Library() {
   const router = useRouter();
-  const { ready: sessionReady, userId: sessionUserId, workspaceId: sessionWorkspaceId } =
-    useSession();
+  const {
+    ready: sessionReady,
+    userId: sessionUserId,
+    workspaceId: sessionWorkspaceId,
+    flags,
+  } = useSession();
   const [table, setTable] = useState<TableId | null>(null);
   const [listMode, setListMode] = useState<ListMode>("cards");
   const [columnKeys, setColumnKeys] = useState<string[] | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [view, setView] = useState<LibraryView | null>(null);
-  const [screen, setScreen] = useState<Screen>({ type: "list" });
   const [error, setError] = useState<string | null>(null);
   const [armedCardId, setArmedCardId] = useState<string | null>(null);
   const [cardImpact, setCardImpact] = useState<string | null>(null);
@@ -113,18 +118,31 @@ export function Library() {
   }, []);
 
   /**
+   * The types this screen may offer (`P0 · 35`, slice 35a).
+   *
+   * The question is asked **here**, once, and the answer is the list the screen
+   * hands down: a type's tab, the tiles behind it and the list it opens all come
+   * from this one list, so there is no second place for the two to disagree. The
+   * listing functions stay questions about the store — `liveTypes` is
+   * archived-ness and order, nothing more.
+   */
+  const typeRows = useMemo(
+    () => (view ? visibleTypes(view.meditationTypes, flags) : []),
+    [view, flags],
+  );
+  /**
    * The strip the store draws: one tab per live type, then the fixed screens.
    *
    * A type is a row, so this is a question about `view` and not about a list in
    * this file — a reader who adds a type gets a tab with nothing to register.
    */
-  const tabs = useMemo(() => (view ? libraryTabs(view.meditationTypes) : []), [view]);
+  const tabs = useMemo(() => (view ? libraryTabs(typeRows, flags) : []), [view, typeRows, flags]);
   /** The tab in front of the reader: their own choice, or the strip's first. */
   const active: TableId | null = table ?? tabs[0]?.id ?? null;
 
   /**
-   * A remembered tab that no longer exists — an archived type, or one of the old
-   * ids — falls back to the strip's first tab.
+   * A remembered tab that no longer exists — an archived type, one a flag hides,
+   * or one of the old ids — falls back to the strip's first tab.
    *
    * It matters because the type tabs are the store's rows: a type can be
    * archived between two visits, and the id in `sessionStorage` would then name
@@ -132,8 +150,8 @@ export function Library() {
    */
   useEffect(() => {
     if (!view || !table) return;
-    if (!libraryTabs(view.meditationTypes).some((row) => row.id === table)) setTable(null);
-  }, [view, table]);
+    if (!tabs.some((row) => row.id === table)) setTable(null);
+  }, [view, tabs, table]);
 
   useEffect(() => {
     if (!active) return;
@@ -149,9 +167,7 @@ export function Library() {
     [],
   );
 
-  useScreenScroll(
-    screen.type === "list" ? (active ? `list:${active}` : "list") : screenId(screen),
-  );
+  useScreenScroll(active ? `list:${active}` : "list");
 
   /** The blob URL for one asset, fetched once and kept for the screen's life. */
   const urlForAsset = useCallback(async (id: string | null): Promise<string | null> => {
@@ -178,70 +194,48 @@ export function Library() {
   useEffect(() => {
     if (!view || !active) return;
     const typeId = typeTabTypeId(active);
-    if (typeId && screen.type === "list") {
+    if (typeId) {
       void loadImages(
         view.meditations
           .filter((fp) => fp.typeId === typeId)
           .map((fp) => fp.representationAssetId),
       );
     }
-    if (active === "symbols" && screen.type === "list") {
+    if (active === "symbols") {
       void loadImages(view.symbols.map((s) => s.imageAssetId));
     }
-  }, [view, active, screen.type, loadImages]);
-
-  useEffect(() => {
-    if (!view) return;
-    if (screen.type === "focus-sheet") {
-      const focus = view.meditations.find((fp) => fp.id === screen.meditationId);
-      void loadImages([
-        focus?.representationAssetId,
-        ...view.symbols.map((s) => s.imageAssetId),
-      ]);
-    }
-    if (screen.type === "symbol-sheet") {
-      const symbol = view.symbols.find((s) => s.id === screen.symbolId);
-      void loadImages([symbol?.imageAssetId]);
-    }
-  }, [view, screen, loadImages]);
+  }, [view, active, loadImages]);
 
   const selectTable = (id: TableId) => {
     setArmedCardId(null);
-    setScreen({ type: "list" });
     setError(null);
     setTable(id);
     writeLibraryTable(id);
   };
-  const backToList = () => {
-    setScreen({ type: "list" });
-    setArmedCardId(null);
-    setError(null);
-  };
-
   /**
-   * The library's `Add …`, and a browse sheet's `Edit`, land in the Database.
+   * The library's `Add …` lands in the Database, which is a route of its own.
    *
-   * It is a route of its own now, so this is a navigation and not a tab switch:
-   * the request travels in the address (`database-route.ts`) and the unsaved-edits
-   * question is the nav bar's to ask on the way out.
+   * Only **creating** goes there now. A record's page and its editor are one screen at one
+   * address (`record-route.ts`) since the owner's round 22, so nothing on this list opens a
+   * record into the Database any more. A preset is the exception the round kept: it has
+   * nothing to read, so `Add preset` asks for the editor and lands in it directly.
    */
   const goToDatabase = (request: DatabaseRequest) => {
     setArmedCardId(null);
-    setScreen({ type: "list" });
     setError(null);
     router.push(databaseHref(request));
   };
 
-  const openMeditationSheet = (focus: Meditation) => {
+  /**
+   * A card's press: the record's own address, carrying the door it came through.
+   *
+   * That `from` is what lets the record's `Esc` come back to this list rather than
+   * guessing, and unlike the flag it replaces it survives a reload.
+   */
+  const openRecord = (kind: RecordKind, id: string) => {
     setError(null);
     setArmedCardId(null);
-    setScreen({ type: "focus-sheet", meditationId: focus.id });
-  };
-
-  const openSymbolSheet = (symbol: Symbol) => {
-    setError(null);
-    setArmedCardId(null);
-    setScreen({ type: "symbol-sheet", symbolId: symbol.id });
+    router.push(recordHref({ kind, id, from: "library" }));
   };
 
   const downloadCatalog = async () => {
@@ -355,85 +349,11 @@ export function Library() {
     }
   };
 
-  const symbolImageUrls = useMemo(() => {
-    const out: Record<string, string> = {};
-    if (!view) return out;
-    for (const symbol of view.symbols) {
-      if (symbol.imageAssetId && mediaUrls[symbol.imageAssetId]) {
-        out[symbol.id] = mediaUrls[symbol.imageAssetId]!;
-      }
-    }
-    return out;
-  }, [view, mediaUrls]);
-
   if (!workspaceId || !view) {
     return error ? (
       <p className="text-lg text-destructive">{error}</p>
     ) : (
       <p className="text-lg">Loading library…</p>
-    );
-  }
-
-  if (screen.type === "focus-sheet") {
-    const focus = view.meditations.find((fp) => fp.id === screen.meditationId);
-    if (!focus) {
-      return (
-        <main className="flex flex-col gap-6">
-          <p className="text-lg">That meditation is gone.</p>
-          <Button tier="tertiary" size="sm" onClick={backToList}>
-            Back
-          </Button>
-        </main>
-      );
-    }
-    return (
-      <MeditationSheet
-        focus={focus}
-        types={view.meditationTypes}
-        symbols={view.symbols}
-        entries={view.entries}
-        intentions={view.intentions}
-        presets={view.presets}
-        fieldDefs={view.fieldDefs}
-        fieldValues={view.fieldValues}
-        representationUrl={
-          focus.representationAssetId ? (mediaUrls[focus.representationAssetId] ?? null) : null
-        }
-        symbolImageUrls={symbolImageUrls}
-        error={error}
-        onBack={backToList}
-        onEdit={() => goToDatabase({ kind: "edit", table: meditationTableId(focus.typeId), id: focus.id })}
-      />
-    );
-  }
-
-  if (screen.type === "symbol-sheet") {
-    const symbol = view.symbols.find((s) => s.id === screen.symbolId);
-    if (!symbol) {
-      return (
-        <main className="flex flex-col gap-6">
-          <p className="text-lg">That symbol is gone.</p>
-          <Button tier="tertiary" size="sm" onClick={backToList}>
-            Back
-          </Button>
-        </main>
-      );
-    }
-    const attachedTo = view.entries
-      .filter((row) => row.archivedAt == null && row.symbolId === symbol.id)
-      .map((row) => view.meditations.find((fp) => fp.id === row.meditationId)?.name)
-      .filter((name): name is string => Boolean(name));
-    return (
-      <SymbolSheet
-        symbol={symbol}
-        attachedTo={attachedTo}
-        fieldDefs={view.fieldDefs}
-        fieldValues={view.fieldValues}
-        imageUrl={symbol.imageAssetId ? (mediaUrls[symbol.imageAssetId] ?? null) : null}
-        error={error}
-        onBack={backToList}
-        onEdit={() => goToDatabase({ kind: "edit", table: "symbols", id: symbol.id })}
-      />
     );
   }
 
@@ -536,14 +456,14 @@ export function Library() {
             meditations={view.meditations.filter(
               (row) => row.archivedAt == null && row.typeId === activeTypeId,
             )}
-            types={view.meditationTypes}
+            types={typeRows}
             entries={view.entries}
             fieldDefs={view.fieldDefs}
             fieldValues={view.fieldValues}
             imageUrls={mediaUrls}
             columnKeys={columnKeys}
             listMode={listMode}
-            onOpenSheet={openMeditationSheet}
+            onOpenRecord={(focus) => openRecord("meditation", focus.id)}
             typeId={activeTypeId}
           />
         </>
@@ -590,14 +510,16 @@ export function Library() {
               ) : null}
             </div>
           </div>
+          {/* An offer, so a symbol whose system's flag is off is not in it (`P0 · 35`,
+              slice 35b). A symbol that names no system is never hidden. */}
           <SymbolsList
-            symbols={view.symbols.filter((row) => row.archivedAt == null)}
+            symbols={visibleSymbols(view.symbols, flags).filter((row) => row.archivedAt == null)}
             fieldDefs={view.fieldDefs}
             fieldValues={view.fieldValues}
             imageUrls={mediaUrls}
             columnKeys={columnKeys}
             listMode={listMode}
-            onOpenSheet={openSymbolSheet}
+            onOpenRecord={(symbol) => openRecord("symbols", symbol.id)}
           />
         </>
       ) : null}
@@ -673,9 +595,7 @@ export function Library() {
             presets={view.presets.filter((row) => row.archivedAt == null)}
             armedId={armedCardId}
             deleteNotice={cardImpact}
-            onEdit={(preset: BinauralPreset) =>
-              goToDatabase({ kind: "record", table: "presets", id: preset.id })
-            }
+            onEdit={(preset: BinauralPreset) => openRecord("presets", preset.id)}
             onDuplicate={(preset: BinauralPreset) =>
               void (async () => {
                 setError(null);

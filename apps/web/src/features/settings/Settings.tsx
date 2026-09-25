@@ -3,17 +3,19 @@
 import { app } from "@/composition";
 import { useSession } from "@/features/auth/SessionProvider";
 import { applyTextSize } from "@/lib/text-size";
+import { applyTheme } from "@/lib/theme";
 import { errorText } from "@/lib/error-text";
 import { volumeFromTens, volumeToTens } from "@/lib/settings-volume";
 import type { UserPreferences } from "@meditaur/domain";
 import { LatchButton, Stepper, TileGrid } from "@meditaur/ui";
 import { useEffect, useRef, useState } from "react";
+import { ThemePicker } from "./ThemePicker";
 
 export function Settings() {
   const [prefs, setPrefs] = useState<UserPreferences | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const { ready, userId } = useSession();
+  const { ready, userId, flags } = useSession();
   // Every write must carry the revision the store last handed back, so saves are
   // chained and each one rebases on `stored`: two quick toggles cannot both send
   // the same revision (which a compare-and-swap would refuse), and the values
@@ -44,6 +46,9 @@ export function Settings() {
     setPrefs(optimistic);
     setSaveError(null);
     applyTextSize(optimistic.textSize);
+    // The scheme paints on the press, like the text size: a picker whose preview waited for
+    // the write would show the reader the old colours while they are choosing.
+    applyTheme(optimistic.theme);
     writes.current = writes.current
       .then(async () => {
         const base = stored.current ?? optimistic;
@@ -130,6 +135,16 @@ export function Settings() {
           { id: "xl", label: "XL" },
         ]}
       />
+      {/* The eight colour schemes (`P2 · 46`), behind the `colour_scheme` flag (`P2 · 44`):
+          an account whose flag is off sees no picker at all and paints the app's own
+          scheme, while the stored value stays where it is and returns with the flag. */}
+      {flags.colour_scheme ? (
+        <>
+          {/* No `Colour scheme` heading of its own — the picker's own label names it and
+              each tile carries its scheme's name, the way the text-size row above works. */}
+          <ThemePicker value={prefs.theme} onChange={(theme) => save({ theme })} />
+        </>
+      ) : null}
     </main>
   );
 }

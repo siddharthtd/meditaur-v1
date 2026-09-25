@@ -106,7 +106,7 @@ export function meditationImpact(input: {
   const burden = visibleBurden(input.id, "meditationId", input.entries, input.lines);
   const blocks = input.plans
     .flatMap((plan) => plan.blocks)
-    .filter((block) => block.meditationId === input.id);
+    .filter((block) => block.meditationIds.includes(input.id));
   return {
     ...NO_DELETION_IMPACT,
     mode: input.mode,
@@ -115,7 +115,7 @@ export function meditationImpact(input: {
     rows: burden.rows,
     lines: burden.lines,
     blocks: blocks.length,
-    plans: plansChanged(input.plans, (block) => block.meditationId === input.id),
+    plans: plansChanged(input.plans, (block) => block.meditationIds.includes(input.id)),
     fieldValues:
       input.fieldValues.filter((row) => row.entityId === input.id).length +
       valuesInEntries(burden.entryIds, input.fieldValues),
@@ -219,7 +219,7 @@ export function meditationTypeImpact(input: {
     // Plans, not blocks-that-change: two meditations of one type in one plan are
     // one plan the reader loses a place in.
     plans: input.plans.filter((plan) =>
-      plan.blocks.some((block) => block.meditationId != null && ids.has(block.meditationId)),
+      plan.blocks.some((block) => block.meditationIds.some((id) => ids.has(id))),
     ).length,
     fieldValues: sum((impact) => impact.fieldValues),
   };

@@ -6,10 +6,11 @@ import { NEUTRAL_ACCENT, accentStyle, type Accent } from "./accents.ts";
  *
  * Two orthogonal axes: `tier` is what a button *is*; `size` adapts to the
  * *layout* it sits in — compact in rows and toolbars, `lg`/`xl` only where one
- * action owns the screen. Placement is fixed by the same section: back is
- * top-left and tertiary, the primary action lives in a sticky bottom bar,
- * secondary actions sit inline with their content, and destructive actions sit
- * at the bottom of the row they remove, behind an arm/confirm step.
+ * action owns the screen. Placement is fixed by the same section: the way back is
+ * the `Esc back` legend in the sticky bottom bar, beside the screen's primary action
+ * (round 8's place, which round 25 restored and now guards), secondary actions sit
+ * inline with their content, and destructive actions sit at the bottom of the row
+ * they remove, behind an arm/confirm step.
  */
 export type ButtonTier = "primary" | "secondary" | "tertiary" | "destructive";
 export type ButtonSize = "sm" | "md" | "lg" | "xl";

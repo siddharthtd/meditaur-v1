@@ -1,4 +1,4 @@
-import { DEFAULT_ALARM_ENABLED, type Plan } from "@meditaur/domain";
+import { DEFAULT_ALARM_ENABLED, DEFAULT_THEME } from "@meditaur/domain";
 import { buildDefaultWorkspace, DEFAULT_PLAN_ID } from "./default-workspace.ts";
 import { db } from "./schema.ts";
 
@@ -42,7 +42,6 @@ async function seedWorkspace(): Promise<{ userId: string; workspaceId: string }>
     return { userId: LOCAL_USER, workspaceId: LOCAL_WS };
   }
   const catalog = buildDefaultWorkspace(LOCAL_WS);
-  const plan: Plan = catalog.plan;
   await db.transaction(
     "rw",
     [
@@ -71,6 +70,7 @@ async function seedWorkspace(): Promise<{ userId: string; workspaceId: string }>
         alarmVolume: 0.6,
         ttsEnabled: false,
         textSize: "md",
+        theme: DEFAULT_THEME,
         lastPlanId: DEFAULT_PLAN_ID,
         revision: 0,
         updatedAt: Date.now(),
@@ -83,12 +83,15 @@ async function seedWorkspace(): Promise<{ userId: string; workspaceId: string }>
       await db.fieldDefs.bulkAdd(catalog.fieldDefs);
       await db.fieldOptions.bulkAdd(catalog.fieldOptions);
       await db.presets.bulkAdd(catalog.presets);
-      await db.plans.add({
-        ...plan,
-        blocksJson: JSON.stringify(plan.blocks),
-        displayJson: JSON.stringify(plan.display),
-        updatedAt: Date.now(),
-      });
+      // Both seeded plans: the chakra circuit, then the points circuit (round 22).
+      for (const plan of catalog.plans) {
+        await db.plans.add({
+          ...plan,
+          blocksJson: JSON.stringify(plan.blocks),
+          displayJson: JSON.stringify(plan.display),
+          updatedAt: Date.now(),
+        });
+      }
     },
   );
   return { userId: LOCAL_USER, workspaceId: LOCAL_WS };

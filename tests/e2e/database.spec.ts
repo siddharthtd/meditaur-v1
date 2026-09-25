@@ -69,11 +69,24 @@ function rows(page: Page) {
 }
 
 /**
+ * The armed box: **Archive** and **Remove**, under the row they belong to.
+ *
+ * It is a row of its own since the owner's round 20 — *"drag and remove row should be
+ * innate to the row itself"* — because a box that says what it would take with it needs
+ * room, and the row's own controls are three glyphs in its last cell. Only one row can
+ * be armed at a time, so there is one of these.
+ */
+function rowBox(page: Page) {
+  return page.locator("[data-row-box]");
+}
+
+/**
  * The symbol chips of Karuna's rows, in the order the stack draws them — one per
  * row.
  *
- * Scoped to the groups because the **selector** at the top of the table is a chip
- * too (it offers the meditations), and it is not a row of anything.
+ * Scoped to the groups, because a chip sits inside the heading it belongs to: read
+ * group by group, the list below is the stack's own order. The selector that used
+ * to sit above the first table was a chip too, and the owner's round 22 removed it.
  */
 function chips(page: Page) {
   return page.locator("[data-karuna-group]").getByRole("button", { name: /— open or clear$/ });
@@ -241,8 +254,9 @@ test("a row left with nothing to point at is not stored", async ({ page }) => {
 
   // Karuna grows the trailing heading, because a row is not dropped for having an
   // empty one — the heading is what names what is missing. It is **appended** to the
-  // stack and not a substitute for it: with nothing in the selector every heading is
-  // drawn in series (§5.1), so the nine seeded ones are still there above it.
+  // stack and not a substitute for it: every heading is drawn in series (§5.1), so
+  // the nine seeded ones are still there above it. Nothing selects a heading any
+  // more (the owner's round 22), so the series is the whole of the order.
   await databaseTable(page, "Karuna").click();
   const unowned = page.locator('[data-karuna-group="none"]');
   await expect(unowned.getByRole("heading", { name: "No meditation" })).toBeVisible();
@@ -280,12 +294,13 @@ test("a row that was only inserted can be removed with the two-press control", a
   const inserted = rows(page).first();
   await inserted.hover();
   await inserted.getByRole("button", { name: "Remove this row" }).click();
-  await expect(inserted.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+  const draftBox = rowBox(page);
+  await expect(draftBox.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
   // There is nothing to archive about a row the store has never seen, so the box
   // offers the one action that means something and says why.
-  await expect(inserted.getByRole("button", { name: "Archive", exact: true })).toHaveCount(0);
-  await expect(inserted.getByText("Not saved yet")).toBeVisible();
-  await inserted.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(draftBox.getByRole("button", { name: "Archive", exact: true })).toHaveCount(0);
+  await expect(draftBox.getByText("Not saved yet")).toBeVisible();
+  await draftBox.getByRole("button", { name: "Remove", exact: true }).click();
   await expect(chips(page), "the inserted row is gone").toHaveCount(before.length);
 
   // At the foot, and here it is the heading's own `＋`: a heading draws the one its
@@ -297,13 +312,40 @@ test("a row that was only inserted can be removed with the two-press control", a
   const foot = rows(page).last();
   await foot.hover();
   await foot.getByRole("button", { name: "Remove this row" }).click();
-  await foot.getByRole("button", { name: "Remove", exact: true }).click();
+  await rowBox(page).getByRole("button", { name: "Remove", exact: true }).click();
   await expect(chips(page)).toHaveCount(before.length);
 
   // Nothing was ever written, so a reload finds the grid exactly as it started.
   await page.reload();
   await expect(page.locator('[data-table="entries"]')).toBeVisible();
   expect(await chips(page).allInnerTexts(), "the store never saw either row").toEqual(before);
+});
+
+test("a stored row a reader removed is still gone after a reload", async ({ page }) => {
+  // `P2 · 3`'s slice 3 (`DECISIONS.md` §12): a delete on this device is a **mark** on the
+  // row rather than a removal, so that it can travel to the other device. The screen
+  // patches the row out of its own list either way — which is why this test asks the
+  // store again instead: a reload is what proves the reads leave the marked rows out,
+  // and a read that forgot would draw the row back as though nothing had happened.
+  await openDatabase(page);
+  const before = await chips(page).allInnerTexts();
+  const target = rows(page).last();
+
+  // A **stored** row's `×` is the box that offers both, which is the label it carries
+  // (`DatabaseTable.tsx`: a row the store already holds can be archived, and one it has
+  // never seen cannot). Both are immediate — there is no `Save` in this path.
+  await target.hover();
+  await target.getByRole("button", { name: "Archive this row, or remove it" }).click();
+  const storedBox = rowBox(page);
+  await expect(storedBox.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+  await storedBox.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(chips(page), "the row left the grid").toHaveCount(before.length - 1);
+
+  await page.reload();
+  await expect(page.locator('[data-table="entries"]')).toBeVisible();
+  expect(await chips(page).allInnerTexts(), "and the store does not offer it again").toEqual(
+    before.slice(0, -1),
+  );
 });
 
 /**
@@ -348,72 +390,163 @@ test("a cell is text until it is live, and a row's controls wait for the pointer
 });
 
 /**
- * The pinned leading pair of a record table, as the reader meets it.
+ * A row's controls are the row's own, and the row is the press that opens it.
  *
- * The owner's item 6 was two defects in one place (§5.4). A chakra's `Name` was an
- * ordinary column, so scrolling the table sideways took it and left only the
- * controls behind; and the pinned *header* cell carried no fill of its own, so the
- * columns travelling under it at `z-20` read through it — the text box the owner
- * saw drawn over `Tune`.
+ * The owner's round 20, quoted: *"the 1st column is the open button, drag handle and
+ * remove row. This needs to go, it is occupying space we don't have today … ideally,
+ * drag and remove row should be innate to the row itself, open actually opens the
+ * table's key menu."* So the leading cell is gone, a row's first cell is its first
+ * column again, and the controls sit in the one cell the table already had for lining
+ * up its right edge.
+ *
+ * The pin §12.27 asked for went with the column — the owner chose that shape when the
+ * options were put to them — so the second half of this test is deliberately the
+ * opposite of what it used to assert: the name travels with the columns beside it.
  */
-test("a name stays put when its table scrolls, and the cells pinned to it paint", async ({
+test("a row carries its own controls, and the row is the press that opens it", async ({
   page,
 }) => {
-  // A narrower window than the suite's default, so the table is certainly wider than
-  // the room it has: a table that does not scroll cannot show either defect, and the
-  // assertion below would pass for the wrong reason.
+  // Narrower than the suite's default, so the table certainly overflows and the scroll
+  // half of this test means something: a table that does not scroll cannot show it.
   await page.setViewportSize({ width: 900, height: 720 });
   await openDatabase(page);
   await databaseTable(page, "Chakras").click();
-  // Away from the switcher, so no row is hovered — the one row state whose fill is
-  // not the resting one.
   await page.mouse.move(5, 5);
 
   const table = page.locator('[data-table="meditation"]');
-  const nameHeader = table.getByRole("columnheader", { name: "Name", exact: true });
-  const soundHeader = table.getByRole("columnheader", { name: "Default sound", exact: true });
+  // No controls column: no `Row` heading, and the row's first cell is a cell of the
+  // table like any other.
+  await expect(table.getByRole("columnheader", { name: "Row", exact: true })).toHaveCount(0);
+  const firstRow = table
+    .locator("tbody tr")
+    .filter({ has: page.getByRole("button", { name: "Drag row" }) })
+    .first();
+  await expect(firstRow.locator("td").first().getByRole("textbox")).toBeVisible();
 
-  // What a pinned cell has to paint is the header band's own colour, read off the
-  // band instead of written down — a literal here would pin the theme as well as
-  // the defect. A **computed style** is the only way to guard this one: the bug was
-  // the *absence* of a background, which the class list cannot show.
-  const band = await table
-    .locator("thead tr")
-    .evaluate((row) => getComputedStyle(row).backgroundColor);
-  expect(band, "the header band paints a colour at all").not.toBe("rgba(0, 0, 0, 0)");
-  await expect(nameHeader).toHaveCSS("background-color", band);
-  // The body's pinned cell inherits the row's fill instead, which is what carries
-  // the hover highlight with it. It is the row's *second* cell because what is
-  // pinned is the first built-in column and the controls cell is always first.
-  await expect(table.locator("tbody tr").first().locator("td").nth(1)).toHaveCSS(
-    "background-color",
-    band,
+  // The controls are the row's, and they are in its **last** cell: the grip and the
+  // `×`, drawn when the pointer is on the row (and on a phone, where there is nothing
+  // to hover with).
+  const controls = firstRow.locator("td").last();
+  await firstRow.hover();
+  await expect(controls.getByRole("button", { name: "Drag row" })).toBeVisible();
+  await expect(
+    controls.getByRole("button", { name: "Archive this row, or remove it" }),
+  ).toBeVisible();
+
+  // Pressing the row's own surface opens the record — the cell's padding, because
+  // every control inside the row keeps its own press. It opens the record's **own** page
+  // (the owner's round 22): it reads first, and its `Edit` is what turns it into its
+  // editor in place, on the same screen and at the same address.
+  await firstRow.locator("td").first().click({ position: { x: 1, y: 1 } });
+  await expect(page.getByRole("heading", { name: "Third-Eye Chakra" })).toBeVisible();
+  await expect(page.getByRole("textbox")).toHaveCount(0);
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Meditation name" })).toHaveValue(
+    "Third-Eye Chakra",
   );
+  // And `Esc` leaves the record for the door it came through — this grid — which is what
+  // `from` in the address is for.
+  await page.getByRole("button", { name: "Esc back", exact: true }).click();
+  await expect(table).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Third-Eye Chakra" })).toHaveCount(0);
 
+  // …and the keyboard makes the same press from the grid, because the row is what
+  // carries it.
+  await page.goto("/database");
+  await databaseTable(page, "Chakras").click();
+  const again = table
+    .locator("tbody tr")
+    .filter({ has: page.getByRole("button", { name: "Drag row" }) })
+    .first();
+  await again.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Third-Eye Chakra" })).toBeVisible();
+  await expect(page.getByRole("textbox")).toHaveCount(0);
+
+  // Back to the grid for the geometry half.
+  await page.goto("/database");
+  await databaseTable(page, "Chakras").click();
+  await expect(table).toBeVisible();
+
+  // What a row **is** stays at the left edge: scrolling the table sideways leaves the
+  // name where it was, which is the owner's round 14 ask, reversed in round 20 and
+  // reversed back in round 21 — *"Pin Name so it stays visible"*.
+  const nameHeader = table.getByRole("columnheader", { name: "Name", exact: true });
   const nameBefore = (await nameHeader.boundingBox())!;
-  const soundBefore = (await soundHeader.boundingBox())!;
-  const view = await table.locator("table").evaluate((element) => {
+  const scrolled = await table.locator("table").evaluate((element) => {
     const scroller = element.parentElement as HTMLElement;
     scroller.scrollLeft = scroller.scrollWidth;
-    const box = scroller.getBoundingClientRect();
-    return { scrolled: scroller.scrollLeft, left: box.left, right: box.right };
+    return scroller.scrollLeft;
   });
-  expect(view.scrolled, "a chakra's table is wider than the room it has").toBeGreaterThan(0);
-
+  expect(scrolled, "a chakra's table is wider than the room it has").toBeGreaterThan(0);
   const nameAfter = (await nameHeader.boundingBox())!;
-  const soundAfter = (await soundHeader.boundingBox())!;
   expect(
-    Math.abs(nameAfter.x - nameBefore.x),
-    "the name does not travel with the columns beside it",
-  ).toBeLessThan(1);
-  expect(
-    soundBefore.x - soundAfter.x,
-    "and those columns are the ones that did travel",
-  ).toBeGreaterThan(0);
-  expect(nameAfter.x, "the name is still inside the viewport it is pinned to").toBeGreaterThanOrEqual(
-    view.left - 1,
+    Math.abs(nameBefore.x - nameAfter.x),
+    "the name stayed put while the columns beside it moved",
+  ).toBeLessThan(2);
+  // And the cells under it moved, or the pin would be a table that does not scroll.
+  const nameCell0 = (await table
+    .locator("tbody tr")
+    .filter({ has: page.getByRole("button", { name: "Drag row" }) })
+    .first()
+    .locator("td")
+    .first()
+    .boundingBox())!;
+  expect(Math.abs(nameBefore.x - nameCell0.x), "the pinned heading sits over its cells").toBeLessThan(
+    40,
   );
-  expect(nameAfter.x + nameAfter.width).toBeLessThanOrEqual(view.right + 1);
+
+  // …but the row's own controls did not travel: they stay at the right edge, and that
+  // is the half of this shape the first cut got wrong — in an ordinary last cell they
+  // scrolled out of the viewport with everything else, so drag and remove became
+  // unreachable on a table wider than its room.
+  const grip = (await controls.getByRole("button", { name: "Drag row" }).boundingBox())!;
+  const view = (await table.boundingBox())!;
+  expect(grip.x, "the controls are still on screen").toBeGreaterThan(view.x);
+  expect(grip.x + grip.width).toBeLessThanOrEqual(view.x + view.width + 1);
+});
+
+/**
+ * One store, so an edit made anywhere is visible everywhere.
+ *
+ * Two of the owner's round-20 reports were about this and disagreed about which side was
+ * stale — *"If Database's information is updated from the tables, the library's open view
+ * should be updated as well"*, and *"information updated in the table for intentions …
+ * isn't updated in the database's open item page's view but properly updated in the
+ * library's open view"*. With one page and one editor there is one thing to check, and
+ * it is checked from the door the reports came through: a cell in the grid.
+ */
+test("an edit made in the grid is what the record's page and editor both read", async ({
+  page,
+}) => {
+  await openDatabase(page);
+  await databaseTable(page, "Chakras").click();
+  const location = page.getByRole("textbox", { name: "Root Chakra — Location" });
+  await location.fill("Beneath the spine, edited");
+  await location.press("Enter");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+
+  // The row press opens the library's page, which reads the store — so the value the
+  // grid just wrote is on it.
+  const row = location.locator("xpath=ancestor::tr");
+  await row.hover();
+  await row.locator("td").last().click({ position: { x: 4, y: 4 } });
+  await expect(page.getByRole("heading", { name: "Root Chakra" })).toBeVisible();
+  await expect(page.getByText(/Beneath the spine, edited/)).toBeVisible();
+
+  // …and `Edit` opens the one editor, which reads the same store and holds the fields
+  // the grid has no column for — the owner's *"the option to edit these items should be
+  // available from the library's item's edit button"*. `Governs` is the editor's own
+  // field (a `<span>` label), not the custom field the workspace seeds under the same
+  // name (an `<h2>` section).
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Location", exact: true })).toHaveValue(
+    "Beneath the spine, edited",
+  );
+  await expect(
+    page.locator("span.text-lg.text-muted").filter({ hasText: /^Governs$/ }),
+  ).toBeVisible();
 });
 
 /**
@@ -601,9 +734,10 @@ test("archiving a chakra takes its plan block out, and Restore brings it back", 
   // The row's `×` opens the box that names what goes; `Archive` in it is one tap
   // (§4, §12.22).
   await chakraRow.getByRole("button", { name: "Archive this row, or remove it" }).click();
-  await expect(chakraRow.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
-  await expect(chakraRow.locator("p.text-destructive")).toContainText(/plan|intention|row/);
-  await chakraRow.getByRole("button", { name: "Archive", exact: true }).click();
+  const chakraBox = rowBox(page);
+  await expect(chakraBox.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+  await expect(chakraBox.locator("p.text-destructive")).toContainText(/plan|intention|row/);
+  await chakraBox.getByRole("button", { name: "Archive", exact: true }).click();
   await expect(
     page.getByRole("textbox", { name: "Third-Eye Chakra — Name" }),
   ).toHaveCount(0);
@@ -637,13 +771,13 @@ test("leaving with unsaved edits is interrupted, and leaving clean is not", asyn
     asked = dialog.message();
     void dialog.dismiss();
   });
-  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Esc back", exact: true }).click();
   await expect.poll(() => asked).toContain("discard");
   // Dismissed, so the reader is still in the Database with the edit intact.
   await expect(page.locator('[data-table="entries"]')).toBeVisible();
 
   page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Esc back", exact: true }).click();
   await expect(page).toHaveURL(/\/library/);
   await expect(page.getByRole("button", { name: "Add", exact: true })).toBeVisible();
 
@@ -665,7 +799,7 @@ test("leaving with unsaved edits is interrupted, and leaving clean is not", asyn
   await expect(page.getByRole("button", { name: "Add", exact: true })).toBeVisible();
   await page.goto("/database");
   await expect(page.getByText("Unsaved changes")).toHaveCount(0);
-  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await page.getByRole("button", { name: "Esc back", exact: true }).click();
   await expect(page).toHaveURL(/\/library/);
   await expect(page.getByRole("button", { name: "Add", exact: true })).toBeVisible();
 });
@@ -815,8 +949,8 @@ test("an affirmation is a sentence the table keeps", async ({ page }) => {
     .filter({ has: page.getByRole("textbox", { name: "I am calm and here — Affirmation" }) })
     .first();
   await row.getByRole("button", { name: "Archive this row, or remove it" }).click();
-  await expect(row.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
-  await row.getByRole("button", { name: "Archive", exact: true }).click();
+  await expect(rowBox(page).getByRole("button", { name: "Archive", exact: true })).toBeVisible();
+  await rowBox(page).getByRole("button", { name: "Archive", exact: true }).click();
   await expect(sentence).toHaveCount(0);
 
   await page.goto("/library");
@@ -879,4 +1013,126 @@ test("a sentence associated with a chakra keeps its pair across a save and a rel
       .locator('[data-association="symbol"]')
       .getByRole("button", { name: "＋ symbol — open or clear" }),
   ).toBeVisible();
+});
+
+/**
+ * The owner's first report of round 20, from the point's side.
+ *
+ * Verbatim: *"I added an affirmation to database/affirmations and then added for thighs (a
+ * new point that I created then and there). Thighs was created on the spot, but my intention
+ * wasn't … my expectation is that I have added a new intention to the affirmations - when I
+ * visit the point that I have associated with that intention should be able to see the
+ * intention there in the library."*
+ *
+ * Three things are asserted here, and the last is the one the report is about: a point made
+ * in the Association cell **is a point** (it is in the Points tab, not Chakras), the sentence
+ * reaches the store, and the point's own page in the library reads it back. The half that was
+ * the screen's fault — a row press leaving the grid without writing the draft — was closed in
+ * `2145302` and has its own test above.
+ */
+test("a point made beside an affirmation is a point, and the affirmation reads on its page", async ({
+  page,
+}) => {
+  await openDatabase(page);
+  await databaseTable(page, "Affirmations").click();
+  await page.getByRole("button", { name: "Add an affirmation" }).click();
+  const cell = page
+    .locator('[data-table="affirmations"]')
+    .getByRole("textbox", { name: "New affirmation — Affirmation" });
+  await cell.fill("My jaw has been released whole and complete");
+  await cell.press("Enter");
+
+  const row = page
+    .locator('[data-table="affirmations"] tbody tr')
+    .filter({
+      has: page.getByRole("textbox", {
+        name: "My jaw has been released whole and complete — Affirmation",
+      }),
+    })
+    .first();
+  // A name no meditation has is offered as one to make, and made here — the same
+  // context-aware create the symbol half of this table has had a test for since round 14.
+  await row
+    .locator('[data-association="meditation"]')
+    .getByRole("button", { name: "Change Find a meditation" })
+    .click();
+  const search = page.getByRole("combobox", { name: "Find a meditation" });
+  await search.fill("Jaw");
+  await expect(page.getByRole("button", { name: "Add “Jaw”" })).toBeVisible();
+  await search.press("Enter");
+  await expect(
+    row
+      .locator('[data-association="meditation"]')
+      .getByRole("button", { name: "Jaw — open or clear" }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+
+  // A **point**: the meditation it made follows the table its cell is in, rather than
+  // landing on the reader's first type as a chakra — which is where the owner found it,
+  // in the wrong tab, with a chakra's own fields on its page.
+  await page.goto("/library");
+  await libraryTab(page, "Points").click();
+  await expect(page.getByRole("button", { name: "Open Jaw" })).toBeVisible();
+  await libraryTab(page, "Chakras").click();
+  await expect(page.getByRole("button", { name: "Open Jaw" })).toHaveCount(0);
+
+  // And its page reads the sentence written for it. This is the assertion the report was
+  // asking for and that nothing covered: the row a sentence hangs off is the association,
+  // and the page draws every row that names the meditation.
+  await libraryTab(page, "Points").click();
+  await page.getByRole("button", { name: "Open Jaw" }).click();
+  await expect(page.getByRole("heading", { name: "Jaw" })).toBeVisible();
+  await expect(page.getByText("This meditation on its own")).toBeVisible();
+  await expect(page.getByText("My jaw has been released whole and complete")).toBeVisible();
+});
+
+test("a filter lives on its column, and two of them are an AND", async ({ page }) => {
+  // The owner's round 22: the one box over the table became a filter **per column** —
+  // *"Clicking on any column header should convert that into a filter bar … if multiple
+  // columns' filters are activated, it should be an 'AND' action"* — with `|` as the OR and a
+  // regular expression read as one.
+  await openDatabase(page);
+  await databaseTable(page, "Symbols").click();
+  const table = page.locator('[data-table="symbols"]');
+  await expect(table).toBeVisible();
+  /** One row, found by the name its own cell carries. */
+  const rowNamed = (label: string) =>
+    table
+      .locator("tbody tr")
+      .filter({ has: page.getByRole("textbox", { name: `${label} — Name` }) });
+
+  // A heading's `⌕` opens that column's input, and the input is named for the column.
+  await table.getByRole("button", { name: "Open the filter for Name" }).click();
+  const name = table.getByRole("textbox", { name: "Filter Name" });
+  await expect(name).toBeVisible();
+  await name.fill("Halu");
+  await expect(rowNamed("Halu")).toHaveCount(1);
+  await expect(rowNamed("Gnosa"), "a row the filter does not name is not drawn").toHaveCount(0);
+  // The cell is searched, not the row: `Halu`'s *usage* is somebody else's word, and a
+  // filter on `Name` cannot see it.
+  await expect(rowNamed("Zonar")).toHaveCount(0);
+
+  // `|` is the OR inside one column: both names are drawn again.
+  await name.fill("Halu|Gnosa");
+  await expect(rowNamed("Halu")).toHaveCount(1);
+  await expect(rowNamed("Gnosa")).toHaveCount(1);
+
+  // A second column narrows further, and the two are an AND: `knowledge` is Gnosa's usage
+  // and nobody else's, so Halu leaves although the Name filter still names it.
+  await table.getByRole("button", { name: "Open the filter for Usage" }).click();
+  await table.getByRole("textbox", { name: "Filter Usage" }).fill("knowledge");
+  await expect(rowNamed("Gnosa")).toHaveCount(1);
+  await expect(rowNamed("Halu"), "two filters are an AND, not an OR").toHaveCount(0);
+
+  // A regular expression is read as one, case-insensitively.
+  await name.fill("^gno");
+  await expect(rowNamed("Gnosa")).toHaveCount(1);
+
+  // `Escape` in a filter closes **that** filter and stops there: the reader is still in the
+  // Database, which is the one-press-one-thing rule every other panel follows (§12.25).
+  await name.press("Escape");
+  await expect(table.getByRole("textbox", { name: "Filter Name" })).toHaveCount(0);
+  await expect(table).toBeVisible();
 });

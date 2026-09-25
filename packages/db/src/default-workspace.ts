@@ -6,7 +6,6 @@ import {
   DEFAULT_ALARM_ENABLED,
   DEFAULT_PLAN_DISPLAY,
   DEFAULT_REIKI_SYSTEM,
-  INTENTION_STAGES,
   POINT_TYPE_ID,
   PROTECTION_TYPE_ID,
   SEEDED_MEDITATION_TYPES,
@@ -21,29 +20,60 @@ import {
   type MeditationType,
   type Plan,
   type PlanBlock,
-  type PlanBlockStage,
   type ReikiSystem,
   type Symbol,
 } from "@meditaur/domain";
+import {
+  BOUND_SYMBOL_SLOTS,
+  seededBindingsFor,
+  seededMeditationSlotFor,
+} from "./seeded-bindings.ts";
+import { nid, stagesForType } from "./seeded-ids.ts";
+import { pointsCircuit } from "./seeded-plans.ts";
+import {
+  ORGAN_DURATION_MS,
+  SEEDED_POINTS,
+  pointsInCatalogueOrder,
+  seededPointContent,
+  seededPointId,
+  seededPointRow,
+} from "./seeded-points.ts";
+
+export { ORGAN_DURATION_MS };
 
 export const DEFAULT_PLAN_NAME = "Chakra circuit";
 export const CHAKRA_DURATION_MS = 420_000;
 export const PROTECTION_DURATION_MS = 671_000;
-export const ORGAN_DURATION_MS = 300_000;
-// Thanks Giving is one affirmations stage of 3:00, which is its whole length
-// (§12.10) — the same 180 s `AFFIRMATION_STAGES` holds, written out because the
+// Thanks Giving is one affirmations stage of 1:00, which is its whole length
+// (§12.10) — the same 60 s `AFFIRMATION_STAGES` holds, written out because the
 // other seeded durations are seed values the owner tunes rather than arithmetic.
-export const THANKS_GIVING_DURATION_MS = 180_000;
+// It was 3:00 until the owner's round 20.
+export const THANKS_GIVING_DURATION_MS = 60_000;
 // `COOLOFF_DURATION_MS` went with the block kind it seeded (the owner's round 15,
-// round 15, 2026-09-19): every seeded block is a meditation now, and its length is its stages'.
+// 2026-09-19): every seeded block is a meditation now, and its length is its stages'.
 export const DEFAULT_PLAN_ID = "01900000-0000-7000-8000-000000000040";
+/**
+ * The seeded circuit's **Crown** block, by the id the seed gives it (`nid(0x200 + 7)`, the
+ * eighth of the nine).
+ *
+ * It is named rather than derived at the call site because a repair has to remove *that*
+ * block from a device that already seeded itself, and the rule for doing so is "the block
+ * the app planted" rather than "every block that names Crown" (`seeded-circuit.ts`). Crown
+ * left the seeded plan in the owner's round 20; the constant stays for the devices that
+ * still hold it.
+ */
+export const SEEDED_CROWN_BLOCK_ID = nid(0x207);
+/**
+ * The seeded **Crown Chakra** meditation, by the id the seed gives it (`nid(0x26)`).
+ *
+ * It is named for the same reason the block is: a repair matches a block by *both* halves,
+ * so a plan's own block that happens to carry the seeded block's number is not mistaken
+ * for the one the app planted.
+ */
+export const SEEDED_CROWN_ID = nid(0x26);
 
 const GAIN = 0.45;
 const FADE_MS = 40;
-
-function nid(n: number): string {
-  return `01900000-0000-7000-8000-${n.toString(16).padStart(12, "0")}`;
-}
 
 function preset(
   workspaceId: string,
@@ -70,17 +100,6 @@ function preset(
     revision: 0,
     updatedAt: 0,
   };
-}
-
-/**
- * A seeded type's stages, copied, so a meditation can be given its own copy of
- * the template it was seeded from (§12.8).
- *
- * A type nothing knows falls back to a chakra's three stages rather than to none.
- */
-function stagesForType(typeId: string): PlanBlockStage[] {
-  const row = SEEDED_MEDITATION_TYPES.find((type) => type.id === typeId);
-  return copyStages(row?.stages ?? INTENTION_STAGES);
 }
 
 function focus(
@@ -178,7 +197,7 @@ function meditationBlock(id: string, sortOrder: number, point: Meditation): Plan
     // The meditation's own copy of its stages, so the seeded plan runs what the
     // seeded rows say rather than what a type said when the plan was made.
     stages: copyStages(point.stages ?? stagesForType(point.typeId)),
-    meditationId: point.id,
+    meditationIds: [point.id],
     symbolId: null,
     symbolScope: "all",
     binauralPresetId: point.defaultBinauralPresetId,
@@ -186,9 +205,11 @@ function meditationBlock(id: string, sortOrder: number, point: Meditation): Plan
     alarmAssetId: null,
     // The seeded blocks take the plan's answers: a plan the reader has not edited
     // behaves exactly as it did, and the block editor is where one meditation
-    // disagrees with its siblings.
+    // disagrees with its siblings. The randomiser joins them as `null` — a seeded block
+    // reads every line, which is what a reader who never asks for a draw gets.
     alarmEnabled: null,
     display: null,
+    intentionRandomiser: null,
   };
 }
 
@@ -201,7 +222,15 @@ export type DefaultWorkspace = {
   fieldDefs: FieldDef[];
   fieldOptions: FieldOption[];
   presets: BinauralPreset[];
-  plan: Plan;
+  /**
+   * Every plan a fresh device starts with: the chakra circuit, and the points circuit the
+   * owner asked for in round 22 — *"I want to introduce another plan for a points circuit"*.
+   *
+   * A list rather than one plan because a second one is the ask; the chakra circuit stays
+   * first and stays what `lastPlanId` names, so a reader who has never opened the planner
+   * sees exactly what they saw before.
+   */
+  plans: Plan[];
 };
 
 export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
@@ -675,7 +704,19 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     kidneys,
     protection,
     thanksGiving,
+    // The thirteen body points the owner listed (round 21, and round 22's split of two of
+    // them), after the two the seed already had: those two rows are already on a reader's
+    // device and their place is stored, so a seeded row that moved would be a change nobody
+    // asked for. `pointsInCatalogueOrder()` is `FOCUS_ORDER`'s order — where the rows read,
+    // which is not the order they sit in that file: a slot is half of a binding's id.
+    ...pointsInCatalogueOrder().map((point) => seededPointRow(workspaceId, point)),
   ];
+  /**
+   * The points a points circuit walks: every row of the Points type, in the order this
+   * catalogue lists them. That is `meditationRows`'s own order, which is the `sortOrder`
+   * every reader's copy of the catalogue is numbered by.
+   */
+  const pointsForCircuit = meditationRows.filter((row) => row.typeId === POINT_TYPE_ID);
   const symbolRows = [
     harth,
     gnosa,
@@ -745,17 +786,48 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     }
   }
 
+  // The owner's round 21 additions, walked in the **same** order as the pairs above so a
+  // meditation's rows always read together: a body point's own row — the symbol-less one its
+  // intentions stage reads, and the one a sheet draws "on its own" — before its symbols, and
+  // then the four reiki symbols bound to every chakra and point. Appended after the pairs
+  // rather than woven in, because the order of the walk above is also the order entry ids are
+  // handed out in, and a row inserted in the middle would move every id after it.
+  for (const row of meditationRows) {
+    const point = SEEDED_POINTS.find((seeded) => seededPointId(seeded.slot) === row.id);
+    if (point) {
+      const content = seededPointContent(workspaceId, [point], nextEntryOrder);
+      entries.push(...content.entries);
+      intentions.push(...content.intentions);
+      nextEntryOrder += content.entries.length;
+    }
+    const slot = seededMeditationSlotFor(row);
+    if (slot === null) continue;
+    entries.push(
+      ...seededBindingsFor({
+        workspaceId,
+        meditationId: row.id,
+        meditationSlot: slot,
+        firstSortOrder: nextEntryOrder,
+      }),
+    );
+    nextEntryOrder += BOUND_SYMBOL_SLOTS.length;
+  }
+
   const blocks: PlanBlock[] = [];
   const pushMeditation = (point: Meditation) => {
     blocks.push(meditationBlock(nid(0x200 + blocks.length), blocks.length, point));
-  };
-  // **No cool-off.** The owner's round 15 deleted the kind, so nothing sits between
+  };  // **No cool-off.** The owner's round 15 deleted the kind, so nothing sits between
   // the meditations; each one ends with its own last stage.
   //
-  // §12.13: the seeded plan is Thanks Giving → the seven chakras in order → Thanks
+  // §12.13: the seeded plan is Thanks Giving → the chakras in order → Thanks
   // Giving. The two Thanks Giving blocks are one row run twice, at the open and the
   // close of the circuit, and they are two blocks because a block is a *place* in a
   // plan: the second one can be given its own length later without moving the first.
+  //
+  // **Crown is not in it** since the owner's round 20 — *"Remove crown chakra from the
+  // seeded meditation plan, it is not required"* — so the circuit walks six chakras.
+  // The meditation itself stays in the library: the plan is what the owner asked to
+  // change, not the catalogue.
   pushMeditation(thanksGiving);
   pushMeditation(thirdEye);
   pushMeditation(throat);
@@ -763,7 +835,6 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
   pushMeditation(solar);
   pushMeditation(hara);
   pushMeditation(root);
-  pushMeditation(crown);
   pushMeditation(thanksGiving);
 
   const plan: Plan = {
@@ -826,6 +897,35 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     }),
   );
 
+  /**
+   * The presets, numbered in the order they read.
+   *
+   * Named here rather than written inline in the returned object because the points circuit
+   * names one of them per group (round 25), and may only name a tone this device really holds.
+   */
+  const presetRows: BinauralPreset[] = [
+    solfeggioThirdEye,
+    solfeggioThroat,
+    solfeggioHeart,
+    solfeggioSolar,
+    solfeggioHara,
+    solfeggioRoot,
+    solfeggioCrown,
+    solfeggioLiver,
+    solfeggioKidneys,
+    solfeggioProtection,
+    notesThirdEye,
+    notesThroat,
+    notesHeart,
+    notesSolar,
+    notesHara,
+    notesRoot,
+    notesCrown,
+    notesLiver,
+    notesKidneys,
+    notesProtection,
+  ].map((row, index) => ({ ...row, sortOrder: index }));
+
   return {
     meditationTypes,
     // Order is a property of the row here, so the array's own order is the order
@@ -841,28 +941,17 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     intentions,
     fieldDefs: [governsColumn, elementColumn],
     fieldOptions: elementOptions,
-    presets: [
-      solfeggioThirdEye,
-      solfeggioThroat,
-      solfeggioHeart,
-      solfeggioSolar,
-      solfeggioHara,
-      solfeggioRoot,
-      solfeggioCrown,
-      solfeggioLiver,
-      solfeggioKidneys,
-      solfeggioProtection,
-      notesThirdEye,
-      notesThroat,
-      notesHeart,
-      notesSolar,
-      notesHara,
-      notesRoot,
-      notesCrown,
-      notesLiver,
-      notesKidneys,
-      notesProtection,
-    ].map((row, index) => ({ ...row, sortOrder: index })),
-    plan,
+    presets: presetRows,
+    // The second plan: every point, in the order this catalogue reads them, clubbed into the
+    // owner's groups by `seeded-plans.ts`. It is built from the rows above rather than from the
+    // slot lists, so it names what this device actually holds — presets included.
+    plans: [
+      plan,
+      pointsCircuit(
+        workspaceId,
+        pointsForCircuit,
+        presetRows.map((row) => row.id),
+      ),
+    ],
   };
 }

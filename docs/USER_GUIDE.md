@@ -141,7 +141,8 @@ You do not need to create anything. The app arrives ready to use.
 
 1. **Open Meditaur.** You land on the welcome screen, which says `Meditaur`
    and offers two buttons you need: `Start session` and `Open planner`. (There is also
-   an `Account` button beside them; you never need it.)
+   an `Account` button beside them; you never need it, though it is how your material
+   follows you to another device — see [§13](#13-your-data-backups-and-moving-devices).)
 2. **Put your headphones on**, and check your device volume.
 3. **Press `Start session`.** Meditaur takes the plan you used last (the one that comes
    with the app is called `Chakra circuit`) and opens the run screen.
@@ -199,7 +200,8 @@ Meditaur has a welcome screen and five main areas, plus a full-screen run view.
 | **Settings** | Loudness, text size, the voice, and defaults for new plans. |
 | **Binaural tuner** | A live laboratory where you adjust tones and hear them immediately. A preset's editor has the same controls under its name, and `/tuner` opens one on its own. |
 
-(The welcome screen also has an `Account` button. You never need it.)
+(The welcome screen also has an `Account` button. You never need it; it is how your
+material moves between devices — see [§13](#13-your-data-backups-and-moving-devices).)
 
 **The navigation bar.** On `Plan`, `Library`, `Database` and `Settings` there is a
 bar at the
@@ -783,14 +785,21 @@ new row in that row's place; the one at the right end of a table appends. `＋ A
 under a row's lines writes another line. On a phone the row's lines open in a
 panel below the row instead of stretching it, with the same handles.
 
-**The filter narrows the table by name.** Above the grid sits a box reading
-`Filter <table> by name` — `Filter Chakras by name`, and so on. It matches the
-row's own name (a line matches its text, a Karuna row matches the
-`meditation · symbol` pair it is labelled with), and it does **not** search inside
-cell values, so a description is not findable this way. The toolbar says what it is
-showing while a filter is on, and switching tables clears it — it is a way of
-looking, not a setting. A filter that matches nothing leaves the table empty above
-its `New …` row rather than explaining itself.
+**Each column has its own filter.** Every heading carries a small `⌕`; pressing it opens a
+box under that heading, and a second press closes it. What you type narrows the table to the
+rows that column contains it — so a chakra can be found by its name, a symbol by its usage, an
+intention by a word inside it. Two things the box understands beyond plain text:
+
+- `|` is "or", inside one column: `love|compassion` shows rows with either word.
+- A **regular expression** is read as one, case-insensitively — `^I am` for "starts with",
+  `heal(s|ing)` for either ending. A pattern the app cannot read is treated as ordinary text
+  rather than hiding everything, so a typo costs you nothing.
+
+Open filters on **several columns** at once narrow the table further, not wider: a row has to
+match every one of them. `Escape` inside a box closes that box — it does not take you out of
+the Database. The toolbar says how many filters are narrowing the table, and switching tables
+clears them: a filter is a way of looking, not a setting. A filter that matches nothing leaves
+the table empty above its `New …` row rather than explaining itself.
 
 **`Edit table` hides columns you do not want to look at.** Press it and every
 heading grows a small `✕`; pressing one takes that column out of this table's view.
@@ -983,8 +992,8 @@ as a **table**, and the section header carries one switch for it:
   see it is the one you pressed.
 
 **Pressing an entry is how you open it** — anywhere on the card, or anywhere on a
-row. That opens the entry's read-only page, and `Edit` on that page opens it in the
-Database.
+row. That opens the entry's own page: it shows you what the entry is, and `Edit` on
+that page turns it into the form where you change it.
 
 The other sections — `Audio files`, `Presets`, `Plans` and `History` — list their
 entries as cards. The audio and preset cards carry their own actions (`Delete`, and
@@ -1277,17 +1286,24 @@ to do with the alarm's loudness and the tone's ducking comes from `Settings`.
 **Your material lives in this browser, on this device.** Meditaur works without
 an account and without an internet connection, which means your meditations,
 symbols, intentions, plans, sounds and pictures are stored locally in the browser
-you are using.
+you are using. Nothing reads them from anywhere else, and with no account nothing
+of yours is uploaded.
+
+Signing in changes one thing: while you are signed in, your material is **also**
+kept with your account, so a device you sign in on can open it. Signing in stays
+optional either way — without it the app works exactly as it did before.
 
 That has two consequences you should know:
 
-- **Clearing your browser's data removes your material.** Clearing "site data",
-  "cookies and other site data", or using a private/incognito window and then
-  closing it, will take your material with it.
-- **A different browser, or a different device, starts fresh.** They do not see
-  each other's data.
+- **Clearing your browser's data removes your material from this device.** Clearing
+  "site data", "cookies and other site data", or using a private/incognito window
+  and then closing it, will take this device's copy with it. Signed in, signing in
+  again is what brings it back.
+- **A device you never sign in on starts fresh.** Devices do not see each other's
+  material unless you are signed in on both.
 
-Because of this, `Download catalog` is not optional — it is your backup.
+`Download catalog` is still worth keeping: it is the one backup that needs no
+account and no connection.
 
 ### Download catalog
 
@@ -1327,6 +1343,13 @@ Two practical warnings:
   a bad thing to share casually.
 
 ### Moving to a new device
+
+**The short way, with an account:**
+
+1. On the new device: open Meditaur and sign in with the same account.
+2. Your material is there — check a meditation and a plan to confirm.
+
+**Without an account, or to bring a file into one:**
 
 1. On the old device: `Library` → `Download catalog`.
 2. Get the file to the new device (e-mail, cloud drive, cable, AirDrop — whatever
@@ -1503,7 +1526,7 @@ cannot be undone.
 | **Symbol** | A glyph you meditate on for a meditation. |
 | **Table view** | A saved table layout shown on the run screen during a block. |
 | **TTS** | Text-to-speech: Meditaur reading your intentions aloud. |
-| **Workspace** | Your collection of material. In this version it is local to one browser on one device. |
+| **Workspace** | Your collection of material. It is local to one browser on one device, and while you are signed in it is also kept with your account. |
 
 ---
 
@@ -1511,13 +1534,13 @@ cannot be undone.
 
 So you are not left hunting for things that do not exist:
 
-- **An account is optional, and it carries your settings — nothing else.** You
+- **An account is optional, and it is how material moves between devices.** You
   can create one from the welcome screen's `Account` button, and you never have
-  to. Signed in, your `Settings` (volumes, text size, and the rest) follow you to
-  whatever device you sign in on; changing one does need a connection, so with no
-  account nothing in the app needs one. Everything else — meditations, symbols,
-  intentions, plans, uploaded sounds, your history — still lives in the browser on
-  this device and is not copied, which is why `Download catalog` matters.
+  to. Signed in, your `Settings` (volumes, text size, and the rest) and your
+  material — meditations, symbols, intentions, plans, uploaded sounds, your
+  history — follow you to whatever device you sign in on; keeping a setting or a
+  piece of material in step does need a connection, so with no account nothing in
+  the app needs one. `Download catalog` stays the backup that works offline.
 - **A plan remembered on another device does not force anything.** The planner
   opens the plan you were last on when this device has it, and otherwise opens the
   first one it does have.

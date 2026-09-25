@@ -113,6 +113,68 @@ describe(`rls (${target?.name ?? "no target configured"})`, () => {
     );
   });
 
+  it.skipIf(!live)("lets an account read its own flags and write none of them", async () => {
+    // `P0 · 23` slice 23g. The policy in one sentence is an asymmetry: the browser **must**
+    // read its own row, because the flags decide what a screen draws, and must not write
+    // one, because a flag is the owner's decision about an account rather than a preference
+    // (`docs/ARCHITECTURE.md`, `DECISIONS.md` §11). `admin-flags.test.ts` proves it against
+    // the hosted project through the function; this is the same policy where the row is
+    // written with the service key instead — which is the half a function cannot test,
+    // because the function is precisely what is bypassed.
+    const stamp = crypto.randomUUID();
+    const email = `rls-flags-${stamp}@example.test`;
+    const otherEmail = `rls-flags-other-${stamp}@example.test`;
+    const userId = await createUser(email);
+    const otherId = await createUser(otherEmail);
+
+    try {
+      const seeded = await request("/rest/v1/account_flags", {
+        method: "POST",
+        key: serviceKey,
+        body: [{ user_id: userId, flags: { chakras: false } }],
+        headers: { Prefer: "return=minimal" },
+      });
+      expect(seeded.status, JSON.stringify(seeded.json)).toBeLessThan(300);
+
+      const token = await signIn(email);
+      const own = await request("/rest/v1/account_flags?select=flags", { key: anonKey, token });
+      expect(own.status, JSON.stringify(own.json)).toBeLessThan(300);
+      expect(
+        (own.json as { flags: Record<string, boolean> }[])[0]?.flags.chakras,
+        "the reader reads the row the app gates its surfaces on",
+      ).toBe(false);
+
+      // And cannot write it, however they ask. Asserted by reading the value back rather
+      // than by the status: an update that matches no row is a quiet success.
+      await request(`/rest/v1/account_flags?user_id=eq.${userId}`, {
+        method: "PATCH",
+        key: anonKey,
+        token,
+        body: { flags: { chakras: true } },
+      });
+      const after = await request("/rest/v1/account_flags?select=flags", { key: anonKey, token });
+      expect(
+        (after.json as { flags: Record<string, boolean> }[])[0]?.flags.chakras,
+        "an account cannot edit its own flags",
+      ).toBe(false);
+
+      // Self-select rather than any-signed-in-select: the other account has no row of its
+      // own here, so a policy of `using (true)` would hand it the one above and this is
+      // what would notice.
+      const other = await request("/rest/v1/account_flags?select=flags", {
+        key: anonKey,
+        token: await signIn(otherEmail),
+      });
+      expect(
+        (other.json as unknown[]).length,
+        "another account's row is not visible",
+      ).toBe(0);
+    } finally {
+      await deleteUser(userId);
+      await deleteUser(otherId);
+    }
+  });
+
   it.skipIf(!live)("denies user B rows that belong to user A's workspace", async () => {
     const stamp = crypto.randomUUID();
     const emailA = `rls-a-${stamp}@example.test`;

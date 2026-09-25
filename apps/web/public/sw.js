@@ -15,7 +15,7 @@
  * Nothing that authenticates is ever cached, on any method or origin. A stale
  * auth response is worse than a failed one — it looks like being signed in.
  */
-const VERSION = "meditaur-shell-v4";
+const VERSION = "meditaur-shell-v6";
 
 /**
  * The documents an installed icon can open. Precached so the very first offline
@@ -30,7 +30,23 @@ const VERSION = "meditaur-shell-v4";
  */
 // `/database` joined the list on 2026-09-19, when the Database left the library's
 // tab strip and became a destination an installed icon can open like any other.
-const SHELL = ["/", "/plan", "/library", "/database", "/settings", "/account", "/privacy", "/tuner"];
+// `/admin` joined on 2026-09-23: the owner's panel is a destination too, and it opens
+// nothing private — a non-admin gets a sentence (`P0 · 23`).
+// `/record` joined on 2026-09-24, when a record got an address of its own: the page
+// reads `kind`, `id` and `from` from the query string, so its *path* is what belongs
+// here and a cached document without them is the screen's own "that record is gone".
+const SHELL = [
+  "/",
+  "/plan",
+  "/library",
+  "/database",
+  "/record",
+  "/settings",
+  "/account",
+  "/privacy",
+  "/tuner",
+  "/admin"
+];
 
 /**
  * The build output a shell document refers to, found by reading it.

@@ -48,8 +48,18 @@ export function planFromRow(row: PlanRow): Plan {
   };
 }
 
-export async function savePlan(plan: Plan): Promise<void> {
-  await db.plans.put({
+/**
+ * A plan as the **local** store holds it.
+ *
+ * Exported for the protocol's pull (`sync.ts`), which writes a plan it received without
+ * going through `savePlan`: that one is the *product's* save — it stamps `updatedAt` and
+ * clears the mark, because the app only ever writes a plan the reader has open — while a
+ * pull writes a row that is whatever the cloud says, mark and revision included. One
+ * place still decides the local row's shape, which is why this is a function rather than
+ * two object literals.
+ */
+export function planRowForStore(plan: Plan): PlanRow {
+  return {
     id: plan.id,
     workspaceId: plan.workspaceId,
     name: plan.name,
@@ -62,5 +72,14 @@ export async function savePlan(plan: Plan): Promise<void> {
     blocksJson: JSON.stringify(plan.blocks),
     displayJson: JSON.stringify(plan.display ?? { columns: [] }),
     updatedAt: Date.now(),
-  });
+    // A save writes a **live** row: the app only writes a plan the reader has open, and
+    // a plan is never saved while it is marked — so `deletedAt` is cleared explicitly,
+    // the same shape `planRow` and `planBlockRows` write on the cloud's side. A row put
+    // back from a catalog backup comes through here too, and it is not a tombstone.
+    deletedAt: null,
+  };
+}
+
+export async function savePlan(plan: Plan): Promise<void> {
+  await db.plans.put(planRowForStore(plan));
 }

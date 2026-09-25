@@ -1,10 +1,19 @@
-import { fieldKeyFor, newRowVersion, type LibraryView } from "@meditaur/application";
 import {
+  fieldKeyFor,
+  newRowVersion,
+  noRemovals,
+  requireText,
+  type CatalogChangeSet,
+  type LibraryView,
+} from "@meditaur/application";
+import {
+  CHAKRA_TYPE_ID,
   copyStages,
   createId,
   DEFAULT_FOCUS_DURATION_MS,
   defaultEarEq,
   INTENTION_STAGES,
+  POINT_TYPE_ID,
   type BinauralPreset,
   type CellType,
   type Entry,
@@ -579,28 +588,6 @@ export function karunaGroups(draft: DraftState): KarunaGroup[] {
 }
 
 /**
- * The headings Karuna draws for the meditation the reader picked.
- *
- * `null` is "no filter" — the whole stack — and the **unowned** heading (the
- * sentences written about a symbol and no meditation) has a `meditationId` of
- * `null` too. Matching those two on the id alone made "no filter" select that one
- * heading: a single symbol-only sentence collapsed the whole stack to itself, with
- * no way back, because the selector's options all name a meditation and pressing
- * `✕` sets the choice back to `null`. So the two are told apart here, by the
- * caller's intent, and the unowned heading is only ever drawn as part of the stack.
- * It is deliberately not an option in the selector for the same reason: there is no
- * id a reader could name it by.
- */
-export function karunaSelection(
-  groups: KarunaGroup[],
-  meditationId: string | null,
-): KarunaGroup[] {
-  if (meditationId === null) return groups;
-  const picked = groups.find((group) => group.meditationId === meditationId);
-  return picked ? [picked] : groups;
-}
-
-/**
  * The store's one entry list, rewritten in the order the grid draws it.
  *
  * A row's place is its place **inside its group** (§5.1) — the order a drop inside a
@@ -854,12 +841,32 @@ export function dropRecord(draft: DraftState, table: DatabaseTable, id: string):
   return meditationTableTypeId(table) ? { ...draft, meditations: without(draft.meditations) } : draft;
 }
 
+/**
+ * The type a meditation gets when it is created **on the spot** from a sentence's own
+ * association cell, where there is no meditation table to ask.
+ *
+ * The owner's round 21 report is the reason this exists. They typed a body part into an
+ * affirmation's meditation chip, and the row arrived as a **chakra** — the first live type —
+ * so it was not in the Points tab, its page drew the chakra-only fields, and the affirmation
+ * they wrote for it read as if it belonged to a chakra. A sentence is written about a place
+ * on the body, so a row made beside an affirmation is a **point**; Karuna's rows are chakra ×
+ * symbol, so one made there is a **chakra**. Everywhere else the table the reader was in
+ * already answers this question and this returns `null`.
+ */
+export function referenceCellType(drawnIn: DatabaseTable | undefined): string | null {
+  if (drawnIn === "affirmations") return POINT_TYPE_ID;
+  if (drawnIn === "entries") return CHAKRA_TYPE_ID;
+  return null;
+}
+
 export function emptyRecord(
   /** A table of the grid, or the record page's own `focus` name for a meditation. */
   table: DatabaseTable | "meditation",
   workspaceId: string,
   /** The live types, so a brand-new meditation can be given the first one. */
   types: MeditationType[],
+  /** The table the reader was in when a **cell** asked for the record, if any. */
+  drawnIn?: DatabaseTable,
 ): DraftRecord {
   const id = createId();
   if (table === "types") {
@@ -912,9 +919,13 @@ export function emptyRecord(
     workspaceId,
     name: "",
     // A row with no type at all could not be shown, or filtered, anywhere: it
-    // starts on the type whose table it was added in, and on the reader's first
-    // type only when the table does not name one.
-    typeId: (table === "meditation" ? null : meditationTableTypeId(table)) ?? liveTypes(types)[0]?.id ?? "",
+    // starts on the type whose table it was added in, then on the type its cell's own
+    // table implies, and on the reader's first type only when neither names one.
+    typeId:
+      (table === "meditation" ? null : meditationTableTypeId(table)) ??
+      referenceCellType(drawnIn) ??
+      liveTypes(types)[0]?.id ??
+      "",
     locationText: "",
     defaultBinauralPresetId: null,
     defaultDurationMs: DEFAULT_FOCUS_DURATION_MS,
@@ -1023,16 +1034,42 @@ function sameLine(a: DraftLine, b: DraftLine): boolean {
  * archives the stored row and reports it by name. That is what makes
  * "cleared and then filled in again before Save" survive — by the time this runs,
  * the draft says the row has a reference, so it is written like any other.
+ *
+ * It answers with the sweep's report **and** a change-set, which is what item 4 is
+ * for (`P2 · 4`): the rows it wrote are the ones only this screen holds, so a screen
+ * that patches from them never spends a `getLibrary` per mutation. Two things are
+ * deliberately not restated in it. A **swept** row is named by the sweep's own report,
+ * which the caller already reads, and which carries the label the reader sees. And a
+ * **preset** is absent because this draft does not own one: the row's own rule is that
+ * presets keep their page, which writes the object the grid reads.
  */
 export async function commitDatabaseDraft(input: {
   writes: DatabaseWrites;
   workspaceId: string;
   before: DraftState;
   draft: DraftState;
-}): Promise<SweepReport> {
+}): Promise<SweepReport & { changes: CatalogChangeSet }> {
   const { writes, workspaceId, before, draft } = input;
   const beforeEntries = new Map(before.entries.map((row) => [row.id, row]));
+  const beforeLines = new Map(before.lines.map((row) => [row.id, row]));
   const orphans: string[] = [];
+  // What the commit wrote, collected as it goes: this is the answer a screen patches
+  // from, and it can only be collected here (`P2 · 4`).
+  const writtenEntries: Entry[] = [];
+
+  // **Nothing is written until the whole draft is known to be writable.** Every write below
+  // is its own transaction, so a refusal halfway through used to leave the rows before it
+  // stored — the owner's round 20 report, almost exactly: the point they made on the spot
+  // survived Save, the sentence written for it did not, and all the screen said was "Save
+  // failed". The store's own rule for a sentence is run over the draft here, before the first
+  // write, so a refusal costs nothing. Column headings and options are not restated: a blank
+  // heading is not a failure (the column is simply not stored), and a key clash is answered by
+  // `fieldKeyFor` deriving a free key.
+  for (const line of draft.lines) {
+    const previous = beforeLines.get(line.id);
+    if (previous && sameLine(previous, line)) continue;
+    requireText(line.text);
+  }
 
   for (const row of draft.entries) {
     const previous = beforeEntries.get(row.id);
@@ -1043,22 +1080,24 @@ export async function commitDatabaseDraft(input: {
       continue;
     }
     if (previous && sameEntry(previous, row)) continue;
-    await writes.saveEntry({ ...entryFrom(row), workspaceId });
+    writtenEntries.push(await writes.saveEntry({ ...entryFrom(row), workspaceId }));
   }
 
-  const beforeLines = new Map(before.lines.map((row) => [row.id, row]));
+  const writtenLines: Intention[] = [];
   for (const line of draft.lines) {
     const previous = beforeLines.get(line.id);
     if (previous && sameLine(previous, line)) continue;
-    await writes.saveLine({
-      id: line.id,
-      workspaceId,
-      entryId: line.entryId,
-      sortOrder: line.sortOrder,
-      text: line.text,
-      archivedAt: line.archivedAt,
-      ...newRowVersion(),
-    });
+    writtenLines.push(
+      await writes.saveLine({
+        id: line.id,
+        workspaceId,
+        entryId: line.entryId,
+        sortOrder: line.sortOrder,
+        text: line.text,
+        archivedAt: line.archivedAt,
+        ...newRowVersion(),
+      }),
+    );
   }
 
   // Order last, and only for rows that survived: a swept row has no place to keep.
@@ -1071,6 +1110,7 @@ export async function commitDatabaseDraft(input: {
   }
 
   const beforeColumns = new Map(before.columns.map((row) => [row.id, row]));
+  const writtenColumns: FieldDef[] = [];
   for (const column of draft.columns) {
     // A column with no heading is not stored — the same rule as a row with nothing
     // to point at: it was never a column, only the place one is about to be.
@@ -1101,6 +1141,7 @@ export async function commitDatabaseDraft(input: {
       archivedAt: null,
       ...newRowVersion(),
     });
+    writtenColumns.push(stored);
     // The application mints the key when it is blank; the draft learns it, so a
     // later save of the same column is a rename rather than a new key.
     column.key = stored.key;
@@ -1108,36 +1149,65 @@ export async function commitDatabaseDraft(input: {
   }
 
   const beforeOptions = new Map(before.options.map((row) => [row.id, row]));
+  const writtenOptions: FieldOption[] = [];
   for (const option of draft.options) {
     const previous = beforeOptions.get(option.id);
     if (previous && previous.label === option.label && previous.sortOrder === option.sortOrder) {
       continue;
     }
-    await writes.saveFieldOption({
-      id: option.id,
-      workspaceId,
-      fieldDefId: option.fieldDefId,
-      label: option.label,
-      sortOrder: option.sortOrder,
-      ...newRowVersion(),
-    });
+    writtenOptions.push(
+      await writes.saveFieldOption({
+        id: option.id,
+        workspaceId,
+        fieldDefId: option.fieldDefId,
+        label: option.label,
+        sortOrder: option.sortOrder,
+        ...newRowVersion(),
+      }),
+    );
   }
 
+  const writtenValues: FieldValue[] = [];
   for (const [key, text] of Object.entries(draft.values)) {
     if (text === (before.values[key] ?? "")) continue;
     const separator = key.lastIndexOf(":");
-    await writes.saveFieldValue({
-      entityId: key.slice(0, separator),
-      fieldDefId: key.slice(separator + 1),
-      text,
-      ...newRowVersion(),
-    });
+    writtenValues.push(
+      await writes.saveFieldValue({
+        entityId: key.slice(0, separator),
+        fieldDefId: key.slice(separator + 1),
+        text,
+        ...newRowVersion(),
+      }),
+    );
   }
 
-  await commitRecords(writes, workspaceId, before, draft);
+  const records = await commitRecords(writes, workspaceId, before, draft);
 
   const swept = await writes.sweepOrphanedEntries(workspaceId, orphans);
-  return { names: swept.swept.map((row) => row.label), total: swept.total };
+  return {
+    names: swept.swept.map((row) => row.label),
+    total: swept.total,
+    changes: {
+      // Save takes nothing away: a delete in this app is its own operation with its
+      // own answer, so this half is empty rather than merely unreported.
+      removed: noRemovals(),
+      updated: {
+        meditations: records.meditations,
+        symbols: records.symbols,
+        // The draft never writes a plan, and it never writes a preset — presets keep
+        // their own page, which is what writes the object the grid reads. Either
+        // would have to say so here.
+        plans: [],
+        presets: [],
+        meditationTypes: records.types,
+        entries: writtenEntries,
+        intentions: writtenLines,
+        fieldDefs: writtenColumns,
+        fieldOptions: writtenOptions,
+        fieldValues: writtenValues,
+      },
+    },
+  };
 }
 
 function lineOrderByEntry(draft: DraftState): Map<string, string[]> {
@@ -1232,7 +1302,20 @@ async function commitRecords(
   workspaceId: string,
   before: DraftState,
   draft: DraftState,
-): Promise<void> {
+): Promise<{
+  meditations: Meditation[];
+  symbols: Symbol[];
+  presets: BinauralPreset[];
+  types: MeditationType[];
+}> {
+  // What it wrote, by table: the caller's change-set is built from this, and a row
+  // the record pass skipped is absent from both the store and the answer.
+  const written = {
+    meditations: [] as Meditation[],
+    symbols: [] as Symbol[],
+    presets: [] as BinauralPreset[],
+    types: [] as MeditationType[],
+  };
   // Every meditation, in one group, whatever table it was drawn in: the tables
   // are filters, so the store's one list is what has to be compared.
   const groups: ["meditation" | "symbols" | "presets" | "types", DraftRecord[], DraftRecord[]][] = [
@@ -1255,11 +1338,16 @@ async function commitRecords(
             : table === "presets"
               ? await writes.savePreset({ ...presetFrom(record), workspaceId })
               : await writes.saveMeditation({ ...focusFrom(record), workspaceId });
+      if (table === "types") written.types.push(record.source as MeditationType);
+      if (table === "symbols") written.symbols.push(record.source as Symbol);
+      if (table === "presets") written.presets.push(record.source as BinauralPreset);
+      if (table === "meditation") written.meditations.push(record.source as Meditation);
       record.isNew = false;
       record.archivedAt = record.source.archivedAt;
       record.sortOrder = record.source.sortOrder;
     }
   }
+  return written;
 }
 
 function sameRecord(a: DraftRecord, b: DraftRecord): boolean {

@@ -43,7 +43,7 @@ describe("the library's mutations", () => {
     expect(upload).not.toContain("reload(");
     expect(upload).toContain("withRow(");
 
-    const remove = bodyOf("cardDelete", "symbolImageUrls");
+    const remove = bodyOf("cardDelete", "columns");
     expect(remove, "a delete patches from its change-set").not.toContain("reload(");
     expect(remove).toContain("patchLibrary(");
   });
@@ -52,7 +52,7 @@ describe("the library's mutations", () => {
     // The trap this item exists to remove: `deletePreset` and `deleteMediaAsset`
     // rewrite the meditations and the symbols that pointed at the row, so a patch
     // that only dropped the deleted id would leave those two stale in this view.
-    const remove = bodyOf("cardDelete", "symbolImageUrls");
+    const remove = bodyOf("cardDelete", "columns");
     expect(remove).toContain("setView(");
     expect(remove).toMatch(/patchLibrary\(current, changes\)/);
   });

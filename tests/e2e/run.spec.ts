@@ -579,6 +579,69 @@ test("a stage's wheels are the clock, and stop taking edits once the session run
   await expect(active).toHaveAttribute("data-stage", "2");
 });
 
+test("the whole stage card goes to its stage, and both switches share a side", async ({
+  page,
+}) => {
+  // The owner's round 20, two asks about one card: *"it would look more classy if the
+  // stage's toggles for binaural and reload stage would be on the same side (currently
+  // binaural is on left and reload is on the right)"* and *"clicking anywhere on
+  // meditation stage cards while the session has not started should take the user to
+  // that stage, if the user wants to start at that stage (same behavior as pressing
+  // the right arrow)"*.
+  await page.addInitScript(() => {
+    sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
+  });
+  await page.goto("/plan");
+  await page.getByRole("button", { name: "Root Chakra", exact: true }).click();
+  await expect(page).toHaveURL(/\/run\//);
+  await expect(page.getByRole("spinbutton", { name: "Minutes" })).toHaveCount(3, {
+    timeout: 60_000,
+  });
+
+  // Both switches are at the card's **end** — the `♪` after the wheels, the `↺` after
+  // that — while the name and its clock keep the reading order they had. The card
+  // measured is `Symbols`, because it is one of the two kinds that carry the tones and
+  // so draws the mark as a switch rather than as the quiet description a silent stage
+  // gets.
+  const card = page.locator("[data-stage-strip] li").nth(1);
+  const name = (await card.getByRole("button", { name: "Symbols stage" }).boundingBox())!;
+  const clock = (await card.getByRole("spinbutton", { name: "Seconds" }).boundingBox())!;
+  const mark = (await card.getByRole("button", { name: "Binaural for Symbols" }).boundingBox())!;
+  const restart = (await card.getByRole("button", { name: "Restart Symbols" }).boundingBox())!;
+  expect(mark.x, "the binaural mark is on the card's right, not its left").toBeGreaterThan(name.x);
+  expect(mark.x, "…and past the clock, so both switches share a side").toBeGreaterThan(
+    clock.x + clock.width,
+  );
+  expect(restart.x, "and the stage's restart is beside it").toBeGreaterThan(mark.x);
+
+  const active = page.locator("[data-stage-strip] li[data-active='true']");
+  await expect(active).toHaveAttribute("data-stage", "0");
+
+  // A press on the card's own padding — not on any control inside it — goes to that
+  // stage, which is the extra ask that arrived with round 20. The point is the
+  // bottom padding at the card's middle: clear of every control, and clear of the
+  // rounded corner, where the card's own surface is all there is to press.
+  const third = page.locator("[data-stage-strip] li").nth(2);
+  const box = (await third.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height - 2);
+  await expect(active).toHaveAttribute("data-stage", "2");
+
+  // A press on a control stays that control's press. The wheels are still editable
+  // before Start, so a press on one must not *also* jump the session — the wheel's
+  // Escape stops the press here, which is what keeps this assertion about the card.
+  await page.getByRole("spinbutton", { name: "Minutes" }).first().click();
+  await page.keyboard.press("Escape");
+  await expect(active, "the card's own press did not steal the wheel's").toHaveAttribute(
+    "data-stage",
+    "2",
+  );
+
+  // And once the session has started the card is a clock again, not a target: the
+  // ask is about the state before Start.
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^Go to / })).toHaveCount(0);
+});
+
 test("the arrow keys step a stage and a meditation, and never start the session", async ({
   page,
 }) => {
@@ -587,7 +650,8 @@ test("the arrow keys step a stage and a meditation, and never start the session"
   // meditation. '←' … once will reset the stage timer, twice … previous stage and …
   // thrice … previous meditation in the circuit. Don't start the meditation though"* —
   // answered as *"hold until start is pressed. Not paused at all, clock should be
-  // cleared."*
+  // cleared."* Round 20 shortened the window itself to a second, without changing what
+  // either gesture means.
   await page.addInitScript(() => {
     sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
   });
@@ -606,12 +670,13 @@ test("the arrow keys step a stage and a meditation, and never start the session"
   /**
    * Wait the window out before a gesture.
    *
-   * The rule being tested is defined in wall-clock seconds — "twice in 2 seconds" —
-   * so a gesture has to start from a strip nobody has just pressed. The presses
-   * *inside* a gesture are back to back, which is what makes them one gesture.
+   * The rule being tested is defined in wall-clock seconds — "twice in 1 second" since
+   * the owner's round 20 — so a gesture has to start from a strip nobody has just
+   * pressed. The presses *inside* a gesture are back to back, which is what makes them
+   * one gesture.
    */
   const quiet = async () => {
-    await page.waitForTimeout(2100);
+    await page.waitForTimeout(1100);
   };
 
   // `→→` from a one-stage block is the next **meditation** — and neither press
@@ -696,9 +761,132 @@ test("a symbols stage shows the symbols, not the intentions", async ({ page }) =
   // says which one it is.
   await expect(page.locator("[data-intentions-scroll]")).toHaveCount(0);
   await expect(page.locator("[data-region='symbols']")).toBeVisible();
-  // The panel beside it is still the symbol's, which is what the sheet is *about*.
-  // `exact`, because the sheet's own region is named `Symbols`.
-  await expect(page.getByRole("region", { name: "Symbol", exact: true })).toBeVisible();
+  // The rail beside it is gone (the owner's round 20): the sheet draws every symbol,
+  // so the panel that drew the one in play was the same information twice — and it
+  // was the width the boxes needed. `exact`, because the sheet's own region is named
+  // `Symbols`.
+  await expect(page.getByRole("region", { name: "Symbol", exact: true })).toHaveCount(0);
+  // The boxes are the pictures' places: large, framed, and arranged in **balanced rows**
+  // with every other row nudged half a box across — the honeycomb the owner described
+  // (*"something like hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in
+  // first row 2 in the 2nd row in the middle"*), and no panel behind them at all.
+  const first = (await gallery.locator("[data-symbol='0']").boundingBox())!;
+  expect(first.width, "a box a picture can live in").toBeGreaterThan(140);
+  expect(Math.abs(first.width - first.height), "and it is square").toBeLessThan(4);
+  expect(
+    await gallery.evaluate((node) => getComputedStyle(node).backgroundColor),
+    "no panel behind the boxes",
+  ).toBe("rgba(0, 0, 0, 0)");
+  const boxRows = gallery.locator("[data-symbol-row]");
+  expect(
+    await boxRows.count(),
+    "more than one row, so it is a shape and not a strip",
+  ).toBeGreaterThan(1);
+  // The rows themselves, not their boxes: `data-symbol` is the block's own order,
+  // so box `0` is in the **first** row only. A row's left edge is what the nudge
+  // moves, and it does not depend on how many boxes the row holds.
+  const rowOne = (await boxRows.nth(0).boundingBox())!;
+  const rowTwo = (await boxRows.nth(1).boundingBox())!;
+  expect(rowTwo.y, "the second row is below the first").toBeGreaterThan(rowOne.y);
+  expect(
+    Math.round(rowTwo.x - rowOne.x),
+    "and nudged half a box across, which is the hexagon",
+  ).toBeGreaterThan(40);
+
+  // On to Focus: the intentions column and the symbols sheet are both gone, which is
+  // the owner's round 20 — *"During Focus, again intentions are shown, that is not
+  // needed, keep it blank for now"* — and what it draws instead is the next test's
+  // business.
+  await page.getByRole("button", { name: "Focus stage" }).click();
+  await expect(page.locator("[data-stage-strip] li[data-active='true']")).toHaveAttribute(
+    "data-stage",
+    "2",
+  );
+  const focus = page.locator("[data-region='focus']");
+  await expect(focus).toBeVisible();
+  expect((await focus.boundingBox())!.height, "the region keeps its space").toBeGreaterThan(100);
+  await expect(page.locator("[data-symbol-gallery]")).toHaveCount(0);
+  await expect(page.locator("[data-intentions-scroll]")).toHaveCount(0);
+});
+
+/**
+ * Focus draws the meditation's picture and its symbols, in one colour, breathing.
+ *
+ * The owner's round 20, item 5, verbatim: *"During focus, we would want to show beautiful
+ * visuals of the chakra's picture in its colour, as well as all the symbols in the same colour
+ * breathing etc. occupying the entire space that was earlier occupied by the intentions
+ * table."* The stage drew nothing while that artwork did not exist; this is it, and the
+ * assertions are the four things the sentence asks for: the picture, the colour, the symbols,
+ * and the space.
+ */
+test("a focus stage draws the meditation's picture and its symbols breathing, in one colour", async ({
+  page,
+}) => {
+  await page.goto("/plan");
+  await page.getByRole("button", { name: "Root Chakra", exact: true }).click();
+  await expect(page).toHaveURL(/\/run\//);
+  // The session is loaded when its own `Start` is offered, which is what makes the
+  // stage strip's cards actionable — the same wait the symbols test makes.
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeEnabled({
+    timeout: 60_000,
+  });
+  // Root Chakra runs Intentions, Symbols, Focus: step to Focus before starting, which is
+  // the same `seek` a press on the stage's own card makes.
+  await page.getByRole("button", { name: "Focus stage" }).click();
+  await expect(page.locator("[data-stage-strip] li[data-active='true']")).toHaveAttribute(
+    "data-stage",
+    "2",
+  );
+
+  const visuals = page.locator("[data-focus-visuals]");
+  await expect(visuals).toBeVisible();
+  // **The entire space the intentions table would have had**: the region's own box, filled.
+  const focus = (await page.locator("[data-region='focus']").boundingBox())!;
+  const drawn = (await visuals.boundingBox())!;
+  expect(drawn.height, "the visuals fill the region").toBeGreaterThan(focus.height - 4);
+
+  // The meditation's picture — drawn as a glyph here, because this chakra has none
+  // uploaded — in the chakra's own colour, which is the accent the app already uses.
+  const picture = page.locator("[data-focus-chakra]");
+  await expect(picture).toBeVisible();
+  await expect(picture.locator("svg")).toHaveCount(1);
+  const accent = await visuals.evaluate((node) => getComputedStyle(node).color);
+  expect(accent, "in its colour").not.toBe("rgb(0, 0, 0)");
+  expect(await picture.evaluate((node) => getComputedStyle(node).color)).toBe(accent);
+
+  // **And all the symbols, in the same colour**: one per group the block reads, each
+  // inheriting the accent, with the one the stage has reached drawn larger.
+  const symbols = page.locator("[data-focus-symbol]");
+  expect(await symbols.count(), "every symbol of the block, not just one").toBeGreaterThan(1);
+  expect(
+    await symbols.first().evaluate((node) => getComputedStyle(node).color),
+    "in the same colour as the picture",
+  ).toBe(accent);
+  await expect(symbols.first()).toHaveAttribute("data-current", "true");
+
+  // Breathing, unless the reader asked their machine for less motion — the same rule
+  // the intentions column follows, and the reason the state is on the DOM rather than
+  // only in a class name.
+  await expect(visuals).toHaveAttribute("data-breathe", "on");
+  expect(await symbols.first().evaluate((node) => getComputedStyle(node).animationName)).toBe(
+    "breathe",
+  );
+
+  // And a reader who asked their machine for less motion gets the same picture, still —
+  // the rule the intentions column follows, which is why the state is on the DOM rather
+  // than only in a class name.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await page.getByRole("button", { name: "Focus stage" }).click();
+  await expect(page.locator("[data-focus-visuals]")).toHaveAttribute("data-breathe", "off");
+  expect(
+    await page
+      .locator("[data-focus-symbol]")
+      .first()
+      .evaluate((node) => getComputedStyle(node).animationName),
+  ).toBe("none");
+  // …and the picture is still drawn: less motion, not less picture.
+  await expect(page.locator("[data-focus-chakra] svg")).toHaveCount(1);
 });
 
 test("a session link that leads nowhere says so, and does not offer a dead Start", async ({

@@ -103,11 +103,14 @@ echo "--- supabase db push ---"
 supabase db push
 
 echo "--- supabase functions deploy ---"
-# `close-account` is the repo's only server-side code, and the app calls it to
-# remove the `auth.users` row — the half no browser may do. It is deployed with
-# the schema it runs against, so a release cannot ship a caller without its other
-# half. The platform verifies the JWT before it runs (no `--no-verify-jwt`).
+# Two halves no browser may do, both deployed with the schema they run against, so a
+# release cannot ship a caller without its other half. `close-account` removes the
+# `auth.users` row; `admin` is the only writer of `account_flags` — the panel behind it
+# is where the owner sets an account's flags, creates an account and sets a password by
+# hand (`P0 · 23`). The platform verifies the JWT before either runs (no
+# `--no-verify-jwt`).
 supabase functions deploy close-account
+supabase functions deploy admin
 
 echo "--- live integration tests against ${ref} ---"
 # Explicit: the suite must not decide by accident which database it hits.

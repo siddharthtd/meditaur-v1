@@ -17,10 +17,11 @@ import {
   type CompiledBlock,
   type PublicSessionState,
 } from "@meditaur/domain";
-import { Button, EYEBROW_CLASS, KeyHints, LatchButton, accentForName } from "@meditaur/ui";
+import { Button, EYEBROW_CLASS, KeyHints, LatchButton, accentForMeditation } from "@meditaur/ui";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import { FocusVisuals } from "./FocusVisuals";
 import { StageStrip, scrollsForStage } from "./StageStrip";
 import {
   IntentionsTable,
@@ -75,8 +76,14 @@ function mediaSession(): MediaSession | undefined {
  * the back arrow's three. It is a wall-clock window rather than a timeout, because
  * nothing is deferred by it — the first press does its own job immediately, and the
  * window only decides what the *next* press means.
+ *
+ * The owner's round 20 shortened it to a second: *"for the right and left arrows when
+ * pressed within a few seconds should change the meditation — reduce that timer to 1
+ * second. If an arrow is pressed after a second, consider it a stage advancement not
+ * a meditation advancement."* So a stage step is the default reading of an arrow, and
+ * only a press that comes straight after another one means "next meditation".
  */
-const ARROW_CHAIN_MS = 2000;
+const ARROW_CHAIN_MS = 1000;
 
 /**
  * The run screen's three regions — UI_DESIGN.md §2, the owner's round 15 §6.
@@ -113,9 +120,11 @@ const GLYPH = {
 };
 
 /**
- * Resolves the current block's symbol pictures to blob URLs. The cache lives
- * for the whole session, because a circuit revisits the same symbols, and the
- * URLs are revoked once, when the run screen unmounts.
+ * Resolves the current block's pictures to blob URLs: its symbols', and the
+ * meditation's own — the picture a Focus stage draws in the meditation's colour
+ * (the owner's round 20, item 5). The cache lives for the whole session, because a
+ * circuit revisits the same symbols, and the URLs are revoked once, when the run
+ * screen unmounts.
  *
  * A picture that will not load is dropped rather than raised: the run screen is
  * mid-session, and a missing glyph must not end the session.
@@ -125,9 +134,10 @@ function useSymbolImageUrls(block: CompiledBlock | null): Record<string, string>
   const urlsRef = useRef<Record<string, string>>({});
   const wantedKey = [
     ...new Set(
-      (block?.symbolGroups ?? [])
-        .map((group) => group.imageAssetId)
-        .filter((id): id is string => Boolean(id)),
+      [
+        ...(block?.symbolGroups ?? []).map((group) => group.imageAssetId),
+        block?.representationAssetId ?? null,
+      ].filter((id): id is string => Boolean(id)),
     ),
   ].join("|");
 
@@ -229,6 +239,7 @@ export function Runner({ instanceId }: { instanceId: string }) {
     ready: sessionReady,
     userId: sessionUserId,
     workspaceId: sessionWorkspaceId,
+    flags,
   } = useSession();
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const tabIdRef = useRef(crypto.randomUUID());
@@ -758,11 +769,29 @@ export function Runner({ instanceId }: { instanceId: string }) {
   }
 
   const live = sessionIsLive(state.status);
-  const accent = accentForName(block?.meditationName ?? null);
+  // The accent is the **meditation's**, not its name's (the owner's round 24, `P2 · 47`):
+  // `accentForMeditation` honours the reader's own `Meditation.colour` override, which
+  // `accentForName` — what this screen used — could not see. `CompiledBlock.colour` is the
+  // colour the block leads with, stamped at compile time beside the picture a Focus stage
+  // draws, so the transport and the artwork always agree.
+  const accent = accentForMeditation({
+    name: block?.meditationName ?? "",
+    colour: block?.colour ?? null,
+  });
+  // The chakra's own colour over the whole screen, or `null` for the app's palette — the
+  // `chakra_immersion` flag (`P2 · 44`). The **key** rather than the hex: the wash is a set
+  // of token overrides, one rule per chakra (`globals.css`), so the surfaces take the hue
+  // too and every control follows without knowing a session is running. A reader's custom
+  // hex and a point's neutral accent have no rule, so they keep the ink accents and the
+  // app's own ground.
+  const immersion = flags.chakra_immersion ? accent.key : null;
   // §6.3: only an intentions or affirmations stage scrolls, and only when that
   // stage's own switch is on — with the reader's own press overruling a
-  // reduced-motion preference for this session.
+  // reduced-motion preference for this session. And only for an account whose
+  // `auto_scroll` flag is on (`P0 · 35`, slice 35e): the gate is on this derivation
+  // rather than on the stored stage, so no plan is edited to achieve a still column.
   const stageScrolls =
+    flags.auto_scroll &&
     Boolean(block && stageKind && autoScrollForKind(stageKind) && state.stage?.autoScroll);
   const scrollHeld = stageScrolls && reduceMotion && !scrollAsked;
   const scrollEnabled = stageScrolls && !scrollHeld;
@@ -798,7 +827,10 @@ export function Runner({ instanceId }: { instanceId: string }) {
               ? "start"
               : "",
     },
-    { keys: ["Esc"], label: "end the session" },
+    // The legend is the control (the owner's round 20): the run screen's only way
+    // out of the top-left used to be a `Back` button that did exactly what this
+    // does, so it is gone and this is pressable.
+    { keys: ["Esc"], label: "end the session", onPress: exitToPlanner },
   ].filter((hint) => hint.label !== "");
   // Whether the whole meditation can be put back to its first stage from here.
   // `engine.seek` refuses while the alarm holds — the block on screen is over, and
@@ -812,17 +844,19 @@ export function Runner({ instanceId }: { instanceId: string }) {
     // intentions take what is left and scroll inside their own card, so the
     // controls never leave the bottom edge however many symbols a block has.
     // `run/layout.tsx` is the box this fills.
-    <main className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 overflow-hidden px-4 py-4">
+    //
+    // `bg-bg` is load-bearing rather than decoration: the wash overrides the tokens for
+    // this subtree, and without a background of its own the shell would show the body's
+    // root tone behind it — the panels tinted and the page not.
+    <main
+      data-chakra={immersion}
+      className="mx-auto flex h-full w-full max-w-6xl flex-col gap-3 overflow-hidden bg-bg px-4 py-4"
+    >
       <header className="flex shrink-0 flex-col gap-2">
         <div className="flex items-center gap-3">
-          <Button
-            tier="tertiary"
-            size="sm"
-            onClick={exitToPlanner}
-            title="Back to the planner — this ends the session"
-          >
-            Back
-          </Button>
+          {/* No `Back` button: the footer's `Esc end the session` legend is the
+              control now (the owner's round 20), so the header starts with the
+              meditation it is showing. */}
           {/* The meditation over its type — the pair a plan card's handle shows — and
               *not* a box of its own: the owner's round 16, item 0, is that the panel
               that repeated the name was a box with nothing in it. What the block
@@ -859,6 +893,7 @@ export function Runner({ instanceId }: { instanceId: string }) {
             running={state.status === "running"}
             started={started}
             remainingMs={state.remainingMs}
+            binauralOn={flags.binaural}
             onDuration={setStageDuration}
             onBinaural={(index, value) => setStageFlag(index, "binaural", value)}
             onSelect={(index) => engine.seek(state.blockIndex, index)}
@@ -898,10 +933,13 @@ export function Runner({ instanceId }: { instanceId: string }) {
             </div>
           ) : null}
           {/* The main region is the stage's own content (the owner's round 17, item
-              4): a `symbols` stage shows the block's symbols as a sheet, and every
-              other stage shows the lines it reads. */}
+              4): a `symbols` stage shows the block's symbols as a sheet, a `focus`
+              stage holds its space and draws nothing yet, and every other stage shows
+              the lines it reads. */}
           <div
-            data-region={draws("symbols") ? "symbols" : "intentions"}
+            data-region={
+              draws("symbols") ? "symbols" : draws("focus") ? "focus" : "intentions"
+            }
             style={{ gridArea: "main" }}
             className="flex min-h-0"
           >
@@ -910,6 +948,25 @@ export function Runner({ instanceId }: { instanceId: string }) {
                 groups={block.symbolGroups ?? []}
                 currentIndex={currentGroupIndex}
                 imageUrls={symbolImages}
+              />
+            ) : draws("focus") ? (
+              // The owner's round 20, item 5, built now: the meditation's own
+              // picture in its colour, and the block's symbols breathing in the same one,
+              // filling the space the intentions table fills on every other stage. Before
+              // this it drew nothing at all, which is what the round asked for while the
+              // artwork did not exist.
+              <FocusVisuals
+                name={block?.meditationName ?? null}
+                colour={block?.colour ?? null}
+                representationUrl={
+                  block?.representationAssetId
+                    ? (symbolImages[block.representationAssetId] ?? null)
+                    : null
+                }
+                groups={block?.symbolGroups ?? []}
+                currentIndex={currentGroupIndex}
+                imageUrls={symbolImages}
+                reduceMotion={reduceMotion}
               />
             ) : (
               <IntentionsTable
@@ -1043,7 +1100,7 @@ export function Runner({ instanceId }: { instanceId: string }) {
             pressed={state.alarmEnabled}
             onChange={(v) => engine.setAlarmEnabled(v)}
           />
-          {scrollsForStage(shownStage) ? (
+          {flags.auto_scroll && scrollsForStage(shownStage) ? (
             <LatchButton
               size="sm"
               label="Scroll"

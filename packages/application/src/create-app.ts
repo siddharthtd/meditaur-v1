@@ -4,13 +4,19 @@ import {
   fail,
   normalizePlanDisplay,
   stagesForMeditation,
+  visibleSymbols,
+  withoutMeditations,
   DEFAULT_ALARM_ENABLED,
+  DEFAULT_FEATURE_FLAGS,
   DEFAULT_PLAN_DISPLAY,
   MAX_TONES_PER_EAR,
   SESSION_LOG_LIST_LIMIT,
   SNAPSHOT_KEEP_PER_PLAN,
   type Entry,
+  type AccountFlags,
   type AccountPort,
+  type AdminAccount,
+  type AdminPort,
   type AuthPort,
   type AuthSession,
   type BinauralPreset,
@@ -20,6 +26,8 @@ import {
   type Clock,
   type EventPort,
   type FieldDef,
+  type FeatureFlags,
+  type FeatureFlagsPort,
   type FieldOption,
   type FieldValue,
   type Meditation,
@@ -41,6 +49,7 @@ import {
   type SignUpOutcome,
   type SnapshotRepository,
   type Symbol,
+  type SyncPort,
   type UserPreferences,
   type Versioned,
   type WorkspaceRepository,
@@ -54,7 +63,7 @@ import {
   parseCatalogBackup,
   type CatalogBackup,
 } from "./catalog-backup.ts";
-import type { CatalogChangeSet } from "./catalog-change.ts";
+import { noUpdatedRows, oneRowChangeSet, type CatalogChangeSet } from "./catalog-change.ts";
 import {
   assertFieldDefSavable,
   catalogFail,
@@ -149,6 +158,22 @@ export type AppPorts = {
    */
   account: AccountPort;
   /**
+   * The account's flags (`P0 · 23`), read-only. Never absent: a build with no cloud pair
+   * is wired to an adapter that answers the defaults, so nothing above this has to ask
+   * whether flags can be read at all.
+   */
+  flags: FeatureFlagsPort;
+  /**
+   * The owner's own tool (`P0 · 23`, slice 23f). Never absent: a build with no cloud pair
+   * is wired to an adapter that refuses, so the panel asks `adminIsConfigured()` on both
+   * builds rather than checking for a hole.
+   *
+   * Being wired is not being allowed. The `admin` function re-checks the caller's marker
+   * on every request, so the screen's own `isAdmin` gate is an affordance and this port is
+   * not a boundary.
+   */
+  admin: AdminPort;
+  /**
    * Where an event the app records about itself goes. Append-only, and one
    * write path: the store it lands in is a deployment question, not the app's.
    */
@@ -162,6 +187,12 @@ export type AppPorts = {
   snapshots: SnapshotRepository;
   logs: SessionLogRepository;
   maintenance: MaintenancePort;
+  /**
+   * One run of the sync protocol (`P2 · 3`, slice 3). Never absent: a build with
+   * no cloud pair is wired to an adapter that reports nothing sent and nothing
+   * received, so nothing above this has to ask whether syncing is possible.
+   */
+  sync: SyncPort;
   clock: Clock;
   runInTransaction: <T>(work: () => Promise<T>) => Promise<T>;
   nextId?: () => string;
@@ -211,6 +242,59 @@ export type MeditaurApp = {
    * out — the reader is told which erasure they are doing.
    */
   closeAccount(): Promise<void>;
+  /**
+   * The flags the app is gated by (`P0 · 23`, slice 23d).
+   *
+   * Resolved here rather than by a screen so that exactly one place decides what a
+   * signed-out device sees: with nobody signed in there is no account to read, and the
+   * answer is every default — the app a reader gets before any account exists, which is
+   * the app that existed before flags did.
+   *
+   * The answer is always complete: an account with no row, a row that predates a flag, or
+   * a read that failed and fell back to this device's mirror all resolve to a set a screen
+   * can ask about without a third state to handle.
+   */
+  getFeatureFlags(): Promise<AccountFlags>;
+  /**
+   * Whether this build can reach the admin function at all (`P0 · 23`, slice 23f).
+   *
+   * It answers about the *build*, not about the caller: whether an account may open the
+   * panel is `isAdmin`, which the function checks again on every request. The two are
+   * separate so a screen can say "this deployment cannot" rather than showing a form that
+   * fails on press.
+   */
+  adminIsConfigured(): boolean;
+  /** Every account, for the panel's table. */
+  listAccounts(): Promise<AdminAccount[]>;
+  /**
+   * Set one account's flags, and answer with the stored row so a panel patches the row it
+   * drew rather than re-reading every account.
+   */
+  setAccountFlags(userId: string, flags: Partial<FeatureFlags>): Promise<AccountFlags>;
+  /**
+   * Create an account (`P0 · 23`, slice 23f). The address is confirmed on the spot,
+   * because this deployment has no mailer — so `confirmationRequired` cannot arise here,
+   * which is what the panel's copy tells the owner.
+   */
+  createAccount(email: string, password: string): Promise<{ userId: string; email: string }>;
+  /**
+   * The hand-run reset: the owner chooses the password and hands it over. No mail is sent
+   * and none is needed, which is `DECISIONS.md` §11's answer to password recovery.
+   */
+  setAccountPassword(userId: string, password: string): Promise<void>;
+  /**
+   * Sync this device with the cloud once (`P2 · 3`, slice 3).
+   *
+   * Never throws, and returns nothing a screen could draw. The store is
+   * local-first, so a run that fails leaves this device exactly as it was and the
+   * next run re-reads from the watermarks the failed one did not move — which is
+   * why a failure is swallowed here rather than reported: a reader who never
+   * asked to sync must not meet an error about it.
+   *
+   * `workspaceId` is the one `bootstrap()` handed back, passed in rather than read
+   * again so a run cannot sync a workspace the caller's screen is no longer on.
+   */
+  syncNow(workspaceId: string): Promise<void>;
   /**
    * Record a client-side error: a render that threw, or a promise nobody
    * handled.
@@ -358,8 +442,8 @@ export type MeditaurApp = {
    */
   saveEntry(entry: Entry): Promise<Entry>;
   deleteEntry(workspaceId: string, entryId: string): Promise<void>;
-  archiveEntry(workspaceId: string, entryId: string): Promise<void>;
-  restoreEntry(workspaceId: string, entryId: string): Promise<void>;
+  archiveEntry(workspaceId: string, entryId: string): Promise<CatalogChangeSet>;
+  restoreEntry(workspaceId: string, entryId: string): Promise<CatalogChangeSet>;
   reorderEntries(workspaceId: string, entryIds: string[]): Promise<void>;
   /**
    * A line is the row the spec calls it: one sentence inside a row's Intentions
@@ -371,12 +455,12 @@ export type MeditaurApp = {
    */
   saveLine(line: Intention): Promise<Intention>;
   deleteLine(workspaceId: string, lineId: string): Promise<void>;
-  archiveLine(workspaceId: string, lineId: string): Promise<void>;
-  restoreLine(workspaceId: string, lineId: string): Promise<void>;
+  archiveLine(workspaceId: string, lineId: string): Promise<CatalogChangeSet>;
+  restoreLine(workspaceId: string, lineId: string): Promise<CatalogChangeSet>;
   reorderLines(workspaceId: string, entryId: string, lineIds: string[]): Promise<void>;
   /** A record steps aside, or comes back. Nothing that depends on it is touched. */
-  archiveRecord(workspaceId: string, kind: RecordKind, id: string): Promise<void>;
-  restoreRecord(workspaceId: string, kind: RecordKind, id: string): Promise<void>;
+  archiveRecord(workspaceId: string, kind: RecordKind, id: string): Promise<CatalogChangeSet>;
+  restoreRecord(workspaceId: string, kind: RecordKind, id: string): Promise<CatalogChangeSet>;
   /**
    * Archive every row among `entryIds` that has nothing left to point at, and say
    * which ones.
@@ -541,13 +625,19 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
    * moved or edited — the visibility rule is what hides it (§3.1) — so Restore is
    * exact by construction, and a chakra's rows, its lines and its blocks in a plan
    * come back with it.
+   *
+   * It answers with the row it stored, because that is the whole of what changed
+   * (`P2 · 4`): an archive is a rewrite of one row's `archivedAt`, so a screen
+   * holding that row's table has everything it needs to patch instead of re-reading
+   * the catalogue. `removed` is empty by construction, and `oneRowChangeSet` is what
+   * says so.
    */
   async function setRecordArchived(
     workspaceId: string,
     kind: RecordKind,
     id: string,
     archivedAt: number | null,
-  ): Promise<void> {
+  ): Promise<CatalogChangeSet> {
     if (kind === "meditationType") {
       // Only the type row moves. Its meditations keep their own `archivedAt` and
       // are hidden because *no live type names a tab or a table for them* — the
@@ -555,24 +645,31 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
       // what makes Restore exact here too.
       const row = (await ports.catalog.listMeditationTypes(workspaceId)).find((r) => r.id === id);
       if (!row) catalogFail("meditationTypeMissing");
-      await ports.catalog.saveMeditationType(stamped({ ...row, archivedAt }));
-      return;
+      const stored = stamped({ ...row, archivedAt });
+      await ports.catalog.saveMeditationType(stored);
+      return oneRowChangeSet({ meditationTypes: [stored] });
     }
     if (kind === "meditation") {
       const row = (await ports.catalog.listMeditations(workspaceId)).find((r) => r.id === id);
       if (!row) catalogFail("focusMissing");
-      await ports.catalog.saveMeditation(stamped({ ...row, archivedAt }));
-      return;
+      const stored = stamped({ ...row, archivedAt });
+      await ports.catalog.saveMeditation(stored);
+      return oneRowChangeSet({ meditations: [stored] });
     }
     if (kind === "symbol") {
       const row = (await ports.catalog.listSymbols(workspaceId)).find((r) => r.id === id);
       if (!row) catalogFail("symbolMissing");
-      await ports.catalog.saveSymbol(stamped({ ...row, archivedAt }));
-      return;
+      const stored = stamped({ ...row, archivedAt });
+      await ports.catalog.saveSymbol(stored);
+      return oneRowChangeSet({ symbols: [stored] });
     }
     const row = (await ports.presets.list(workspaceId)).find((r) => r.id === id);
     if (!row) presetFail("missing");
-    await ports.presets.save(stamped({ ...row, archivedAt }));
+    const stored = stamped({ ...row, archivedAt });
+    await ports.presets.save(stored);
+    // The preset row, not just its id: a *step aside* keeps the row, and the row is
+    // what the Archive page has to redraw it from (`P2 · 4`).
+    return oneRowChangeSet({ presets: [stored] });
   }
 
   /**
@@ -807,12 +904,36 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
       try {
         await ports.auth.signOut();
       } catch {
-        // Swallowed on purpose, and the only place in the app that does it: the
-        // row this session pointed at no longer exists, so the provider rejecting
-        // the call is the expected outcome rather than a failure to report. What
-        // must not happen is the wipe being skipped because of it.
+        // Swallowed on purpose: the row this session pointed at no longer exists, so
+        // the provider rejecting the call is the expected outcome rather than a
+        // failure to report. What must not happen is the wipe being skipped because
+        // of it. A background sync and the error reporter swallow too, but each of
+        // those is an operation of its own; this one is a step inside another.
       }
       await ports.maintenance.wipeLocalData();
+    },
+    getFeatureFlags: async () => {
+      // Asked of the session rather than of the caller: a screen knows whether it drew
+      // something, not who is signed in, and two places answering "whose flags" is how a
+      // panel ends up editing the wrong account.
+      const session = await ports.auth.getSession();
+      if (!session) return { flags: DEFAULT_FEATURE_FLAGS, isAdmin: false };
+      return ports.flags.read(session.userId);
+    },
+    adminIsConfigured: () => ports.admin.isConfigured(),
+    listAccounts: () => ports.admin.listAccounts(),
+    setAccountFlags: (userId, flags) => ports.admin.setFlags(userId, flags),
+    createAccount: (email, password) => ports.admin.createAccount(email, password),
+    setAccountPassword: (userId, password) => ports.admin.setPassword(userId, password),
+    syncNow: async (workspaceId) => {
+      try {
+        await ports.sync.run(workspaceId);
+      } catch {
+        // Swallowed on purpose, like the reporter below and for the same reason:
+        // there is nothing to say to the reader and nowhere to put it. The
+        // watermarks only move for rows that actually travelled, so a run that
+        // died halfway is picked up by the next one rather than lost.
+      }
     },
     recordClientError: async (input) => {
       try {
@@ -919,17 +1040,52 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         return next;
       }),
     compileAndStoreSession: async (plan, userId) => {
-      const library = await ports.catalog.loadCompileLibrary(plan.workspaceId, plan);
+      const stored = await ports.catalog.loadCompileLibrary(plan.workspaceId, plan);
       // The one place "stop binaural when the alarm rings" is read: it is the
       // reader's preference, not a property of the plan. It used to live on the
       // plan as well, and the planner's switch won — so the Settings switch did
       // nothing to an existing plan, which is exactly what the owner hit.
       const prefs = await ports.preferences.get(userId);
+      // The account's own `binaural` flag, read here rather than held by the screen that
+      // asked for the session (`P0 · 35`, slice 35d): off means silent, and the compile
+      // is the one place that can say so without touching the plan or the engine. The
+      // read is the app's own — `getFeatureFlags` answers for the session, and an
+      // account with no flags is every default, so a local-only build is audible.
+      const { flags } = await api.getFeatureFlags();
+      // A session shows what the account is offered and **nothing else** (`P0 · 37`, the
+      // owner's answer 2026-09-23: *"session should never show items that are blocked on
+      // an account"*). A symbol is the one item a stored plan can *name*, so the library
+      // this compiles against carries the account's own list — and a block that still
+      // names one outside it is **refused** rather than quietly walking something else,
+      // because that symbol is the point of the block. Nothing is migrated for it: the
+      // owner confirmed no account has been released, so there is no stored plan to keep
+      // working, which is what makes refusing the honest answer rather than the harsh one.
+      const symbols = visibleSymbols(stored.symbols, flags);
+      const offered = new Set(symbols.map((row) => row.id));
+      const outside = plan.blocks.find((block) => block.symbolId && !offered.has(block.symbolId));
+      if (outside) {
+        // The sentence carries three things (the owner, 2026-09-23): the symbol **by
+        // name**, the way out that works right now — the block's own symbol field is the
+        // reader's to change — and who to ask to change the account instead. The app's
+        // word for that person is the one the sign-in screen uses, "whoever set up your
+        // account", because the reader has never met a screen that says "owner".
+        const label = stored.symbols.find((row) => row.id === outside.symbolId)?.name;
+        const named = label ?? "This symbol";
+        fail(
+          "compile.symbolNotIncluded",
+          `${named} is not part of your account. Set the block's symbol to another one, or to None, and the session will run without it — to use ${named}, talk to whoever set up your account.`,
+        );
+      }
+      const library = { ...stored, symbols };
       const snapshot = compilePlan(plan, library, {
         now: ports.clock.nowMs(),
         id: nextId,
         durationOverrideMs: ports.durationOverrideMs ?? null,
         stopBinauralOnAlarm: prefs?.stopBinauralOnAlarm ?? true,
+        binauralSilent: !flags.binaural,
+        // The plan card's randomiser, and the account's flag for it (`P2 · 44`): off
+        // reads every line, which is the state a plan that never asked is in anyway.
+        randomiseIntentions: flags.intention_randomiser,
       });
       await ports.snapshots.save(snapshot);
       await ports.snapshots.prune(plan.id, SNAPSHOT_KEEP_PER_PLAN);
@@ -969,7 +1125,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             // one-tap session is a block of that meditation, so it runs that
             // meditation's stages and nobody else's (§12.15).
             stages: stagesForMeditation(focus, library.meditationTypes),
-            meditationId: focus.id,
+            meditationIds: [focus.id],
             symbolId: null,
             symbolScope: "all",
             binauralPresetId: focus.defaultBinauralPresetId,
@@ -979,6 +1135,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             // takes the plan's answer until they give it one.
             alarmEnabled: previous?.alarmEnabled ?? null,
             display: previous?.display ?? null,
+            intentionRandomiser: previous?.intentionRandomiser ?? null,
           },
         ],
       };
@@ -1207,7 +1364,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             meditations: [],
             meditationTypes: [],
           },
-          updated: { meditations: clearedMeditations, symbols: [], plans },
+          updated: { ...noUpdatedRows(), meditations: clearedMeditations, plans },
         };
       }),
     saveMeditationType: async (row) => {
@@ -1240,7 +1397,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         // plans. `getDeletionImpact` is what tells the reader, before the second
         // press, how many blocks that is.
         const { plans } = await patchPlanBlocks(workspaceId, (block) =>
-          block.meditationId === meditationId ? null : block,
+          withoutMeditations(block, new Set([meditationId])),
         );
         await ports.catalog.deleteMeditation(meditationId);
         return {
@@ -1253,7 +1410,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             meditations: [meditationId],
             meditationTypes: [],
           },
-          updated: { meditations: [], symbols: [], plans },
+          updated: { ...noUpdatedRows(), plans },
         };
       }),
     deleteMeditationType: async (workspaceId, typeId) =>
@@ -1276,7 +1433,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         await deleteRows(entryIds);
         // One pass over the plans for the whole type, not one per meditation.
         const { plans } = await patchPlanBlocks(workspaceId, (block) =>
-          block.meditationId && ids.has(block.meditationId) ? null : block,
+          withoutMeditations(block, ids),
         );
         for (const focus of mine) await ports.catalog.deleteMeditation(focus.id);
         await ports.catalog.deleteMeditationType(typeId);
@@ -1290,7 +1447,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             meditations: [...ids],
             meditationTypes: [typeId],
           },
-          updated: { meditations: [], symbols: [], plans },
+          updated: { ...noUpdatedRows(), plans },
         };
       }),
     saveSymbol: async (symbol) => {
@@ -1330,7 +1487,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             meditations: [],
             meditationTypes: [],
           },
-          updated: { meditations: [], symbols: [], plans },
+          updated: { ...noUpdatedRows(), plans },
         };
       }),
     saveEntry: async (entry) =>
@@ -1366,13 +1523,17 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         if (!entry) catalogFail("entryMissing");
         // Nothing else is touched — not the lines, not the values, not the order.
         // That is the whole reason Restore puts the row back exactly as it was.
-        await ports.catalog.saveEntry(stamped({ ...entry, archivedAt: ports.clock.nowMs() }));
+        const stored = stamped({ ...entry, archivedAt: ports.clock.nowMs() });
+        await ports.catalog.saveEntry(stored);
+        return oneRowChangeSet({ entries: [stored] });
       }),
     restoreEntry: async (workspaceId, entryId) =>
       ports.runInTransaction(async () => {
         const entry = await findEntry(workspaceId, entryId);
         if (!entry) catalogFail("entryMissing");
-        await ports.catalog.saveEntry(stamped({ ...entry, archivedAt: null }));
+        const stored = stamped({ ...entry, archivedAt: null });
+        await ports.catalog.saveEntry(stored);
+        return oneRowChangeSet({ entries: [stored] });
       }),
     reorderEntries: async (workspaceId, entryIds) =>
       ports.runInTransaction(async () => {
@@ -1420,13 +1581,17 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         if (!line) catalogFail("entryMissing");
         // The line keeps its row and its position, so Restore puts it back where
         // it was rather than at the foot of the list.
-        await ports.catalog.saveIntention(stamped({ ...line, archivedAt: ports.clock.nowMs() }));
+        const stored = stamped({ ...line, archivedAt: ports.clock.nowMs() });
+        await ports.catalog.saveIntention(stored);
+        return oneRowChangeSet({ intentions: [stored] });
       }),
     restoreLine: async (workspaceId, lineId) =>
       ports.runInTransaction(async () => {
         const line = await findLine(workspaceId, lineId);
         if (!line) catalogFail("entryMissing");
-        await ports.catalog.saveIntention(stamped({ ...line, archivedAt: null }));
+        const stored = stamped({ ...line, archivedAt: null });
+        await ports.catalog.saveIntention(stored);
+        return oneRowChangeSet({ intentions: [stored] });
       }),
     reorderLines: async (workspaceId, entryId, lineIds) =>
       ports.runInTransaction(async () => {
@@ -1624,7 +1789,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             meditations: [],
             meditationTypes: [],
           },
-          updated: { meditations: clearedMeditations, symbols: clearedSymbols, plans },
+          updated: { ...noUpdatedRows(), meditations: clearedMeditations, symbols: clearedSymbols, plans },
         };
       }),
   };

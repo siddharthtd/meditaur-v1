@@ -5,8 +5,43 @@ import {
   factsHaveValues,
   sessionLayout,
   sessionRegions,
+  symbolRows,
 } from "../../../apps/web/src/features/runner/session-regions.ts";
 import type { CompiledFact, CompiledSymbolGroup } from "@meditaur/domain";
+
+/**
+ * How the symbol boxes are arranged (the owner's round 22).
+ *
+ * The owner, on the sheet round 20 built: *"they still need to follow an organized grid
+ * structure, but, something like hexagonal shape for 6 intentions in Heart, or if there are 5
+ * then 3 in first row 2 in the 2nd row in the middle."* These are the counts a chakra, a
+ * point and a Protection block actually produce, plus the ends of the range.
+ */
+describe("symbolRows", () => {
+  it("gives the owner's own examples", () => {
+    // 6 → 3 + 3, 5 → 3 + 2 with the short row underneath.
+    expect(symbolRows(6)).toEqual([3, 3]);
+    expect(symbolRows(5)).toEqual([3, 2]);
+    // The ends: one, two and three boxes are one row; seven puts the extra in the middle.
+    expect(symbolRows(1)).toEqual([1]);
+    expect(symbolRows(2)).toEqual([2]);
+    expect(symbolRows(3)).toEqual([3]);
+    expect(symbolRows(4)).toEqual([2, 2]);
+    expect(symbolRows(7)).toEqual([2, 3, 2]);
+    // Nothing to arrange at all.
+    expect(symbolRows(0)).toEqual([]);
+  });
+
+  it("never loses a box, and never puts more than three in a row", () => {
+    for (let count = 0; count <= 30; count += 1) {
+      const rows = symbolRows(count);
+      expect(rows.reduce((total, width) => total + width, 0), `${count} boxes`).toBe(count);
+      expect(Math.max(0, ...rows), `${count} in a row`).toBeLessThanOrEqual(3);
+      // A row of nothing is a gap in the shape, and the shape is the point.
+      expect(rows.every((width) => width > 0), `${count} has no empty row`).toBe(true);
+    }
+  });
+});
 
 /**
  * The session screen's arrangement (the owner's round 16, items 4, 8 and 9).
@@ -99,12 +134,24 @@ describe("the session screen's regions", () => {
     // The owner's round 17, item 4: a `symbols` stage shows the block's symbols
     // *"in the main region only instead of the intentions"*. The main slot is the
     // same slot either way — it is the region's **content** that changes — so the
-    // rail and the strip do not move when a block walks from one stage to the next.
+    // other regions do not move when a block walks from one stage to the next.
     const regions = sessionRegions({ symbolGroups: [group("Halu")], stageKind: "symbols" });
     expect(regions.map((region) => region.id)).toEqual(["meditation", "symbol", "symbols"]);
-    expect(drawnRegions(regions).map((region) => region.slot)).toEqual(["rail", "main"]);
-    // Every other kind keeps the intentions.
-    for (const kind of ["intentions", "affirmations", "focus", null] as const) {
+    // …but the rail is **not** drawn there (the owner's round 20: *"I don't want a
+    // rail or a strip of bigger symbols, I want individual scattered (yet arranged)
+    // boxes … on the screen"*). The sheet draws every symbol, so the panel beside it
+    // was the same information twice and half the width to say it in.
+    expect(regions.find((region) => region.id === "symbol")?.skip).toMatch(/every symbol/);
+    expect(drawnRegions(regions).map((region) => region.slot)).toEqual(["main"]);
+
+    // A `focus` stage is the third answer: the main slot, held, with nothing drawn
+    // in it yet — what fills it is `P2 · 39`'s chakra and symbol visuals.
+    const focus = sessionRegions({ symbolGroups: [group("Halu")], stageKind: "focus" });
+    expect(focus.at(-1)?.id).toBe("focus");
+    expect(focus.at(-1)?.skip).toBeNull();
+
+    // Every other kind keeps the intentions, rail and all.
+    for (const kind of ["intentions", "affirmations", null] as const) {
       expect(sessionRegions({ stageKind: kind }).at(-1)?.id).toBe("intentions");
     }
   });

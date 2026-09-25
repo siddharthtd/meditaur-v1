@@ -1,15 +1,16 @@
 export { AppError, fail } from "@meditaur/domain";
 export { AUTH_ERRORS, requireEmail, requirePassword } from "./auth.ts";
-export { applyBlockPick, ALL_PICK_ID, NONE_PICK_ID } from "./block-picks.ts";
+export { applyBlockPick, toggleBlockMeditation, ALL_PICK_ID, NONE_PICK_ID } from "./block-picks.ts";
 export type { BlockPickKind } from "./block-picks.ts";
 export type { CatalogBackup } from "./catalog-backup.ts";
 export type { CatalogChangeSet } from "./catalog-change.ts";
+export { noDatabaseRows, noRemovals, noUpdatedRows, oneRowChangeSet } from "./catalog-change.ts";
 export {
   CATALOG_BACKUP_ERRORS,
   CATALOG_BACKUP_SCHEMA_VERSION,
   parseCatalogBackup,
 } from "./catalog-backup.ts";
-export { CATALOG_ERRORS, fieldKeyFor } from "./catalog-writes.ts";
+export { CATALOG_ERRORS, fieldKeyFor, requireText } from "./catalog-writes.ts";
 export type {
   AppPorts,
   DeleteKind,

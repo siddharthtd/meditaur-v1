@@ -45,6 +45,8 @@ const OUTSIDE_THE_SCOPE: Record<string, string> = {
   workspaces: "claimed by `adopt` in a transaction of its own (`packages/db/src/identity.ts`)",
   members: "the same claim transaction as `workspaces`",
   events: "append-only: written on its own, never read back inside a save",
+  syncState: "a sync's own watermark, per table: written on its own by the protocol, never inside a save",
+  accountFlags: "the mirror of the account's flags: written only from an accepted cloud read, never inside a save",
 };
 
 /** The tables the local write paths declare: the main scope, plus the claim. */

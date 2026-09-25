@@ -17,9 +17,11 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useSession } from "@/features/auth/SessionProvider";
+import { isInteractive } from "@/lib/interactive-target";
 import { Button, EYEBROW_CLASS, KeyHints, LatchButton } from "@meditaur/ui";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { FieldScope, Meditation } from "@meditaur/domain";
+import { flagIsOn, type FieldScope, type FeatureFlags, type Meditation } from "@meditaur/domain";
 import type { LibraryView } from "@meditaur/application";
 import {
   addColumn,
@@ -33,7 +35,6 @@ import {
   columnHoldsValue,
   focusFromRecord,
   karunaGroups,
-  karunaSelection,
   linesOf,
   meditationEntry,
   meditationLines,
@@ -64,6 +65,7 @@ import {
   cellTypeLabel,
   type CellRecords,
 } from "./DatabaseCells";
+import { rowMatches } from "./grid-filter";
 import type { DatabaseTable, RecordTable } from "./database-tables";
 import { meditationTableTypeId, recordTableOf } from "./database-tables";
 import { recordMeditationTypeId } from "./database-model";
@@ -113,10 +115,13 @@ export type DatabaseTableProps = {
   onRemoveColumn: (column: DraftColumn) => void;
   /** A new option for a `select` column, answered with its id. */
   onAddOption: (column: DraftColumn, label: string) => Promise<string | null>;
-  /** §6.2's context-aware create: a name that matches nothing, made and chosen. */
+  /** §6.2's context-aware create: a name that matches nothing, made and chosen. The
+   *  third argument is the table the control was drawn in, which is how a meditation made
+   *  beside an affirmation arrives as a **point** rather than as the first live type. */
   onCreateRecord: (
     kind: "meditation" | "symbols" | "presets",
     name: string,
+    drawnIn?: DatabaseTable,
   ) => Promise<string | null>;
   armed: string | null;
   onArm: (id: string | null) => void;
@@ -127,18 +132,23 @@ export type DatabaseTableProps = {
   onUploadPicture: (file: File, entityId: string) => void;
   /** The binaural config is a whole screen, so its column opens it. */
   onOpenBinaural: (focus: Meditation) => void;
-  /** The row the shell asked for (a library `Edit`), so its name takes the caret. */
-  focusRecordId?: string | null;
+  /** The row a grid request asked for (the library's `Add …`), so its name takes the
+   *  caret. It is not an `Edit` any more — round 20 removed that request, and a record's
+   *  editor is reached from the library's page instead. */
+  focusRowId?: string | null;
   /**
-   * The reader's filter, matched against a row's **key** and nothing else.
+   * The reader's filters, one per column, keyed by `columnKey`.
    *
-   * The owner's round 17: *"Add filter functionality to all the tabs in the database
-   * based on the key. So, for chakras, there should be a chakra key searching for
-   * that chakra should filter."* The key is what a row *is* — a record's name, a
-   * sentence's text, a pair's meditation and symbol — so the box narrows the table
-   * without the reader having to guess which column it is searching.
+   * The owner's round 22: *"Clicking on any column header should convert that into a filter
+   * bar. It should display all the rows that contain the particular text for that column.
+   * This should be for all columns … if multiple columns' filters are activated, it should be
+   * an 'AND' action."* Presence in this map is "that column's input is open", so an empty
+   * string is a filter that is drawn and narrows nothing — and the grid needs no second list
+   * of which ones are open, which is why it is a map rather than an array.
    */
-  filter: string;
+  filters: Record<string, string>;
+  /** Open one column's filter, narrow it, or close it with `null`. */
+  onFilter: (key: string, value: string | null) => void;
   /** Columns taken out of this table's view, by `columnKey`. */
   hiddenColumns: string[];
   /** Whether the headings are showing their `×`, from the toolbar's press. */
@@ -205,11 +215,33 @@ const BUILTIN_COLUMNS: Record<
  * Types table draws only a name. The two are one lookup rather than a branch at
  * every use.
  */
-function builtinColumnsOf(table: DatabaseTable): BuiltinColumn[] {
-  return meditationTableTypeId(table)
-    ? MEDITATION_BUILTIN_COLUMNS
-    : BUILTIN_COLUMNS[table as "symbols" | "presets" | "types" | "affirmations"];
+/** The two columns that exist for the sounds: the preset a row defaults to, and its switch. */
+const BINAURAL_COLUMNS: readonly string[] = ["defaultSound", "binaural"];
+
+function builtinColumnsOf(table: DatabaseTable, flags?: FeatureFlags | null): BuiltinColumn[] {
+  if (!meditationTableTypeId(table)) {
+    return BUILTIN_COLUMNS[table as "symbols" | "presets" | "types" | "affirmations"];
+  }
+  // The two binaural columns leave with the flag (`P0 · 35`, slice 35d): one holds the
+  // sound a row defaults to and the other is its switch, so both are ways into a tone.
+  // The `Edit table` toolbar draws this same list, which is what stops the column being
+  // added back by hand — and a stored column key that is no longer here is simply not
+  // drawn, the way a key whose column was deleted is not.
+  return MEDITATION_BUILTIN_COLUMNS.filter(
+    (row) => !BINAURAL_COLUMNS.includes(row.key) || flagIsOn(flags, "binaural"),
+  );
 }
+
+/**
+ * The width an **Intentions** column asks for.
+ *
+ * One constant because two tables draw that column: a meditation table's built-in one
+ * (through `BUILTIN_WIDTH`) and Karuna's own cell, which is a `<th>` of its own rather than a
+ * column. Left out, the auto layout answered "take what is left" with the column's minimum
+ * content width — three letters of a sentence, which is the owner's round 22 report. `28rem`
+ * is what the Affirmations table's own sentence column asks for.
+ */
+const INTENTIONS_WIDTH = "min-w-[28rem]";
 
 /**
  * How wide a record table's own columns are. A `kind` is one word; a location is
@@ -232,6 +264,7 @@ const BUILTIN_WIDTH: Record<string, string> = {
   usage: "w-64",
   // Two chips, and the pair is what the reader scans the table along.
   association: "min-w-56",
+  intentions: INTENTIONS_WIDTH,
 };
 
 /**
@@ -289,64 +322,73 @@ function withArticle(noun: string): string {
  * interface".
  *
  * `border-separate` is deliberate and older than this pass: a `position: sticky`
- * cell does not behave inside a `border-collapse` table, and the leading column
- * is pinned (§12.27). With `border-spacing: 0` the hairlines still sit flush,
- * which is why only bottom borders are drawn — a top and a bottom would double.
+ * cell does not behave inside a `border-collapse` table, which is what the pinned
+ * columns needed (§12.27, retired in round 20 — the rule is kept as the declaration
+ * because it is also what keeps a hairline under the header band, and because a pin
+ * is one decision away rather than one refactor away). With `border-spacing: 0` the
+ * hairlines still sit flush, which is why only bottom borders are drawn — a top and a
+ * bottom would double.
  */
 const HEAD_CELL = "border-b border-line px-3 py-2 text-left align-bottom";
 /**
- * `bg-surface`, and it is not decoration: a pinned cell sits at `z-20` *above* the
- * columns that scroll under it while it is stuck, so a header cell with no fill of
- * its own is a window onto the row below. That is the text box the owner saw drawn
- * over `Tune` (item 6, §5.4) — invisible in the class list, because the defect was
- * the *absence* of one. The header band is one colour, so naming it is the fix;
- * the body cells inherit the row's fill instead, because theirs moves.
+ * The lead cell of a row: the column that says *which* row this is.
+ *
+ * The owner asked for this twice. Round 14: *"the name scrolled away while only the `Open`
+ * column stayed behind"*. Round 20's options put "nothing pinned" to them and they chose it,
+ * and round 21 reversed it again — *"Pin Name so it stays visible"* — which is what this is:
+ * the first data column stays at the left edge while the rest scroll under it. It costs no
+ * width, because it is a column the table already had.
+ *
+ * `bg-inherit` is not decoration: a sticky cell is painted over the scrolling ones, so it has
+ * to take the row's own fill — which is also what keeps the pointer's highlight travelling
+ * with it. The same pair of properties the row's own controls cell needs at the other edge
+ * (`TAIL_CELL`), for the same reason.
  */
-const HEAD_LEAD = `${HEAD_CELL} sticky left-0 z-20 border-r border-line/60 bg-surface`;
-/**
- * The second pinned column of a **record table**: its `Name`.
- *
- * `left-32` is the leading cell's own width in the same spacing scale, so the two
- * stay in step — the trap §12.4 of this round records. §12.27's rule is kept rather
- * than dropped: what a row *is* sticks beside the row's own controls, so scrolling
- * right never leaves the reader unsure which row they are on. That is the owner's
- * item 6, where the name scrolled away while only the `Open` column stayed behind.
- *
- * The lead's width is a **minimum and a width together** (`w-32 min-w-32`), and that
- * is the whole of a defect measured in the browser on 2026-09-20. A pinned pair is
- * only in step while the leading column is exactly the width the pin is offset by,
- * and neither half of the pair holds on its own: the grid's tables sit at **minimum**
- * layout once they overflow, where a `w-*` is ignored and the column collapsed to its
- * content's 119.6px under a pin at Karuna's 108px — painting over the right edge of
- * the row's `×` — and a `min-w-*` alone is *grown* past when the table has slack to
- * share (Karuna's lead measured 168.5px). One token as both clamps the column from
- * both sides, so it is 144px at the design's 18px root however the table is laid out,
- * and the pin starts exactly where it ends.
- *
- * It is one step wider than Karuna's because a record's leading cell carries a control
- * Karuna's does not: `Open`.
- */
-const HEAD_NAME_LEAD = `${HEAD_CELL} sticky left-32 z-20 border-r border-line/60 bg-surface`;
-/**
- * The second pinned column of **Karuna**: its `Symbol`.
- *
- * `left-24` is that grid's own leading width (`w-24 min-w-24`), whose three controls —
- * the handle, the `×` and the insert `＋` — fit inside it with room to spare.
- */
-const HEAD_SYMBOL_LEAD = `${HEAD_CELL} sticky left-24 z-20 border-r border-line/60 bg-surface`;
+const LEAD_CELL = "sticky left-0 z-[1] border-b border-line/50 bg-inherit";
+/** The lead column's heading, which stays for the same reason and takes the band's own
+ *  fill. One step below the row's controls (`z-10`) so the two edges never argue. */
+const LEAD_HEAD = "sticky left-0 z-[1] bg-inherit";
 const BODY_CELL = "border-b border-line/50 px-2 py-0.5 align-top";
-/** `bg-inherit`: the pinned cell takes the row's own fill, so the highlight moves
- *  with it and scrolled content never shows through. */
-const BODY_LEAD = `${BODY_CELL} sticky left-0 z-10 border-r border-line/60 bg-inherit`;
-/** The body half of `HEAD_NAME_LEAD`, at the same `left-32`. */
-const BODY_NAME_LEAD = `${BODY_CELL} sticky left-32 z-10 border-r border-line/60 bg-inherit`;
-/** The body half of `HEAD_SYMBOL_LEAD`, at the same `left-24`. */
-const BODY_SYMBOL_LEAD = `${BODY_CELL} sticky left-24 z-10 border-r border-line/60 bg-inherit`;
-/** One row: the pointer's fill lives here, and the pinned cell follows it. */
+/** One row: the pointer's fill lives here, and the row is the press that opens a
+ *  record (see {@link SortableRow}). */
 const ROW = "group align-top bg-surface transition-colors hover:bg-surface-raised";
 const HEAD_LABEL = "text-sm font-medium text-muted";
-/** The narrow last cell every row carries, so the table's edges line up. */
-const TAIL_CELL = "w-10 border-b border-line/50 p-0";
+/**
+ * The last cell every row carries, and the row's own controls inside it.
+ *
+ * This is where the owner's round 20 put them: *"the 1st column is the open button,
+ * drag handle and remove row. This needs to go, it is occupying space we don't have
+ * today … ideally, drag and remove row should be innate to the row itself, open
+ * actually opens the table's key menu."* The leading cell was `w-24`/`w-32` — 108px and
+ * 144px at the design's 18px root — because the handle, the `×` and a **worded** `Open`
+ * button shared it. The `Open` button is gone (the row is the press that opens a
+ * record), so what is left is three glyphs, revealed on hover or on the keyboard's
+ * focus, in the one cell the table already had for lining up its right edge.
+ *
+ * §12.27's pin went with the column, and one pin came back in its place: the row's
+ * own controls **stay at the right edge** while the columns scroll under them. That is
+ * not the same rule — it pins furniture rather than data, so no column is charged for
+ * it — and it is the answer to the defect the first cut of this shape had: with the
+ * controls in an ordinary last cell, a table wider than its room moved them out of
+ * sight, and drag and remove became unreachable without scrolling sideways first. It
+ * takes the row's own fill (`bg-inherit`), which is what keeps the highlight with it
+ * and stops scrolled content showing through — the same pair of properties the old
+ * leading pair needed, for the same reason.
+ */
+const TAIL_CELL =
+  "relative sticky right-0 z-10 w-24 border-b border-line/50 border-l border-line/60 bg-inherit p-0";
+/** Where those controls sit: the row's right edge, on the row's own first line, out of
+ *  the flow so they cost no width until the pointer or the keyboard asks for them.
+ *
+ *  At the **top** rather than centred, which is where the cells' own `align-top` puts
+ *  everything else in a row: an entries row is as tall as its sentence list, and a grip
+ *  floating in the middle of a five-line row reads as belonging to the line it happens
+ *  to be beside. */
+const ROW_BAND = "absolute right-1 top-0.5 flex items-center gap-0.5";
+/** The armed box's own row: a full-width band **under** the row it belongs to, so the
+ *  sentence naming what the box would do has room to be read. It used to widen the
+ *  leading column instead, which is the other half of what round 20 removed. */
+const ARMED_CELL = "border-b border-line/50 bg-surface px-2 pb-2";
 
 /** The columns of one table: its own, then the reader's own additions. */
 function scopeOf(table: DatabaseTable): FieldScope {
@@ -374,14 +416,9 @@ export function DatabaseTable(props: DatabaseTableProps) {
   /** The row just added — a record or a sentence — so its leading cell takes the
    *  keyboard. */
   const [newRowId, setNewRowId] = useState<string | null>(null);
-  /**
-   * Karuna's heading: the one meditation whose table is drawn, or `null` for every
-   * table stacked in series (§5.1).
-   */
-  const [karunaFor, setKarunaFor] = useState<string | null>(null);
   /** A row the shell asked for (a library `Edit`) is the fallback when this grid
    *  has not just made one of its own. */
-  const caretRowId = newRowId ?? props.focusRecordId ?? null;
+  const caretRowId = newRowId ?? props.focusRowId ?? null;
   /**
    * The page this table's rows open, or `null` when they have none.
    *
@@ -436,7 +473,7 @@ export function DatabaseTable(props: DatabaseTableProps) {
             }
             onClear={() => associate({ ...pair, meditationId: null })}
             onCreate={async (name) => {
-              const id = await props.onCreateRecord("meditation", name);
+              const id = await props.onCreateRecord("meditation", name, props.table);
               if (id) associate({ ...pair, meditationId: id });
               return id;
             }}
@@ -505,37 +542,45 @@ export function DatabaseTable(props: DatabaseTableProps) {
     });
   };
 
-  /**
-   * The filter, and the one question every table asks of it.
-   *
-   * `matches` is handed a row's **key**, never a cell and never a column: a table
-   * filters by what its rows *are*. So a chakra is found by its name, a sentence by
-   * its words, and a Karuna row by the pair it names — which is also what its cells
-   * are labelled with (`rowLabel`), so what the reader types is what they can see.
-   */
-  const needle = props.filter.trim().toLowerCase();
-  const matches = (text: string | null | undefined) =>
-    needle === "" || (text ?? "").toLowerCase().includes(needle);
+  /** One of a record's own fields, as text — the same answer the cell draws, so a filter and
+   *  the eye never disagree about what a row says. It sits **above** the filter helpers because
+   *  `filterTexts` reads it on the render pass that precedes its own declaration: a `const`
+   *  arrow called from a line above it is a `ReferenceError`, and the tables they are for —
+   *  meditations and symbols, whose columns reach this fallback — threw on the way in. */
+  const cellFor = (
+    column: GridColumn,
+    record: { id: string; builtins: Record<string, string>; name: string; source: unknown },
+  ) => {
+    if (column.kind === "builtin") {
+      if (column.key === "name") return record.name;
+      if (column.key === "sound") {
+        const preset = record.source as { leftTones?: { hz: number }[]; binauralEnabled?: boolean };
+        return preset.leftTones?.length ? `${preset.leftTones[0]?.hz} Hz` : "—";
+      }
+      return record.builtins[column.key] ?? "";
+    }
+    return draft.values[`${record.id}:${column.column.id}`] ?? "";
+  };
 
-  /** The stored rows of a record table, which is what the grid draws.
-   *
-   * The filter is applied **here**, at the one place a table's rows are read, so
-   * every table gets it from the same sentence and none of them can be left out of
-   * it — which is what the owner reported about Karuna.
-   */
-  const recordRows = (which: DatabaseTable): DraftRecord[] =>
-    recordsOf(draft, which).filter((row) => matches(row.name));
-  /** The sentences this table draws, filtered by their own words (§5.2). */
+
+  /** The sentences this table draws: the sentence itself against `Affirmation`, the pair it is
+   *  written about against `Associated with` (§5.2). */
   const sentenceList =
-    table === "affirmations" ? sentenceRows(draft).filter((row) => matches(row.line.text)) : [];
-  /** The rows on screen, in order — what the drag works against.
-   *
-   * Karuna's rows are dragged inside their own heading, so each of its tables
-   * carries its own list (`dropInGroup`) and none of them is this one. */
-  const rowIds =
     table === "affirmations"
-      ? sentenceList.map((row) => row.line.id)
-      : recordRows(table).map((row) => row.id);
+      ? sentenceRows(draft).filter((row, index) =>
+          rowMatches(
+            {
+              "builtin:name": row.line.text,
+              // An orphan sentence is written about nothing yet, so its `Associated with` cell
+              // is empty and a filter on that column does not match it.
+              "builtin:association": row.entry
+                ? rowLabel(row.entry, props.records, index)
+                : "",
+            },
+            props.filters,
+          ),
+        )
+      : [];
   const customColumns = useMemo(
     () =>
       // The Types table has no custom columns: a type's own columns are its
@@ -550,11 +595,18 @@ export function DatabaseTable(props: DatabaseTableProps) {
             .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id)),
     [draft.columns, scope, table],
   );
+  /**
+   * The account's flags, read here rather than threaded down (`P0 · 35`, slice 35d).
+   *
+   * This is the one place the grid decides which columns exist, so a binaural column
+   * cannot survive in one meditation table and not another.
+   */
+  const { flags } = useSession();
   const allColumns: GridColumn[] =
     table === "entries"
       ? customColumns.map((column) => ({ kind: "custom" as const, column }))
       : [
-          ...builtinColumnsOf(table).map((builtin) => ({
+          ...builtinColumnsOf(table, flags).map((builtin) => ({
             kind: "builtin" as const,
             ...builtin,
             scope,
@@ -572,68 +624,188 @@ export function DatabaseTable(props: DatabaseTableProps) {
    */
   const hidden = new Set(props.hiddenColumns);
   const columns = allColumns.filter((column) => !hidden.has(columnKey(column)));
-  /** Every cell a row draws: Karuna's two pinned leads, the reader's columns, and
-   *  the narrow tail the table's right edge lines up with. The other tables draw a
-   *  controls lead, the pinned name and the tail instead. */
-  const columnCount = columns.length + (table === "entries" ? 4 : 2);
+
 
   /**
-   * Karuna's tables, and the selector's own options.
+   * What every column of one record row says, as text, for the filters to read.
    *
-   * The options are the unfiltered list: the selector is a *filter over the same
-   * tables* (§5.1), so what it can name is exactly what the stack would draw — a
-   * meditation with no symbol-carrying row is not offered and never becomes an empty
-   * table. A filter that names a heading nothing has any more (its last symbol was
-   * cleared) falls back to the stack rather than to a blank page.
+   * One map per row rather than a matcher per column: the reader narrows whichever columns
+   * they like, so the row answers all of them at once, and a column this table is not drawing
+   * simply has no key — which `rowMatches` reads as "this row does not match", not as
+   * "anything goes".
+   */
+  const filterTexts = (record: DraftRecord): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const column of columns) {
+      const key = columnKey(column);
+      if (column.kind === "custom") {
+        out[key] = draft.values[`${record.id}:${column.column.id}`] ?? "";
+        continue;
+      }
+      if (column.key === "name") {
+        out[key] = record.name;
+        continue;
+      }
+      // A picture has no words, so a filter on that column matches nothing — the honest
+      // answer, and the one `grid-filter.test.ts` pins.
+      if (column.key === "picture") continue;
+      if (column.key === "binaural") {
+        out[key] = record.binauralEnabled ? "on" : "off";
+        continue;
+      }
+      if (column.key === "defaultSound") {
+        out[key] =
+          props.records.presets.find((preset) => preset.id === record.defaultBinauralPresetId)
+            ?.name ?? "";
+        continue;
+      }
+      // A meditation's own sentences are a **cell** rather than a field, so they are read
+      // from the lines the same way the cell draws them.
+      if (column.key === "intentions") {
+        out[key] = meditationLines(draft, record.id)
+          .map((line) => line.text)
+          .join(" ");
+        continue;
+      }
+      out[key] = cellFor(column, {
+        id: record.id,
+        name: record.name,
+        builtins: record.builtins,
+        source: record.source,
+      });
+    }
+    return out;
+  };
+
+  /** The same, for a Karuna row: its `Symbol` cell and its `Intentions` cell, then the
+   *  reader's own columns. */
+  const karunaFilterTexts = (row: DraftEntry): Record<string, string> => {
+    const out: Record<string, string> = {
+      "karuna:symbol": props.records.symbols.find((symbol) => symbol.id === row.symbolId)?.name ?? "",
+      "karuna:intentions": linesOf(draft, row.id)
+        .map((line) => line.text)
+        .join(" "),
+    };
+    for (const column of columns) {
+      if (column.kind !== "custom") continue;
+      out[columnKey(column)] = draft.values[`${row.id}:${column.column.id}`] ?? "";
+    }
+    return out;
+  };
+
+  /** The stored rows of a record table, which is what the grid draws.
+   *
+   * The filter is applied **here**, at the one place a table's rows are read, so every table
+   * gets it from the same sentence and none of them can be left out of it — which is what the
+   * owner reported about Karuna when it was the one tab without one.
+   */
+  const recordRows = (which: DatabaseTable): DraftRecord[] =>
+    recordsOf(draft, which).filter((row) => rowMatches(filterTexts(row), props.filters));
+
+  /** The rows on screen, in order — what the drag works against.
+   *
+   * Karuna's rows are dragged inside their own heading, so each of its tables
+   * carries its own list (`dropInGroup`) and none of them is this one. */
+  const rowIds =
+    table === "affirmations"
+      ? sentenceList.map((row) => row.line.id)
+      : recordRows(table).map((row) => row.id);
+  /** Every cell a row draws: Karuna's `Symbol` and `Intentions`, the reader's own
+   *  columns, and the tail cell the row's controls live in. Before round 20 there was
+   *  a leading controls cell as well, which is the column the owner asked to lose. */
+  const columnCount = columns.length + (table === "entries" ? 3 : 1);
+
+  /**
+   * Karuna's tables, one per meditation.
+   *
+   * The groups are drawn whole — the selector that used to narrow this stack is gone (the
+   * owner's round 22) — and what narrows it now is the reader's own filter, column by
+   * column.
    */
   const karunaAll = table === "entries" ? karunaGroups(draft) : [];
-  /** The heading the reader picked, for the selector's own label. */
-  const karunaPicked =
-    karunaFor === null
-      ? null
-      : (karunaAll.find((group) => group.meditationId === karunaFor) ?? null);
-  const karuna = karunaSelection(karunaAll, karunaFor);
 
   /**
-   * The same groups, with the filter applied — and item 12 of the owner's round 17
-   * is why it exists at all: *"There is no filter functionality in Karuna table in
-   * database."* It was the one tab with no way to narrow it, and its rows are the
-   * ones that grow without bound.
+   * The same groups, with the reader's filters applied.
    *
-   * A heading goes once nothing under it matches, and a heading the filter *names* is
-   * kept whole — a reader searching for a chakra wants its rows, all of them, not the
-   * ones that happen to repeat its own name in the pair label.
+   * A heading goes once nothing under it matches. The rule that kept a whole heading when the
+   * filter named it has gone with the single box that rule belonged to (the owner's round
+   * 22): a filter is a column's now, and a meditation's name is a **heading** rather than a
+   * cell, so there is no column for a reader to name it by.
    */
-  const karunaVisible = karuna
+  const karunaVisible = karunaAll
     .map((group) => ({
       ...group,
-      rows: group.rows.filter(
-        (row, index) => matches(group.name) || matches(rowLabel(row, props.records, index)),
-      ),
+      rows: group.rows.filter((row) => rowMatches(karunaFilterTexts(row), props.filters)),
     }))
     .filter((group) => group.rows.length > 0);
 
   /**
-   * Whether this column is the row's own identity, and so pinned beside the
-   * controls cell.
+   * The heading cell's own class, and the lead column's pin.
    *
-   * Every record table's first built-in is its `Name` — `Affirmation` on the
-   * sentences, which is a row's `name` in the draft like any other — and the
-   * owner's item 6 is that it must not scroll away. Karuna pins its `Symbol` the
-   * same way, as a lead cell of its own.
+   * The first column is what a row *is* — a record's `Name`, a sentence's words — so it stays
+   * at the left edge while the rest scroll under it (the owner's round 21; see `LEAD_CELL`).
+   * Karuna's lead is its own fixed `Symbol` heading rather than a grid column, so the flag
+   * arrives from the caller.
    */
-  const columnIsPinned = (column: GridColumn) =>
-    table !== "entries" && column.kind === "builtin" && column.key === "name";
-
-  /** The heading cell's own classes, so the pinned one and the rest cannot drift. */
-  const headingCellClass = (column: GridColumn) => {
+  const headingCellClass = (column: GridColumn, lead = false) => {
     const width =
       column.kind === "builtin" ? (column.width ?? BUILTIN_WIDTH[column.key] ?? "") : "min-w-32";
-    return `${columnIsPinned(column) ? HEAD_NAME_LEAD : HEAD_CELL} ${width}`;
+    return `${HEAD_CELL} ${width}${lead ? ` ${LEAD_HEAD}` : ""}`;
   };
 
-  const bodyCellClass = (column: GridColumn) =>
-    columnIsPinned(column) ? BODY_NAME_LEAD : BODY_CELL;
+  /**
+   * The `⌕` that opens a column's own filter (the owner's round 22).
+   *
+   * It is the **only** way in, because a press on the heading itself already has a job: a
+   * custom column's heading is a text box (its name) and a builtin's is a word. Quiet until
+   * the pointer is on it, like every other control in this grid, and `aria-pressed` — never
+   * colour alone — is what says a column is being narrowed.
+   */
+  const filterToggle = (key: string, label: string) => {
+    const open = props.filters[key] !== undefined;
+    return (
+      <button
+        type="button"
+        aria-label={`${open ? "Close" : "Open"} the filter for ${label}`}
+        aria-pressed={open}
+        title={open ? "Close this column's filter" : "Filter this column"}
+        onClick={() => props.onFilter(key, open ? null : "")}
+        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-bg/50 hover:text-text active:scale-95 ${
+          open ? "text-accent" : `text-muted ${REVEAL}`
+        }`}
+      >
+        <span aria-hidden="true" className="text-sm leading-none">
+          ⌕
+        </span>
+      </button>
+    );
+  };
+
+  /** One column's filter input, or nothing at all in the cell of a column without one. */
+  const filterCell = (key: string, label: string, lead = false) => (
+    <th key={`filter-${key}`} className={`${HEAD_CELL} ${lead ? LEAD_HEAD : ""} px-1`}>
+      {props.filters[key] === undefined ? null : (
+        <input
+          aria-label={`Filter ${label}`}
+          placeholder={`Filter ${label}`}
+          value={props.filters[key]}
+          onChange={(event) => props.onFilter(key, event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            // `Escape` closes **this** filter and stops there: the screen's own `Escape` is a
+            // window listener, which a stopped press never reaches — one press, one thing
+            // (§12.25).
+            event.stopPropagation();
+            props.onFilter(key, null);
+          }}
+          className="min-h-9 w-full min-w-0 rounded-md bg-bg px-2 text-sm text-text outline-none ring-1 ring-line transition focus:ring-2 focus:ring-accent/40"
+        />
+      )}
+    </th>
+  );
+
+  /** Whether the filter row is drawn at all: a table nobody is filtering looks as it did. */
+  const filterRowOpen = Object.keys(props.filters).length > 0;
 
   const setValue = (entityId: string, fieldDefId: string, text: string) => {
     const key = `${entityId}:${fieldDefId}`;
@@ -689,8 +861,6 @@ export function DatabaseTable(props: DatabaseTableProps) {
             onEdit={editLine}
             armedId={props.armed}
             onArm={props.onArm}
-            onMoveUp={(id) => props.onDraft(moveLine(draft, entryId, id, -1))}
-            onMoveDown={(id) => props.onDraft(moveLine(draft, entryId, id, 1))}
             onMoveTo={(id, to) => props.onDraft(moveLineTo(draft, entryId, id, to))}
           />
         </div>
@@ -743,22 +913,14 @@ export function DatabaseTable(props: DatabaseTableProps) {
     }));
   };
 
-  const cellFor = (
-    column: GridColumn,
-    record: { id: string; builtins: Record<string, string>; name: string; source: unknown },
-  ) => {
-    if (column.kind === "builtin") {
-      if (column.key === "name") return record.name;
-      if (column.key === "sound") {
-        const preset = record.source as { leftTones?: { hz: number }[]; binauralEnabled?: boolean };
-        return preset.leftTones?.length ? `${preset.leftTones[0]?.hz} Hz` : "—";
-      }
-      return record.builtins[column.key] ?? "";
-    }
-    return draft.values[`${record.id}:${column.column.id}`] ?? "";
-  };
-
-  const recordControl = (
+  /**
+   * One of a record's own non-text fields, shown as its column rather than on a page.
+   *
+   * A **function declaration**, so it is hoisted: the cell renderer above this line calls it,
+   * which a `const` arrow may not survive — the same `ReferenceError` that took the screen down
+   * when the filter reached for `cellFor` (the owner's round 22).
+   */
+  function recordControl(
     column: GridColumn,
     record: {
       id: string;
@@ -766,7 +928,7 @@ export function DatabaseTable(props: DatabaseTableProps) {
       builtins: Record<string, string>;
       source: unknown;
     },
-  ) => {
+  ) {
     // A record's own non-text fields, shown as columns rather than on a page — the
     // owner's answer to where a chakra's picture, default sound and binaural
     // setting live once `Add` and `Edit` land here.
@@ -846,8 +1008,6 @@ export function DatabaseTable(props: DatabaseTableProps) {
                 onEdit={editLine}
                 armedId={props.armed}
                 onArm={props.onArm}
-                onMoveUp={(id) => props.onDraft(moveLine(draft, entryId, id, -1))}
-                onMoveDown={(id) => props.onDraft(moveLine(draft, entryId, id, 1))}
                 onMoveTo={(id, to) => props.onDraft(moveLineTo(draft, entryId, id, to))}
               />
             </div>
@@ -977,7 +1137,7 @@ export function DatabaseTable(props: DatabaseTableProps) {
         onCommit={(text) => setValue(record.id, def.id, text)}
       />
     );
-  };
+  }
 
   /**
    * The row `+` on the Affirmations table: a sentence arrives **here**, in the
@@ -1071,8 +1231,16 @@ export function DatabaseTable(props: DatabaseTableProps) {
    * resolves against the table's own width and the table grows to 500000px. Naming
    * the *others* is what leaves the name (or the intentions) the rest of the row.
    */
-  const headingCell = (column: GridColumn) => (
-    <th key={columnKey(column)} className={`group ${headingCellClass(column)}`}>
+  const headingCell = (column: GridColumn, lead = false) => (
+    // Named by its own column rather than by what is inside it: the `⌕` is a labelled
+    // control of its own, so without this a heading answers to "Name Open the filter for
+    // Name", which is what a reader's screen reader would say and what `exact` name
+    // lookups stop matching (the owner's round 22).
+    <th
+      key={columnKey(column)}
+      aria-label={columnLabelOf(column)}
+      className={`group ${headingCellClass(column, lead)}`}
+    >
       <div className="flex items-center gap-1">
         {column.kind === "builtin" ? (
           <span className={`${HEAD_LABEL} truncate`}>{column.label}</span>
@@ -1132,6 +1300,9 @@ export function DatabaseTable(props: DatabaseTableProps) {
             }
           />
         ) : null}
+        {/* The column's own filter: the `⌕` opens an input under this heading, and a second
+            press closes it. */}
+        {filterToggle(columnKey(column), columnLabelOf(column))}
         {/* The toolbar's `Edit table` (the owner's round 17), and the second half of
             its ask: a heading gets an `×` that takes the column out of the **view**.
             The column is not deleted — it still holds its values and a plan's Display
@@ -1181,30 +1352,16 @@ export function DatabaseTable(props: DatabaseTableProps) {
       data-type-id={meditationTableTypeId(table) ?? undefined}
     >
       {table === "entries" ? (
-        // Karuna (§5.1): the meditation is the table's **heading** now, so the table
-        // is one per meditation and the stack is what "all of them" looks like. The
-        // selector filters that same stack rather than being a second way to reach
-        // the rows — which is why it is drawn here and not as a filter on a flat
-        // list.
+        // Karuna (§5.1): the meditation is the table's **heading**, so the table is one per
+        // meditation and the stack is what "all of them" looks like.
+        //
+        // The `Meditation · All meditations` strip that used to sit above the first table is
+        // **gone** (the owner's round 22). It was a selector over the same stack, and the
+        // press it offered was the chip's "acting" panel — `Open record` and `✕ Clear`, both
+        // of which mean nothing for a heading — so it opened a box whose only button was
+        // `Cancel`. The owner's call was to remove it rather than teach it a second shape,
+        // and nothing is lost: every row is still drawn, and the filter narrows it.
         <div className="flex flex-col gap-6">
-          <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
-            <span className={EYEBROW_CLASS}>Meditation</span>
-            {/* The same searchable auto-complete the cells use: nothing in this app
-                is a `<select>`, and a heading is worth searching for. A meditation
-                with no symbol-carrying row is not in the list, so choosing one can
-                never open an empty table. */}
-            <ChipPicker
-              value={karunaFor ?? ""}
-              label={karunaPicked?.name ?? "All meditations"}
-              placeholder="Find a meditation"
-              options={karunaAll
-                .filter((group) => group.meditationId !== null)
-                .map((group) => ({ id: group.meditationId!, label: group.name }))}
-              records={props.records}
-              onPick={(id) => setKarunaFor(id)}
-              onClear={() => setKarunaFor(null)}
-            />
-          </div>
           {karunaVisible.map((group) => (
             <section
               key={group.meditationId ?? "none"}
@@ -1240,18 +1397,31 @@ export function DatabaseTable(props: DatabaseTableProps) {
                   <table className="w-full min-w-[40rem] border-separate border-spacing-0 text-left text-base">
                     <thead>
                       <tr className="bg-surface">
-                        <th className={`${HEAD_LEAD} w-24 min-w-24`}>
-                          <span className="sr-only">Row</span>
+                        <th aria-label="Symbol" className={`${HEAD_CELL} ${LEAD_HEAD} w-40`}>
+                          <div className="flex items-center gap-1">
+                            <span className={HEAD_LABEL}>Symbol</span>
+                            {filterToggle("karuna:symbol", "Symbol")}
+                          </div>
                         </th>
-                        <th className={`${HEAD_SYMBOL_LEAD} w-40`}>
-                          <span className={HEAD_LABEL}>Symbol</span>
-                        </th>
-                        <th className={HEAD_CELL}>
-                          <span className={HEAD_LABEL}>Intentions</span>
+                        <th aria-label="Intentions" className={`${HEAD_CELL} ${INTENTIONS_WIDTH}`}>
+                          <div className="flex items-center gap-1">
+                            <span className={HEAD_LABEL}>Intentions</span>
+                            {filterToggle("karuna:intentions", "Intentions")}
+                          </div>
                         </th>
                         {columns.map((column) => headingCell(column))}
                         {addColumnCell()}
                       </tr>
+                      {filterRowOpen ? (
+                        <tr className="bg-surface">
+                          {filterCell("karuna:symbol", "Symbol", true)}
+                          {filterCell("karuna:intentions", "Intentions")}
+                          {columns.map((column) =>
+                            filterCell(columnKey(column), columnLabelOf(column)),
+                          )}
+                          <th className={HEAD_CELL} />
+                        </tr>
+                      ) : null}
                     </thead>
                     <tbody>
                       <SortableContext
@@ -1263,37 +1433,7 @@ export function DatabaseTable(props: DatabaseTableProps) {
                             <SortableRow id={row.id}>
                               {(handle) => (
                                 <>
-                                  {/* The row's own controls, and nothing else: the
-                                      meditation is the heading above it now, so
-                                      this cell carries what a reader does *to* the
-                                      row rather than what the row is made of. */}
-                                  <td className={`${BODY_LEAD} w-24 min-w-24`}>
-                                    <div className="flex items-center gap-1">
-                                      <RowHandle
-                                        row={row}
-                                        attributes={handle.attributes}
-                                        listeners={handle.listeners}
-                                      />
-                                      <RowX
-                                        id={row.id}
-                                        draft={row.isNew}
-                                        armed={props.armed === row.id}
-                                        notice={props.armed === row.id ? props.notice : null}
-                                        onArm={props.onArm}
-                                        onArchive={() => props.onArchiveEntry(row)}
-                                        onRemove={() => props.onRemoveEntry(row)}
-                                      />
-                                      <InsertButton
-                                        label="Insert a row here"
-                                        onPress={() =>
-                                          props.onDraft(
-                                            addKarunaRow(draft, group.meditationId, index),
-                                          )
-                                        }
-                                      />
-                                    </div>
-                                  </td>
-                                  <td className={`${BODY_SYMBOL_LEAD} w-40`}>
+                                  <td className={`${BODY_CELL} ${LEAD_CELL} w-40`}>
                                     <div className="flex items-center gap-1">
                                       <ChipPicker
                                         value={row.symbolId ?? ""}
@@ -1352,12 +1492,6 @@ export function DatabaseTable(props: DatabaseTableProps) {
                                         onEdit={editLine}
                                         armedId={props.armed}
                                         onArm={props.onArm}
-                                        onMoveUp={(id) =>
-                                          props.onDraft(moveLine(draft, row.id, id, -1))
-                                        }
-                                        onMoveDown={(id) =>
-                                          props.onDraft(moveLine(draft, row.id, id, 1))
-                                        }
                                         onMoveTo={(id, to) =>
                                           props.onDraft(moveLineTo(draft, row.id, id, to))
                                         }
@@ -1386,10 +1520,36 @@ export function DatabaseTable(props: DatabaseTableProps) {
                                       </td>
                                     ) : null,
                                   )}
-                                  <td className={TAIL_CELL} />
+                                  <td className={TAIL_CELL}>
+                                    <RowBand
+                                      row={row}
+                                      attributes={handle.attributes}
+                                      listeners={handle.listeners}
+                                      insert={{
+                                        label: "Insert a row here",
+                                        onPress: () =>
+                                          props.onDraft(
+                                            addKarunaRow(draft, group.meditationId, index),
+                                          ),
+                                      }}
+                                      id={row.id}
+                                      draft={row.isNew}
+                                      armed={props.armed === row.id}
+                                      onArm={props.onArm}
+                                    />
+                                  </td>
                                 </>
                               )}
                             </SortableRow>
+                            {props.armed === row.id ? (
+                              <RowBox
+                                colSpan={columnCount}
+                                draft={row.isNew}
+                                notice={props.notice}
+                                onArchive={() => props.onArchiveEntry(row)}
+                                onRemove={() => props.onRemoveEntry(row)}
+                              />
+                            ) : null}
                             {linesEditorFor === row.id
                               ? focusedLines(row.id, linesOf(draft, row.id), () =>
                                   props.onDraft(addLine(draft, row.id)),
@@ -1440,18 +1600,17 @@ export function DatabaseTable(props: DatabaseTableProps) {
         <table className="w-full min-w-[40rem] border-separate border-spacing-0 text-left text-base">
           <thead>
             <tr className="bg-surface">
-              {/* The leading cell: what a reader does *to* the row. What the row
-                  *is* is the column pinned beside it — its `Name` (§5.4) — because a
-                  record table is scanned down its name. `w-32 min-w-32` is that pin's
-                  own `left-32`, clamped from both sides: a width alone is ignored on a
-                  table at minimum layout and a minimum alone is grown past on one with
-                  slack. */}
-              <th className={`${HEAD_LEAD} w-32 min-w-32`}>
-                <span className="sr-only">Row</span>
-              </th>
-              {columns.map((column) => headingCell(column))}
+              {columns.map((column, index) => headingCell(column, index === 0))}
               {addColumnCell()}
             </tr>
+            {filterRowOpen ? (
+              <tr className="bg-surface">
+                {columns.map((column, index) =>
+                  filterCell(columnKey(column), columnLabelOf(column), index === 0),
+                )}
+                <th className={HEAD_CELL} />
+              </tr>
+            ) : null}
           </thead>
           <tbody>
             <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
@@ -1461,96 +1620,87 @@ export function DatabaseTable(props: DatabaseTableProps) {
                 // the ones an entry's intentions carry, and the two cells are the
                 // sentence and the pair it is written about (§5.2).
                 sentenceList.map((row) => (
-                  <SortableRow key={row.line.id} id={row.line.id}>
+                  <Fragment key={row.line.id}>
+                  <SortableRow id={row.line.id}>
                     {(handle) => (
                       <>
-                    <td className={BODY_LEAD}>
-                      <div className="flex items-center gap-1">
-                        <RowHandle
-                          row={row.line}
-                          attributes={handle.attributes}
-                          listeners={handle.listeners}
-                        />
-                        {/* §4: the same `×` → box a line has everywhere else,
-                            because that is what a sentence is — the box names
-                            what it is about to do, and `describe` already answers
-                            for a line. */}
-                        <RowX
-                          id={row.line.id}
-                          draft={row.line.isNew}
-                          armed={props.armed === row.line.id}
-                          notice={props.armed === row.line.id ? props.notice : null}
-                          onArm={props.onArm}
-                          onArchive={() => props.onArchiveLine(row.line)}
-                          onRemove={() => props.onRemoveLine(row.line)}
-                        />
-                        <InsertButton
-                          label="Insert a sentence here"
-                          onPress={() => insertSentence(row)}
-                        />
-                      </div>
-                    </td>
-                    {columns.map((column) => (
-                      <td key={columnKey(column)} className={bodyCellClass(column)}>
+                    {columns.map((column, index) => (
+                      <td key={columnKey(column)} className={index === 0 ? `${BODY_CELL} ${LEAD_CELL}` : BODY_CELL}>
                         {sentenceCell(column, row)}
                       </td>
                     ))}
-                    <td className={TAIL_CELL} />
+                    <td className={TAIL_CELL}>
+                      <RowBand
+                        row={row.line}
+                        attributes={handle.attributes}
+                        listeners={handle.listeners}
+                        insert={{
+                          label: "Insert a sentence here",
+                          onPress: () => insertSentence(row),
+                        }}
+                        id={row.line.id}
+                        draft={row.line.isNew}
+                        armed={props.armed === row.line.id}
+                        onArm={props.onArm}
+                      />
+                    </td>
                       </>
                     )}
                   </SortableRow>
+                  {props.armed === row.line.id ? (
+                    <RowBox
+                      colSpan={columnCount}
+                      draft={row.line.isNew}
+                      notice={props.notice}
+                      onArchive={() => props.onArchiveLine(row.line)}
+                      onRemove={() => props.onRemoveLine(row.line)}
+                    />
+                  ) : null}
+                  </Fragment>
                   ))
                 : recordRows(table).map((record) => (
                   <Fragment key={record.id}>
-                  <SortableRow id={record.id}>
+                  <SortableRow
+                    id={record.id}
+                    onOpen={
+                      recordPage ? () => props.onOpenRecord(recordPage, record.id) : undefined
+                    }
+                    openLabel={recordPage ? `Open ${record.name}` : undefined}
+                  >
                     {(handle) => (
                       <>
-                    <td className={BODY_LEAD}>
-                      <div className="flex items-center gap-1">
-                        <RowHandle
-                          row={record}
-                          attributes={handle.attributes}
-                          listeners={handle.listeners}
-                        />
-                        {/* `Open` only for a record that has a page: a type's row is
-                            edited in the grid, so it would be a control that cannot
-                            act. */}
-                        {recordPage ? (
-                          <button
-                            type="button"
-                            className={`rounded-md px-2 py-1 text-sm text-muted transition hover:bg-bg/50 hover:text-text active:scale-95 ${REVEAL}`}
-                            onClick={() => props.onOpenRecord(recordPage, record.id)}
-                          >
-                            Open
-                          </button>
-                        ) : null}
-                        {/* §4: a record's row carries the same `×` → box as an
-                            entry's row does — Archive on one tap, Remove on two. A
-                            record's permanent delete is still offered only on the
-                            Archive page; the box here names what it would take. */}
-                        <RowX
-                          id={record.id}
-                          draft={record.isNew}
-                          armed={props.armed === record.id}
-                          notice={props.armed === record.id ? props.notice : null}
-                          onArm={(id) => {
-                            props.onArm(id);
-                            if (id) void props.onDescribeRecord(table, id);
-                          }}
-                          onArchive={() => props.onArchiveRecord(table, record.id)}
-                          onRemove={() => props.onRemoveRecord(table, record.id)}
-                        />
-                      </div>
-                    </td>
-                    {columns.map((column) => (
-                      <td key={columnKey(column)} className={bodyCellClass(column)}>
+                    {columns.map((column, index) => (
+                      <td key={columnKey(column)} className={index === 0 ? `${BODY_CELL} ${LEAD_CELL}` : BODY_CELL}>
                         {recordControl(column, record)}
                       </td>
                     ))}
-                    <td className={TAIL_CELL} />
+                    <td className={TAIL_CELL}>
+                      <RowBand
+                        row={record}
+                        attributes={handle.attributes}
+                        listeners={handle.listeners}
+                        insert={null}
+                        id={record.id}
+                        draft={record.isNew}
+                        armed={props.armed === record.id}
+                        onArm={(id) => {
+                          props.onArm(id);
+                          if (id) void props.onDescribeRecord(table, id);
+                        }}
+                      />
+                    </td>
                       </>
                     )}
                   </SortableRow>
+                  {props.armed === record.id ? (
+                    <RowBox
+                      colSpan={columnCount}
+                      draft={record.isNew}
+                      notice={props.notice}
+                      onArchive={() => props.onArchiveRecord(table, record.id)}
+                      onRemove={() => props.onRemoveRecord(table, record.id)}
+                    />
+                  ) : null}
                   {/* §6.3's phone path, for the meditation tables' own Intentions
                       cell: the row opens the focused editor instead of growing. */}
                   {linesEditorFor === meditationEditorKey(record.id)
@@ -1753,53 +1903,118 @@ function ColumnX({
  */
 const DRAFT_ROW_NOTICE = "Not saved yet — removing it drops the row.";
 
+/**
+ * A row's `×`: the press that arms the box, and the only thing left in this control.
+ *
+ * The box it arms is a row of its own now ({@link RowBox}) rather than the second
+ * child of this cell: a cell three glyphs wide cannot say *"this would take 12 lines
+ * with it"* without turning back into the column the owner asked to lose.
+ */
 function RowX({
   id,
   draft = false,
   armed,
-  notice,
   onArm,
-  onArchive,
-  onRemove,
 }: {
   id: string;
   /** The row is a draft: never stored, so only `Remove` means anything. */
   draft?: boolean;
   armed: boolean;
-  notice: string | null;
   onArm: (id: string | null) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={draft ? "Remove this row" : "Archive this row, or remove it"}
+      className={`rounded px-1 text-muted transition-colors hover:bg-destructive/15 hover:text-destructive ${
+        armed ? "opacity-100" : REVEAL
+      }`}
+      onClick={() => onArm(armed ? null : id)}
+    >
+      ×
+    </button>
+  );
+}
+
+/**
+ * The armed box: **Archive** on one tap, **Remove** on two (§4, §12.22), in a band of
+ * its own under the row it belongs to.
+ *
+ * It names what it is about to do, because a line's `×` and a row's `×` look the same
+ * and do different things. The cost sentence comes from the application
+ * (`getDeletionImpact`) and is passed in as `notice`, so the wording lives in one place.
+ *
+ * A row the store has never seen collapses to one action: there is nothing to archive,
+ * so `Archive` is not drawn for it and the sentence says why.
+ */
+function RowBox({
+  colSpan,
+  draft = false,
+  notice,
+  onArchive,
+  onRemove,
+}: {
+  colSpan: number;
+  draft?: boolean;
+  notice: string | null;
   onArchive: () => void;
   onRemove: () => void;
 }) {
   return (
-    <div className="flex shrink-0 flex-col items-start gap-1">
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          aria-label={draft ? "Remove this row" : "Archive this row, or remove it"}
-          className={`rounded px-1 text-muted transition-colors hover:bg-destructive/15 hover:text-destructive ${
-            armed ? "opacity-100" : REVEAL
-          }`}
-          onClick={() => onArm(armed ? null : id)}
-        >
-          ×
-        </button>
-        {armed ? (
-          <>
-            {draft ? null : (
-              <Button size="sm" tier="tertiary" onClick={onArchive}>
-                Archive
-              </Button>
-            )}
-            <Button size="sm" tier="destructive" onClick={onRemove}>
-              Remove
+    <tr className="bg-surface" data-row-box="">
+      <td colSpan={colSpan} className={ARMED_CELL}>
+        <div className="flex flex-wrap items-center gap-2">
+          {draft ? null : (
+            <Button size="sm" tier="tertiary" onClick={onArchive}>
+              Archive
             </Button>
-          </>
-        ) : null}
-      </div>
-      {armed && (draft || notice) ? (
-        <p className="text-sm text-destructive">{draft ? DRAFT_ROW_NOTICE : notice}</p>
-      ) : null}
+          )}
+          <Button size="sm" tier="destructive" onClick={onRemove}>
+            Remove
+          </Button>
+          {draft || notice ? (
+            <p className="text-sm text-destructive">{draft ? DRAFT_ROW_NOTICE : notice}</p>
+          ) : null}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * A row's own controls, in the row's last cell: the grip, the `＋` that inserts a row
+ * beside it (where the table has one) and the `×` that arms the box.
+ *
+ * They live here rather than in a leading column (the owner's round 20, quoted on
+ * `TAIL_CELL`), and they are revealed by the pointer or the keyboard rather than drawn
+ * at rest — a control a reader needs once a session does not have to be furniture the
+ * whole time.
+ */
+function RowBand({
+  row,
+  attributes,
+  listeners,
+  insert,
+  id,
+  draft,
+  armed,
+  onArm,
+}: {
+  row: { id: string };
+  attributes: DraggableAttributes;
+  listeners: HandleListeners;
+  /** The row-insert this table offers, or `null` where it has none. */
+  insert: { label: string; onPress: () => void } | null;
+  id: string;
+  draft?: boolean;
+  armed: boolean;
+  onArm: (id: string | null) => void;
+}) {
+  return (
+    <div className={ROW_BAND}>
+      <RowHandle row={row} attributes={attributes} listeners={listeners} />
+      {insert ? <InsertButton label={insert.label} onPress={insert.onPress} /> : null}
+      <RowX id={id} draft={draft} armed={armed} onArm={onArm} />
     </div>
   );
 }
@@ -1828,12 +2043,33 @@ function InsertButton({ label, onPress }: { label: string; onPress: () => void }
  * itself writes the order and re-renders, which is the rule §6.1 asks for. A table
  * row can carry a transform, so the <tr> is the sortable node and no wrapper is
  * needed around the table.
+ *
+ * The row is also **the press that opens it** (the owner's round 20: *"open actually
+ * opens the table's key menu"*), which is why the worded `Open` button is gone and why
+ * the row carries its own accessible name. Three rules make that safe:
+ *
+ * - A press that lands on a control inside the row keeps that control's job —
+ *   `isInteractive` is the same guard the Library's cards use.
+ * - The keyboard has the row as well: it is focusable and Enter or Space opens it.
+ * - The key handler acts **only when the row itself has the focus**. A parent's key
+ *   handler sees every key its children do not stop, and the cells here are inputs: a
+ *   cell's `Enter` commits the cell and must not also leave the grid (the trap this
+ *   repo has paid for before).
+ *
+ * A row with no page — a type's, which the grid itself edits — gets none of it: a press
+ * that cannot act is the control the app does not draw.
  */
 function SortableRow({
   id,
+  onOpen,
+  openLabel,
   children,
 }: {
   id: string;
+  /** What pressing the row does. */
+  onOpen?: () => void;
+  /** The press's accessible name: what this row is, and that pressing opens it. */
+  openLabel?: string;
   children: (handle: {
     attributes: DraggableAttributes;
     listeners: HandleListeners;
@@ -1846,7 +2082,27 @@ function SortableRow({
     <tr
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`${ROW} ${isDragging ? "opacity-60" : ""}`}
+      className={`${ROW} ${isDragging ? "opacity-60" : ""} ${onOpen ? "cursor-pointer" : ""}`}
+      tabIndex={onOpen ? 0 : undefined}
+      aria-label={onOpen ? openLabel : undefined}
+      onClick={
+        onOpen
+          ? (event) => {
+              if (isInteractive(event.target)) return;
+              onOpen();
+            }
+          : undefined
+      }
+      onKeyDown={
+        onOpen
+          ? (event) => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onOpen();
+            }
+          : undefined
+      }
     >
       {children({ attributes, listeners })}
     </tr>
@@ -1912,14 +2168,6 @@ function rowLabel(row: DraftEntry, records: CellRecords, index: number): string 
   return parts.length > 0 ? parts.join(" × ") : `Row ${index + 1}`;
 }
 
-
-function moveLine(draft: DraftState, entryId: string | null, id: string, delta: number): DraftState {
-  const rows = linesOf(draft, entryId);
-  const from = rows.findIndex((row) => row.id === id);
-  const to = from + delta;
-  if (from < 0 || to < 0 || to >= rows.length) return draft;
-  return moveLineTo(draft, entryId, id, to);
-}
 
 /** A dropped line's place, counted among that entry's own lines (§6.3). */
 function moveLineTo(

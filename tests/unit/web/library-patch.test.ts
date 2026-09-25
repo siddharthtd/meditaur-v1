@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CatalogChangeSet, LibraryView } from "@meditaur/application";
+import { noDatabaseRows, type CatalogChangeSet, type LibraryView } from "@meditaur/application";
 import type { MediaAsset } from "@meditaur/domain";
 import { patchLibrary, withRow } from "../../../apps/web/src/features/library/library-patch.ts";
 import {
@@ -49,7 +49,7 @@ function noChange(): CatalogChangeSet {
       meditations: [],
       meditationTypes: [],
     },
-    updated: { meditations: [], symbols: [], plans: [] },
+    updated: { meditations: [], symbols: [], plans: [], presets: [], ...noDatabaseRows() },
   };
 }
 
@@ -99,7 +99,7 @@ describe("patchLibrary", () => {
 
     const patched = patchLibrary(view, {
       ...noChange(),
-      updated: { meditations: [cleared], symbols: [], plans: [] },
+      updated: { meditations: [cleared], symbols: [], plans: [], presets: [], ...noDatabaseRows() },
     });
     expect(patched.meditations[0]!.defaultBinauralPresetId).toBeNull();
     expect(patched.meditations[0]!.revision).toBe(1);
@@ -114,7 +114,13 @@ describe("patchLibrary", () => {
     const plans = [{ id: "plan1", name: "Morning" }];
     const patched = patchLibrary(emptyView({ plans }), {
       ...noChange(),
-      updated: { meditations: [], symbols: [], plans: [makePlan([makeBlock("b1", 0)])] },
+      updated: {
+        meditations: [],
+        symbols: [],
+        plans: [makePlan([makeBlock("b1", 0)])],
+        presets: [],
+        ...noDatabaseRows(),
+      },
     });
     expect(patched.plans).toBe(plans);
   });

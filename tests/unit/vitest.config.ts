@@ -10,4 +10,8 @@ export default defineConfig({
     include: ["tests/unit/**/*.test.ts"],
     environment: "node",
   },
+  // The app is written in `.tsx`, and a unit test may import one: without this the esbuild
+  // transform emits `React.createElement` and every such import dies with "React is not
+  // defined", which is a landmine rather than a decision.
+  esbuild: { jsx: "automatic" },
 });

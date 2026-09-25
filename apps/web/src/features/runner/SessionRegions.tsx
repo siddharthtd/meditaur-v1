@@ -4,6 +4,7 @@ import { EYEBROW_CLASS } from "@meditaur/ui";
 import type { CompiledBlock, CompiledFact, CompiledSymbolGroup } from "@meditaur/domain";
 import { useEffect, useRef } from "react";
 
+import { symbolRows } from "./session-regions";
 import { scrollTarget } from "./scroll-rate";
 
 /** A column with no value says so rather than showing a blank. */
@@ -187,6 +188,16 @@ export function SymbolRail({
 }
 
 /**
+ * How far across an alternate row of boxes is nudged.
+ *
+ * Half a box plus half a gutter, in the boxes' own units: they are `9rem` square with a
+ * `1.5rem` gutter between them, so half of one plus half of the other is `5.25rem`. That is
+ * what turns two equal rows into the honeycomb the owner described — *"something like
+ * hexagonal shape for 6 intentions in Heart"* — without a single per-count number.
+ */
+const ROW_NUDGE = "5.25rem";
+
+/**
  * The symbols in play, as a sheet of them.
  *
  * The owner's round 17, item 4: *"The symbol stage doesn't need to show me the
@@ -199,6 +210,15 @@ export function SymbolRail({
  * So a `symbols` stage's main region is this rather than the intentions column: the
  * block's symbols, in the order the block walks them, each drawn as its picture when
  * it has one and named always — a picture nobody can name is not a meditation aid.
+ *
+ * The owner's round 20 made it **the whole region and nothing else**: the rail beside
+ * it drew the symbol in play a second time (`session-regions.ts` skips it for this
+ * stage), and the boxes are large. Round 22 then fixed both the panel and the arrangement:
+ * no background behind the boxes at all — *"I didn't mean floating on a giant panel … that
+ * background strip or panel is not required, just the boxes"* — and balanced rows rather
+ * than one staggered line, which is `symbolRows` in `session-regions.ts`. These are the
+ * places the pictures of the symbols will go, so they are sized to be looked at rather than
+ * scanned.
  *
  * The one **in play** is marked rather than scrolled to: there is nothing to scroll
  * here, so the clock is what says which symbol the reader is with (`stage-progress.ts`)
@@ -232,6 +252,17 @@ export function SymbolGallery({
       </section>
     );
   }
+  // The boxes, in balanced rows. `symbolRows` is the arithmetic — how many boxes a row holds
+  // — and what is left here is which boxes they are, with the row's own index kept so the
+  // clock's `data-current` and the tests' `data-symbol` still name the block's order.
+  let cursor = 0;
+  const rows = symbolRows(groups.length).map((width) => {
+    const row = groups
+      .slice(cursor, cursor + width)
+      .map((group, offset) => ({ group, index: cursor + offset }));
+    cursor += width;
+    return row;
+  });
   return (
     <section
       aria-labelledby="run-symbols"
@@ -240,43 +271,58 @@ export function SymbolGallery({
       <h2 id="run-symbols" className={`${EYEBROW_CLASS} shrink-0 text-sm`}>
         Symbols
       </h2>
-      <ul
+      {/* No panel behind them: the boxes **are** the picture, and the background was the
+          "giant panel" the owner asked to lose. The block scrolls when a stage carries more
+          symbols than the region can hold, and the rows centre themselves inside it. */}
+      <div
         data-symbol-gallery
-        className="grid min-h-0 flex-1 grid-cols-[repeat(auto-fill,minmax(6rem,1fr))] content-start gap-3 overflow-y-auto rounded-2xl border border-line bg-surface p-3"
+        className="flex min-h-0 flex-1 flex-col justify-center gap-y-4 overflow-y-auto py-2"
       >
-        {groups.map((group, index) => (
-          <li
-            key={`${index}-${group.name}`}
-            data-symbol={index}
-            data-current={index === currentIndex ? "true" : "false"}
-            className={`flex flex-col items-center justify-start gap-1 rounded-xl px-2 py-3 text-center transition-colors ${
-              index === currentIndex ? "bg-surface-raised" : ""
-            }`}
+        {rows.map((row, rowIndex) => (
+          <ul
+            key={rowIndex}
+            data-symbol-row={rowIndex}
+            className="flex flex-wrap items-center justify-center gap-x-6 gap-y-4"
+            // Every other row sits half a box across. That is the whole of the shape: two
+            // rows of three read as a honeycomb rather than as a rectangle of names.
+            style={{ marginLeft: rowIndex % 2 === 1 ? ROW_NUDGE : undefined }}
           >
-            {group.imageAssetId && imageUrls[group.imageAssetId] ? (
-              <>
-                <img
-                  src={imageUrls[group.imageAssetId]!}
-                  alt={`${group.name} symbol`}
-                  className="h-16 w-16 object-contain"
-                />
-                {/* Named as well as drawn: the picture is the aid and the name is
-                    what makes it findable, which is the pair the symbol's own panel
-                    heads itself with. */}
-                <span className="text-xs text-muted">{group.name}</span>
-              </>
-            ) : (
-              // No picture yet — the owner's *"until then, just the names of symbols
-              // will do"* — so the name is the whole of the cell, at the size a name
-              // needs to be to read from across a room. Named once, because it is the
-              // only thing in the cell.
-              <span className="flex h-16 items-center justify-center px-1 text-base leading-tight text-text">
-                {group.name}
-              </span>
-            )}
-          </li>
+            {row.map(({ group, index }) => (
+              <li
+                key={`${index}-${group.name}`}
+                data-symbol={index}
+                data-current={index === currentIndex ? "true" : "false"}
+                className={`flex h-36 w-36 flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center transition-colors ${
+                  index === currentIndex
+                    ? "border-accent/60 bg-surface-raised"
+                    : "border-line bg-surface"
+                }`}
+              >
+                {group.imageAssetId && imageUrls[group.imageAssetId] ? (
+                  <>
+                    <img
+                      src={imageUrls[group.imageAssetId]!}
+                      alt={`${group.name} symbol`}
+                      className="h-24 w-24 object-contain"
+                    />
+                    {/* Named as well as drawn: the picture is the aid and the name is
+                        what makes it findable, which is the pair the symbol's own panel
+                        heads itself with. */}
+                    <span className="text-sm text-muted">{group.name}</span>
+                  </>
+                ) : (
+                  // No picture yet — the owner's *"until then, just the names of symbols
+                  // will do"* — so the name is the whole of the box, at the size the
+                  // picture beside it will be: these boxes are the pictures' places.
+                  <span className="flex min-h-24 min-w-24 items-center justify-center px-1 text-xl leading-tight text-text">
+                    {group.name}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
         ))}
-      </ul>
+      </div>
     </section>
   );
 }

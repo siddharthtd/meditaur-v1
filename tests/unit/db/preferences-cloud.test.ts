@@ -75,6 +75,13 @@ function fakeTable(input: { rows?: UserPreferences[]; failWith?: string } = {}) 
       calls.push("selectIn");
       return [];
     },
+    // A preference row is saved by compare-and-swap, so `updateWhere` is what this
+    // table uses and `upsert` has no caller here — logged rather than silent, so a
+    // future caller of it shows up in `calls`.
+    async upsert() {
+      calls.push("upsert");
+      return [];
+    },
     async insert(table, values) {
       calls.push(`insert ${table}`);
       guard();

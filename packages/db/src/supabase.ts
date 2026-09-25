@@ -1,12 +1,19 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
+  DEFAULT_FEATURE_FLAGS,
   fail,
+  normalizeFeatureFlags,
+  normalizeTheme,
+  type AccountFlags,
   type AccountPort,
+  type AdminAccount,
+  type AdminPort,
   type AppEvent,
   type AuthPort,
   type AuthSession,
   type Clock,
   type EventPort,
+  type FeatureFlagsPort,
   type PreferencesRepository,
   type SignUpOutcome,
   type UserPreferences,
@@ -113,6 +120,21 @@ export type SupabaseDataLike = {
   ): Promise<Record<string, unknown>[]>;
   /** Insert one row, and report what was created. */
   insert(table: string, values: Record<string, unknown>): Promise<Record<string, unknown>[]>;
+  /**
+   * Store one row whether or not the store already holds it, and report it.
+   *
+   * A catalogue save is an upsert by definition: sync's settles last-write-wins
+   * with no conflict screen (`DECISIONS.md` §7), so a row carries everything it
+   * needs and there is no predicate for `updateWhere` to compare — the same reason
+   * a delete is an ordinary write rather than a delete. It could be spelled as
+   * `updateWhere` and then `insert`, which is the dance the preferences adapter
+   * needs because **its** save is a compare-and-swap; here that is three requests
+   * per row where one will do, and a push sends every row that moved.
+   *
+   * `insert` stays, and stays different: `events` is a table where a duplicate is a
+   * fact worth seeing rather than one worth merging (`createSupabaseEventsPort`).
+   */
+  upsert(table: string, values: Record<string, unknown>): Promise<Record<string, unknown>[]>;
 };
 
 function unwrap(result: PostgrestResultLike): Record<string, unknown>[] {
@@ -154,6 +176,14 @@ function createSupabaseDataClient(client: SupabaseClient): SupabaseDataLike {
     },
     async insert(table, values) {
       const { data, error } = await client.from(table).insert(values).select();
+      if (error) fail("supabase.requestFailed", error.message);
+      return (data as Record<string, unknown>[] | null) ?? [];
+    },
+    async upsert(table, values) {
+      // No conflict target is named, deliberately: the SDK's default is the primary
+      // key, which is the row's identity in every table this is used on — including
+      // `field_values`, whose key is the pair `(entity_id, field_def_id)`.
+      const { data, error } = await client.from(table).upsert(values).select();
       if (error) fail("supabase.requestFailed", error.message);
       return (data as Record<string, unknown>[] | null) ?? [];
     },
@@ -324,6 +354,7 @@ function preferencesRow(prefs: UserPreferences): Record<string, unknown> {
     alarm_volume: prefs.alarmVolume,
     tts_enabled: prefs.ttsEnabled,
     text_size: prefs.textSize,
+    theme: prefs.theme,
     last_plan_id: prefs.lastPlanId,
     revision: prefs.revision,
     updated_at: new Date(prefs.updatedAt).toISOString(),
@@ -342,6 +373,9 @@ function preferencesFromRow(row: Record<string, unknown>): UserPreferences {
     alarmVolume: (row.alarm_volume as number | undefined) ?? 0.6,
     ttsEnabled: row.tts_enabled === true,
     textSize: (row.text_size as UserPreferences["textSize"] | undefined) ?? "md",
+    // Absent from a row written before the column existed, and unknown values read as the
+    // app's own scheme: the domain's normaliser is the one rule for both stores.
+    theme: normalizeTheme(row.theme),
     lastPlanId: (row.last_plan_id as string | null | undefined) ?? null,
     revision: (row.revision as number | undefined) ?? 0,
     updatedAt: row.updated_at ? Date.parse(row.updated_at as string) : 0,
@@ -414,6 +448,69 @@ export function createSupabaseAccountPort(input: {
   };
 }
 
+export const SUPABASE_ADMIN_ERRORS = {
+  refused: "The admin function refused the request",
+} as const;
+
+/**
+ * `AdminPort` over the `admin` function (`P0 · 23`, slice 23f).
+ *
+ * None of these methods can work from the browser alone: `account_flags` grants an
+ * account a self-select and no write, and creating an account or setting a password
+ * needs the Auth admin API. So the adapter's whole job is to name the action and unwrap
+ * the answer, and the function behind it re-checks the caller's marker on every request —
+ * which is what makes the panel's own gate an affordance rather than the boundary.
+ *
+ * A failure carries the one sentence a screen shows, the same rule the account and
+ * preference adapters follow. The function's own `{ error: … }` code is deliberately not
+ * surfaced here: the panel validates what a reader typed before it calls (an address, a
+ * password's length), so a refusal that reaches this point is an exception rather than
+ * something a form is expected to explain.
+ */
+export function createSupabaseAdminPort(input: {
+  functions: SupabaseFunctionsLike;
+}): AdminPort {
+  async function call<T>(body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await input.functions.invoke<T>("admin", { body });
+    if (error) fail("admin.requestFailed", error.message || SUPABASE_ADMIN_ERRORS.refused);
+    if (data === null || data === undefined) {
+      fail("admin.requestFailed", SUPABASE_ADMIN_ERRORS.refused);
+    }
+    return data;
+  }
+
+  return {
+    isConfigured: () => true,
+    async listAccounts() {
+      const answer = await call<{ accounts?: AdminAccount[] }>({ action: "list" });
+      return answer.accounts ?? [];
+    },
+    async setFlags(userId, flags) {
+      // The function answers with the stored row, so the panel patches the row it drew
+      // rather than re-reading every account (item 4's shape).
+      const answer = await call<{ account?: AccountFlags }>({
+        action: "set-flags",
+        userId,
+        flags,
+      });
+      if (!answer.account) fail("admin.requestFailed", SUPABASE_ADMIN_ERRORS.refused);
+      return answer.account;
+    },
+    async createAccount(email, password) {
+      const answer = await call<{ account?: { userId: string; email: string } }>({
+        action: "create-account",
+        email,
+        password,
+      });
+      if (!answer.account) fail("admin.requestFailed", SUPABASE_ADMIN_ERRORS.refused);
+      return answer.account;
+    },
+    async setPassword(userId, password) {
+      await call<{ account?: { userId: string } }>({ action: "set-password", userId, password });
+    },
+  };
+}
+
 export function createSupabasePreferencesPort(input: {
   client: SupabaseDataLike;
 }): PreferencesRepository {
@@ -471,6 +568,45 @@ export function createSupabasePreferencesPort(input: {
         SUPABASE_PREFERENCES_ERRORS.writeFailed,
       );
       return next;
+    },
+  };
+}
+
+/** The table the account's flags and its admin marker live in (`P0 · 23`). */
+export const ACCOUNT_FLAGS_TABLE = "account_flags";
+
+/**
+ * `FeatureFlagsPort` over the `account_flags` table.
+ *
+ * One read of one row, and there is **no write here at all** — by policy rather than by
+ * omission: RLS grants this account a self-select and no write, so a save attempted from
+ * the browser would change nothing. The owner sets flags through the `admin` function,
+ * which holds the service role.
+ *
+ * The row is read as the caller: `user_id` is the filter *and* `account_flags_self_select`
+ * is what actually keeps it to their own row, so the filter is the half that makes the
+ * query legible rather than the half that makes it safe.
+ *
+ * **A missing row is not an error and not an empty answer.** An account the owner has not
+ * touched has no row, which is an account with every default — so the answer is the
+ * defaults, and the sparse `flags` object goes through `normalizeFeatureFlags`, which also
+ * reads a stale or hand-edited value as the default rather than refusing to sign anybody
+ * in over it.
+ */
+export function createSupabaseFlagsPort(input: { client: SupabaseDataLike }): FeatureFlagsPort {
+  const { client } = input;
+  return {
+    isConfigured: () => true,
+    async read(userId: string): Promise<AccountFlags> {
+      const rows = await client.select(ACCOUNT_FLAGS_TABLE, "user_id", userId, "*");
+      const row = rows[0];
+      if (!row) return { flags: DEFAULT_FEATURE_FLAGS, isAdmin: false };
+      return {
+        flags: normalizeFeatureFlags(row.flags),
+        // Anything but `true` is false: an admin marker that failed open would hand the
+        // panel to whoever the read went wrong for.
+        isAdmin: row.is_admin === true,
+      };
     },
   };
 }

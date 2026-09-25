@@ -1,4 +1,5 @@
 import { Button } from "@meditaur/ui";
+import { isInteractive } from "@/lib/interactive-target";
 import type { CSSProperties, ReactNode } from "react";
 import { ImageFrame } from "./ImageFrame";
 
@@ -21,13 +22,9 @@ import { ImageFrame } from "./ImageFrame";
  * unresponsive". The container therefore answers a press everywhere the buttons
  * do not, and a press that lands on one of them is left to that button.
  */
-/** True when a press landed on something inside the card that has its own job. */
-function isInteractive(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    target.closest("button, a, input, select, textarea, label") !== null
-  );
-}
+/** True when a press landed on something inside the card that has its own job.
+ *  The one implementation of that question lives in `lib/interactive-target.ts`,
+ *  because the Database's rows ask it too (the owner's round 20). */
 export function CatalogCard({
   title,
   subtitle,

@@ -24,8 +24,12 @@ export type SessionSlot = "top" | "rail" | "main";
  * The owner's round 17, item 4: a `symbols` stage shows the symbols *"in the main
  * region only instead of the intentions"*. So the region is not "the intentions" —
  * it is **the stage's own content**, and the id is what it happens to be showing.
+ *
+ * A `focus` stage draws the meditation's picture and its symbols in one colour and keeps
+ * its slot, which is the space that artwork fills — the owner's round 20 asked for the
+ * blank region first and for the visuals second, and round 21 built them.
  */
-export type SessionRegionId = "meditation" | "symbol" | "intentions" | "symbols";
+export type SessionRegionId = "meditation" | "symbol" | "intentions" | "symbols" | "focus";
 
 export type SessionRegion = {
   id: SessionRegionId;
@@ -80,6 +84,8 @@ export function sessionRegions(input: {
   // it reads. Both take the main slot, so the other two regions do not move when a
   // block walks from one stage to the next.
   const showsSymbols = input.stageKind === "symbols";
+  // The kind with nothing of its own to draw yet (the owner's round 20).
+  const blankFocus = input.stageKind === "focus";
   return [
     {
       id: "meditation",
@@ -90,17 +96,27 @@ export function sessionRegions(input: {
         : "the plan shows no meditation column with a value",
     },
     {
+      // The rail is the symbol **in play** beside the lines. A `symbols` stage draws
+      // every symbol as the stage's own content, so the rail there is the same
+      // information twice and half the width to say it in — the owner's round 20:
+      // *"I don't want a rail or a strip of bigger symbols, I want individual
+      // scattered (yet arranged) boxes … on the screen."*
       id: "symbol",
       slot: "rail",
       area: "symbol",
-      skip: groups.length > 0 ? null : "this meditation has no symbols",
+      skip:
+        input.stageKind === "symbols"
+          ? "a symbols stage draws every symbol in the main region"
+          : groups.length > 0
+            ? null
+            : "this meditation has no symbols",
     },
     {
       // Always drawn: the region is the stage's content, and "this stage has
       // nothing for you" is a thing it has to be able to say — the intentions
       // column says it for an empty stage, and the gallery says it for a symbols
       // stage with no symbols.
-      id: showsSymbols ? "symbols" : "intentions",
+      id: showsSymbols ? "symbols" : blankFocus ? "focus" : "intentions",
       slot: "main",
       area: null,
       skip: null,
@@ -147,4 +163,39 @@ export function sessionLayout(drawn: Pick<SessionRegion, "slot">[]): SessionLayo
 /** The drawn regions, in slot order, for the renderer. */
 export function drawnRegions(regions: SessionRegion[]): SessionRegion[] {
   return regions.filter((region) => region.skip === null);
+}
+
+/**
+ * How many symbol boxes each row of a `symbols` stage holds.
+ *
+ * The owner's round 22, on the sheet round 20 built: *"I didn't mean floating on a giant
+ * panel … they still need to follow an organized grid structure, but, something like
+ * hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in first row 2 in the
+ * 2nd row in the middle. Something that feels organized but not constricted like a list."*
+ *
+ * So the boxes are laid out in **balanced rows**: as few rows as the count needs at
+ * `maxPerRow`, each row as even as the count allows, and the extra box of an odd count in the
+ * **middle** row. Six become 3 + 3, five 3 + 2, seven 2 + 3 + 2 — a honeycomb the eye reads
+ * as a shape, which is neither the rail of names nor the single line of boxes that were
+ * tried before it.
+ */
+export function symbolRows(count: number, maxPerRow = 3): number[] {
+  if (count <= 0) return [];
+  const rows = Math.ceil(count / maxPerRow);
+  const base = Math.floor(count / rows);
+  const widths = Array.from({ length: rows }, () => base);
+  const order = centreFirst(rows);
+  for (let extra = count - base * rows; extra > 0; extra -= 1) {
+    const at = order[extra - 1];
+    if (at !== undefined) widths[at] += 1;
+  }
+  return widths;
+}
+
+/** Row indices from the middle outwards, so a spare box lands in the centre rows first. */
+function centreFirst(count: number): number[] {
+  const centre = (count - 1) / 2;
+  return Array.from({ length: count }, (_, index) => index).sort(
+    (a, b) => Math.abs(a - centre) - Math.abs(b - centre) || a - b,
+  );
 }

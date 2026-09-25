@@ -2,11 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "./Button.tsx";
 import { KeyHints } from "./KeyHints.tsx";
 
-/** Escape leaves a picker and Enter takes the typed name — say so, on the page. */
-const PICKER_KEYS = [
-  { keys: ["Enter"], label: "choose" },
-  { keys: ["Esc"], label: "back" },
-];
+/** Enter takes the typed name — say so, beside the action it belongs to. */
+const PICKER_KEYS = [{ keys: ["Enter"], label: "choose" }];
 
 export type PickerItem = {
   id: string;
@@ -42,12 +39,27 @@ export function PickerPage({
   selectedId,
   onSelect,
   onBack,
+  multi,
 }: {
   title: string;
   items: PickerItem[];
   selectedId?: string;
-  onSelect: (id: string) => void;
+  /** The single pick's answer. A set picker carries `multi` instead. */
+  onSelect?: (id: string) => void;
   onBack?: () => void;
+  /**
+   * Given, the page is a **set picker** rather than a choice.
+   *
+   * The owner's round 22: a point block clubs several points into one pass, so "which one?"
+   * has no single answer and the block's field is a **set**. Every row becomes a switch that
+   * toggles in place and `Done` is the one action — the typed bar stays as a filter, and
+   * `Choose` and its error path are the single-pick page's, so neither is drawn here.
+   */
+  multi?: {
+    selected: string[];
+    onToggle: (id: string) => void;
+    onDone: () => void;
+  };
 }): ReactNode {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -60,8 +72,8 @@ export function PickerPage({
         item.label.toLowerCase().includes(q) || (item.hint ?? "").toLowerCase().includes(q),
     );
   }, [items, typed]);
-  // Escape is the universal way back (IMPLEMENTATION.md's UI rules), so a
-  // picker with a Back button cannot be the one screen where it does nothing.
+  // Escape is the universal way back (IMPLEMENTATION.md's UI rules), so the
+  // picker draws it as a control of its own rather than leaving it to a keyboard.
   useEffect(() => {
     if (!onBack) return;
     const onKey = (event: KeyboardEvent) => {
@@ -85,29 +97,23 @@ export function PickerPage({
       setError(`Nothing matches “${typed}”, so nothing was chosen.`);
       return;
     }
-    onSelect(chosen.id);
+    onSelect?.(chosen.id);
   };
-
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        {onBack ? (
-          <Button tier="tertiary" size="sm" onClick={onBack}>
-            Back
-          </Button>
-        ) : null}
-        <h1 className="text-2xl">{title}</h1>
-      </div>
+    <div className="flex min-h-[100dvh] flex-col gap-4">
+      <h1 className="text-2xl">{title}</h1>
       <form
         className="flex items-start gap-2"
         onSubmit={(event) => {
           event.preventDefault();
-          choose();
+          // A set picker commits nothing from the bar: the bar narrows the list and
+          // nothing else, and every press on a row is already the answer.
+          if (!multi) choose();
         }}
       >
         <input
           aria-label={`${title} picker`}
-          placeholder="Type a name"
+          placeholder={multi ? "Filter by name" : "Type a name"}
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -115,37 +121,67 @@ export function PickerPage({
           }}
           className="min-h-14 min-w-0 flex-1 rounded-xl bg-surface px-4 text-lg text-text"
         />
-        <Button type="submit" tier="primary">
-          Choose
-        </Button>
         {/* Beside the picker's own primary action, which is where every other
             screen keeps its key legend (the owner's round 8, library item 2). */}
-        <KeyHints className="hidden lg:flex" hints={PICKER_KEYS} />
+        <KeyHints
+          className="hidden lg:flex"
+          hints={multi ? [{ keys: ["Enter"], label: "filter" }] : PICKER_KEYS}
+        />
       </form>
       {error ? <p className="text-lg text-destructive">{error}</p> : null}
       <ul className="flex flex-col gap-2">
-        {filtered.map((item) => (
-          <li key={item.id} className="min-w-0">
-            <Button
-              tier={item.id === selectedId ? "primary" : "secondary"}
-              onClick={() => onSelect(item.id)}
-              className="h-auto min-h-14 w-full justify-start py-3"
-            >
-              <span className="flex w-full min-w-0 flex-col items-start gap-1">
-                <span className="w-full truncate text-left text-lg text-text">{item.label}</span>
-                {item.hint ? (
-                  <span className="w-full truncate text-left text-sm font-normal text-muted">
-                    {item.hint}
-                  </span>
-                ) : null}
-              </span>
-            </Button>
-          </li>
-        ))}
+        {filtered.map((item) => {
+          const on = multi ? multi.selected.includes(item.id) : item.id === selectedId;
+          return (
+            <li key={item.id} className="min-w-0">
+              <Button
+                tier={on ? "primary" : "secondary"}
+                aria-pressed={multi ? on : undefined}
+                onClick={() => (multi ? multi.onToggle(item.id) : onSelect?.(item.id))}
+                className="h-auto min-h-14 w-full justify-start py-3"
+              >
+                <span className="flex w-full min-w-0 flex-col items-start gap-1">
+                  <span className="w-full truncate text-left text-lg text-text">{item.label}</span>
+                  {item.hint ? (
+                    <span className="w-full truncate text-left text-sm font-normal text-muted">
+                      {item.hint}
+                    </span>
+                  ) : null}
+                </span>
+              </Button>
+            </li>
+          );
+        })}
       </ul>
       {filtered.length === 0 && !error ? (
         <p className="text-lg text-muted">Nothing matches “{typed}”.</p>
       ) : null}
+      {/* One bar, holding the way back and the picker's own action, which is where every other
+          screen keeps them (the owner's round 8, restored for the picker in round 25: it used to
+          be the exception, with the legend in the title's row and `Choose` in the text bar).
+          `Choose` is no longer the form's submit, and it does not need to be: the form still
+          commits on `Enter`, and both paths run `choose`. */}
+      <div className="sticky bottom-0 z-10 mt-auto flex flex-wrap items-center justify-end gap-3 border-t border-line bg-bg/95 py-4 backdrop-blur">
+        {onBack ? (
+          <KeyHints hints={[{ keys: ["Esc"], label: "back", onPress: onBack }]} />
+        ) : null}
+        {multi ? (
+          <>
+            <p className="mr-auto text-sm text-muted">
+              {multi.selected.length === 0
+                ? "This block runs nothing yet."
+                : `${multi.selected.length} chosen.`}
+            </p>
+            <Button tier="primary" size="lg" onClick={multi.onDone}>
+              Done
+            </Button>
+          </>
+        ) : (
+          <Button tier="primary" size="lg" onClick={choose}>
+            Choose
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

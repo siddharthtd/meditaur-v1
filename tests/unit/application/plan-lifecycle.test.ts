@@ -46,7 +46,7 @@ describe("clonePlan", () => {
     expect(copy.revision).toBe(0);
     expect(copy.blocks.map((b) => b.id)).toEqual(["c1"]);
     expect(copy.blocks[0]).toMatchObject({
-      meditationId: "fp1",
+      meditationIds: ["fp1"],
       binauralPresetId: "preset1",
     });
     expect(source.blocks.map((b) => b.id)).toEqual(["b1"]);
@@ -71,7 +71,7 @@ describe("makeStarterPlan", () => {
     // the one-tap session no longer closes with a silent timer.
     expect(plan.blocks).toHaveLength(1);
     expect(plan.blocks[0]).toMatchObject({
-      meditationId: "fp1",
+      meditationIds: ["fp1"],
       symbolId: null,
     });
     expect(plan.blocks[0]?.stages.map((stage) => stage.key)).toEqual(["intentions"]);

@@ -5,12 +5,13 @@ import { useSession } from "@/features/auth/SessionProvider";
 import { errorText } from "@/lib/error-text";
 import { useScreenScroll } from "@/lib/screen-scroll";
 import type { LibraryView } from "@meditaur/application";
-import type { Meditation } from "@meditaur/domain";
-import { Button } from "@meditaur/ui";
+import { visibleSymbols, visibleTypes, type Meditation } from "@meditaur/domain";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BinauralConfigScreen } from "../library/BinauralConfig";
+import { GoneScreen } from "../library/GoneScreen";
 import { pruneBinauralDrafts } from "../library/library-model";
+import { recordHref } from "../record/record-route";
 import { confirmLeaveDatabase, setDatabaseDirty } from "./database-guard";
 import { DATABASE_HREF, readDatabaseRequest } from "./database-route";
 import { DatabaseRecord, type DatabaseRecordScreen } from "./DatabaseRecord";
@@ -24,30 +25,53 @@ import { DatabaseTab, type DatabaseRequest } from "./DatabaseTab";
  * mechanism the tab had, with the difference that the exit is a route change and
  * the guard therefore has to answer the nav bar too (`database-guard.ts`).
  *
- * The record view and the binaural config are *screens inside this one*, exactly
- * as they were inside the library: a record's own page is reached from its row's
- * `Open`, and the binaural config is reached from the record view or from a
- * `Tune` cell. Neither is a route.
+ * The record view and the binaural config are *screens inside this one*: the binaural
+ * config is reached from the grid's `Tune` cell, and a **preset's new-record editor** is
+ * reached from the Presets tab's `Add preset`.
+ *
+ * Opening an **existing** record is not here at all since the owner's round 22: a
+ * meditation, a symbol and a preset all have one address of their own (`record-route.ts`),
+ * where one screen reads the record and edits it in place. So this screen holds the one
+ * *editor for a row that does not exist yet*, and the record route holds the one for a row
+ * that does — which is the whole of the two-path problem that round was about.
  */
 export function DatabaseScreen() {
   const router = useRouter();
-  const { ready: sessionReady, workspaceId: sessionWorkspaceId } = useSession();
+  const { ready: sessionReady, workspaceId: sessionWorkspaceId, flags } = useSession();
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [view, setView] = useState<LibraryView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [recordScreen, setRecordScreen] = useState<DatabaseRecordScreen | null>(null);
   /**
-   * True while the record on screen is one the **library** asked for.
+   * The view **this screen** draws from: the store's library, with the types and the
+   * symbols a flag hides taken out (`P0 · 35`, slices 35a and 35b).
    *
-   * `Add preset` and a preset card's `Edit` come from the Presets tab, so `Back`
-   * has to end up back on that list rather than on the grid the reader never saw;
-   * the library reopens the section it remembers, so a plain `/library` is enough.
-   * A record opened from a grid row clears this and returns to the grid.
+   * Filtered at the screen and handed down whole, so everything under it agrees —
+   * the table strip, the Symbols table, the type a brand-new row is given, the rows
+   * the draft holds, and the address's own validity, since `readDatabaseRequest` asks
+   * *this* list and a request naming a hidden table lands the way an unknown one
+   * does. A draft that never holds such a row is also what keeps a save from
+   * differing against rows the reader was never shown.
    */
-  const [recordFromLibrary, setRecordFromLibrary] = useState(false);
+  const gridView = useMemo(
+    () =>
+      view
+        ? {
+            ...view,
+            meditationTypes: visibleTypes(view.meditationTypes, flags),
+            symbols: visibleSymbols(view.symbols, flags),
+          }
+        : null,
+    [view, flags],
+  );
+  const [error, setError] = useState<string | null>(null);
+  /**
+   * A record this screen is creating: a new preset, and nothing else.
+   *
+   * Every other record has an id and therefore an address. A row that does not exist yet
+   * has neither, which is why the one creation flow that opens an editor rather than a
+   * grid cell still lives here.
+   */
+  const [recordScreen, setRecordScreen] = useState<DatabaseRecordScreen | null>(null);
   const [binauralMeditationId, setBinauralMeditationId] = useState<string | null>(null);
-  /** Which screen the binaural config hands back to. */
-  const [binauralFrom, setBinauralFrom] = useState<"record" | "database">("record");
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   /**
    * What the library asked for on the way in, read from the address.
@@ -115,27 +139,23 @@ export function DatabaseScreen() {
     if (!view) return;
     if (spentSearch.current === search) return;
     spentSearch.current = search;
-    const next = readDatabaseRequest(search, view.meditationTypes);
+    const next = readDatabaseRequest(search, gridView?.meditationTypes ?? []);
     if (next) setRequest(next);
-  }, [search, view]);
+  }, [search, gridView]);
 
   /**
-   * A preset's `Add`/`Edit` opens its page; a grid request is the grid's.
+   * `new-record` opens a preset's empty editor; a grid request is the grid's.
    *
-   * The record kinds never reach the grid, so they are spent here — the same
-   * "acted on once" rule, split by what the request is for.
+   * Only **creating** is left here. Opening an existing record became the record's own
+   * address (the owner's round 22), so the `record` kind this effect used to act on is
+   * gone — the row press navigates instead of handing this screen a record to draw. A
+   * preset is created here and nowhere else, because a preset with no row in the store
+   * has no id for an address to name.
    */
   useEffect(() => {
     if (!request) return;
-    if (request.kind === "record") {
-      setRecordScreen({ kind: "record", table: request.table, id: request.id });
-      setRecordFromLibrary(true);
-    } else if (request.kind === "new-record") {
-      setRecordScreen({ kind: "new", table: request.table });
-      setRecordFromLibrary(true);
-    } else {
-      return;
-    }
+    if (request.kind !== "new-record") return;
+    setRecordScreen({ kind: "new", table: request.table });
     setRequest(null);
     router.replace(DATABASE_HREF);
   }, [request, router]);
@@ -200,7 +220,7 @@ export function DatabaseScreen() {
   /**
    * Leave the record editor for the binaural config, writing its draft first.
    */
-  const openBinaural = async (focus: Meditation, from: "record" | "database" = "record") => {
+  const openBinaural = async (focus: Meditation) => {
     const save = recordSave.current;
     try {
       if (save) await save();
@@ -209,9 +229,7 @@ export function DatabaseScreen() {
       return;
     }
     setError(null);
-    // The record screen is what the binaural config hands back to, so it has to
-    // stand down for it.
-    setBinauralFrom(from);
+    // The config is a screen of its own, so this one has to stand down for it.
     setRecordScreen(null);
     setBinauralMeditationId(focus.id);
   };
@@ -220,18 +238,6 @@ export function DatabaseScreen() {
     setRecordScreen(null);
     setBinauralMeditationId(null);
     setError(null);
-  };
-
-  /**
-   * `Back` out of a record: to the grid, or to the library that asked for it.
-   */
-  const backFromRecord = () => {
-    setError(null);
-    setRecordScreen(null);
-    if (!recordFromLibrary) return;
-    setRecordFromLibrary(false);
-    setDatabaseDirty(false);
-    router.push("/library");
   };
 
   if (!workspaceId || !view) {
@@ -245,24 +251,14 @@ export function DatabaseScreen() {
   if (binauralMeditationId) {
     const focus = view.meditations.find((fp) => fp.id === binauralMeditationId);
     if (!focus) {
-      return (
-        <main className="flex flex-col gap-6">
-          <p className="text-lg">That meditation is gone.</p>
-          <Button tier="tertiary" size="sm" onClick={backToGrid}>
-            Back
-          </Button>
-        </main>
-      );
+      return <GoneScreen message="That meditation is gone." onBack={backToGrid} />;
     }
     return (
       <BinauralConfigScreen
         focus={focus}
         presets={view.presets}
         error={error}
-        onBack={() => {
-          setBinauralMeditationId(null);
-          if (binauralFrom === "record") setRecordScreen({ kind: "record", table: "meditation", id: focus.id });
-        }}
+        onBack={() => setBinauralMeditationId(null)}
         onError={setError}
         onSavePreset={async (preset) => {
           await app.savePreset(preset);
@@ -284,10 +280,10 @@ export function DatabaseScreen() {
         <DatabaseRecord
           app={app}
           workspaceId={workspaceId}
-          view={view}
+          view={gridView ?? view}
           screen={recordScreen}
           imageUrls={imageUrls}
-          onBack={backFromRecord}
+          onBack={backToGrid}
           onReload={() => reload(workspaceId)}
           onAddColumn={backToGrid}
           onOpenBinaural={(focus) => void openBinaural(focus)}
@@ -304,9 +300,9 @@ export function DatabaseScreen() {
       <DatabaseTab
         app={app}
         workspaceId={workspaceId}
-        view={view}
+        view={gridView ?? view}
         imageUrls={imageUrls}
-        request={request && (request.kind === "add" || request.kind === "edit") ? request : null}
+        request={request?.kind === "add" ? request : null}
         onRequestHandled={() => {
           // The request is spent, so the address stops asking for it: a reload of
           // what is now an ordinary `/database` opens the grid where it stands.
@@ -315,14 +311,18 @@ export function DatabaseScreen() {
         }}
         onReload={() => reload(workspaceId)}
         onOpenRecord={(which, id) => {
-          setRecordFromLibrary(false);
-          setRecordScreen({ kind: "record", table: which, id });
+          // **One** address per record now (the owner's round 22): a row press is a
+          // navigation to the record's own page, where it reads first and `Edit` turns it
+          // into its editor in place. `from` is what brings the reader back to this grid
+          // when they leave, and it is in the address rather than in a flag so a reload
+          // does not forget it. A preset goes to the same page: it has nothing to read, so
+          // it opens already editing.
+          router.push(recordHref({ kind: which, id, from: "database" }));
         }}
         onNewRecord={(which) => {
-          setRecordFromLibrary(false);
           setRecordScreen({ kind: "new", table: which });
         }}
-        onOpenBinaural={(focus) => void openBinaural(focus, "database")}
+        onOpenBinaural={(focus) => void openBinaural(focus)}
         onDirtyChange={setDatabaseDirty}
         onError={setError}
         onLeave={leave}

@@ -49,7 +49,6 @@ const RETIRED_LABELS: { name: string; pattern: RegExp }[] = [
 const LIVING_DOCS: string[] = [
   "README.md",
   "AGENTS.md",
-  "docs/ACCOUNT_FLAGS_PLAN.md",
   "docs/ARCHITECTURE.md",
   "docs/DECISIONS.md",
   "docs/DEPENDENCIES.md",
@@ -131,7 +130,11 @@ describe("one identifier scheme", () => {
       if (!/[a-z]$/.test(id)) continue;
       const parent = id.slice(0, -1);
       expect(ids, `subpoint ${id} has its parent`).toContain(parent);
-      const siblings = ids.filter((other) => other.startsWith(parent) && other !== parent);
+      // A sibling is **one letter on the same parent**, not every id that begins with it:
+      // a prefix match makes `3a` a sibling of `35` and `36` and then fails the
+      // contiguity rule for a register that is perfectly well formed. The letter shape is
+      // what the scheme says — one level deep, one character — so that is what this asks.
+      const siblings = ids.filter((other) => new RegExp(`^${parent}[a-z]$`).test(other));
       expect(siblings, `subpoint letters start at a and are contiguous`).toEqual(
         siblings.map((_, index) => `${parent}${String.fromCharCode(97 + index)}`),
       );

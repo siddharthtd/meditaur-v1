@@ -59,8 +59,9 @@ export function MeditationSheet({
   onBack: () => void;
   onEdit: () => void;
 }) {
-  // The chakra's rows, in the reader's order. A row is the chakra x symbol pair —
-  // or the chakra on its own, which is where its own lines live.
+  // The meditation's rows, in the reader's order. A row is the meditation x symbol pair —
+  // or the meditation on its own, which is where its own lines live (`Liver` has one, and
+  // so does every point the owner listed in round 21).
   const rows = [...entries]
     .filter((row) => row.archivedAt == null && row.meditationId === focus.id)
     .sort((a, b) => a.sortOrder - b.sortOrder);
@@ -137,7 +138,12 @@ export function MeditationSheet({
                     className="h-12 w-12"
                   />
                   <p className="min-w-0 flex-1 truncate text-lg">
-                    {symbol?.name ?? "This chakra on its own"}
+                    {symbol?.name ??
+                      // A point is not a chakra, and its own row is not the chakra's:
+                      // the words a reader sees here are the only name that row has.
+                      (focus.typeId === CHAKRA_TYPE_ID
+                        ? "This chakra on its own"
+                        : "This meditation on its own")}
                   </p>
                 </div>
                 {lines.length === 0 ? null : (

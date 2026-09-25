@@ -70,6 +70,45 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 describe("hexagon and schema contracts", () => {
+  it("reaches sync through one port, wired on both branches of the composition", () => {
+    // The protocol's own rules are guarded where they live (`sync-rules`,
+    // `sync-marks`, `sync-state`); what this pins is that the app is *reached* by it.
+    // A port with no caller is the failure this exists to catch: slice 3's protocol
+    // was merged, tested and unreached, and the only thing that could have caught it
+    // is a guard that names the composition and the one place a run is fired from.
+    const composition = readRepo("apps/web/src/composition.ts");
+    expect(readRepo("packages/domain/src/ports.ts")).toMatch(/export type SyncPort = \{/);
+    expect(readRepo("packages/domain/src/index.ts")).toMatch(/SyncPort,/);
+    expect(readRepo("packages/application/src/create-app.ts")).toMatch(/sync:\s*SyncPort;/);
+    expect(readRepo("packages/application/src/create-app.ts")).toMatch(
+      /syncNow\(workspaceId: string\): Promise<void>;/,
+    );
+    // Both halves, so a build with no cloud pair has a port to call rather than a
+    // hole every caller would have to check for.
+    expect(composition).toMatch(/sync:\s*ports\.sync/);
+    expect(composition).toMatch(/createLocalSyncPort\(\)/);
+    expect(composition).toMatch(/createSyncPort\(\{/);
+    expect(readRepo("apps/web/src/features/auth/SessionProvider.tsx")).toMatch(/app\.syncNow\(/);
+  });
+
+  it("reaches the account's flags through one port, wired on both branches", () => {
+    // The same shape the sync guard keeps, and for the same reason: a port nobody supplies
+    // is a screen that draws a surface a flag was meant to hide, and the two branches of
+    // the composition are exactly where that is easy to leave half-done.
+    const composition = readRepo("apps/web/src/composition.ts");
+    expect(readRepo("packages/domain/src/ports.ts")).toMatch(/export type FeatureFlagsPort = \{/);
+    expect(readRepo("packages/application/src/create-app.ts")).toMatch(/flags:\s*FeatureFlagsPort;/);
+    expect(readRepo("packages/application/src/create-app.ts")).toMatch(
+      /getFeatureFlags\(\): Promise<AccountFlags>;/,
+    );
+    expect(composition).toMatch(/flags:\s*ports\.flags/);
+    expect(composition).toMatch(/flags:\s*createLocalFlagsPort\(\)/);
+    expect(composition).toMatch(/createCachedFlags\(\{/);
+    expect(readRepo("apps/web/src/features/auth/SessionProvider.tsx")).toMatch(
+      /app\.getFeatureFlags\(\)/,
+    );
+  });
+
   it("wires Dexie only in composition; runtime loads bytes through MeditaurApp", () => {
     const composition = readRepo("apps/web/src/composition.ts");
     const runtime = readRepo("apps/web/src/runtime.ts");
@@ -479,8 +518,65 @@ describe("hexagon and schema contracts", () => {
     expect(table).toMatch(/<tr[\s\S]{0,200}onClick=\{row\.onOpen\}/);
   });
 
-  it("keeps every documentation link pointing at a file that exists", () => {
-    // Retiring a document is the one edit that silently breaks every reference
+  it("draws one way back, and it is the Esc legend", () => {
+    // The owner's round 20: *"There is no need for a separate back button, just have
+    // the Esc Back directive double as a back button, if people want to go back, they
+    // can use that button."* So the rule is read off the shells rather than measured
+    // in a browser: no shell draws a `Back` button, and the legend each one draws
+    // carries the press that makes it one. A screen that puts the button back — or
+    // that leaves the legend as a caption — fails here first.
+    //
+    // **Where** it sits is read here too (round 25). The owner asked for one place in
+    // round 8 — *"the Esc back instruction should be at the same place everywhere … it was
+    // next to the save/edit button (the button at the bottom bar that retains even if
+    // scrolled)"* — and `EditorChrome` quietly drifted back up to the title line while the
+    // guard, which only ever matched the legend's own line, stayed green. The bar's marker
+    // comes first in each shell, so the legend's line must come after it.
+    const shells: { shell: string; legend: RegExp; bar: RegExp; uses?: RegExp }[] = [
+      {
+        shell: "apps/web/src/features/library/EditorChrome.tsx",
+        legend: /keys: \["Esc"\], label: "back", onPress: onBack/,
+        bar: /sticky bottom-0/,
+      },
+      {
+        shell: "apps/web/src/features/library/GoneScreen.tsx",
+        legend: /keys: \["Esc"\], label: "back", onPress: onBack/,
+        bar: /sticky bottom-0/,
+      },
+      {
+        shell: "packages/ui/src/PickerPage.tsx",
+        legend: /keys: \["Esc"\], label: "back", onPress: onBack/,
+        bar: /sticky bottom-0/,
+      },
+      {
+        shell: "apps/web/src/features/database/DatabaseTab.tsx",
+        legend: /keys: \["Esc"\], label: "back", onPress: onLeave/,
+        bar: /fixed inset-x-0 bottom-0/,
+      },
+      {
+        shell: "apps/web/src/features/runner/Runner.tsx",
+        legend: /label: "end the session", onPress: exitToPlanner/,
+        // The run screen writes its hints in a constant near the top of the file, so the
+        // legend's own text says nothing about *where* it is drawn — its use does.
+        uses: /<KeyHints hints=\{runHints\} \/>/,
+        bar: /<footer/,
+      },
+    ];
+    for (const { shell, legend, bar, uses } of shells) {
+      const source = readRepo(shell);
+      expect(source, `${shell} draws no separate Back button`).not.toMatch(/>\s*Back\s*<\/Button>/);
+      expect(source, `${shell}'s Esc legend is the control`).toMatch(legend);
+      const at = source.search(uses ?? legend);
+      const barAt = source.search(bar);
+      expect(barAt, `${shell} draws the bar the legend belongs in`).toBeGreaterThan(-1);
+      expect(
+        at,
+        `${shell} keeps the legend in its bar rather than beside the title`,
+      ).toBeGreaterThan(barAt);
+    }
+  });
+
+  it("keeps every documentation link pointing at a file that exists", () => {    // Retiring a document is the one edit that silently breaks every reference
     // to it — the v2 spec was linked from the roadmap when it went. This checks
     // the link *target* only: anchors need a slug rule, and prose is the
     // owner's to judge, not this test's.
@@ -583,6 +679,7 @@ describe("hexagon and schema contracts", () => {
       "@meditaur/domain",
       "@types/node",
       "eslint",
+      "fake-indexeddb",
       "turbo",
       "typescript",
       "typescript-eslint",
@@ -728,6 +825,66 @@ describe("hexagon and schema contracts", () => {
     );
     expect(bootstrappers, bootstrappers.join(", ")).toEqual([]);
     expect(readRepo(provider)).toMatch(/export function useSession\(\)/);
+  });
+
+  it("keeps the Edge Functions importless, and deployed with what they run against", () => {
+    // Deno is not a runtime this toolchain has: no typecheck, no lint and no unit test
+    // reaches a function, which is the gap the register's `P4 · 34` records. Two rules
+    // went unchecked because of it, and both are cheap to read as text.
+    for (const name of ["close-account", "admin"]) {
+      const source = readRepo(`supabase/functions/${name}/index.ts`);
+      // The one-SDK rule is about importers, and a function is a second runtime rather
+      // than a second importer — so this is the rule that keeps that true.
+      expect(source, `${name} imports nothing`).not.toMatch(/^\s*import\s/m);
+      expect(source, `${name} is a served function`).toMatch(/Deno\.serve\(/);
+    }
+
+    // A caller and the thing it calls ship together, or a release can deploy one without
+    // the other; and `--no-verify-jwt` on a deploy would stop the platform checking the
+    // caller before the function runs, which both of them rely on for their first step.
+    // Read off the command lines, because the comment above them names the flag in order
+    // to ban it.
+    const cloud = readRepo("scripts/cloud.sh");
+    const deploys = cloud
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("supabase functions deploy"));
+    for (const name of ["close-account", "admin"]) {
+      expect(
+        deploys.some((line) => line.endsWith(` ${name}`)),
+        `${name} is deployed by cloud.sh`,
+      ).toBe(true);
+    }
+    for (const line of deploys) {
+      expect(line, line).not.toContain("--no-verify-jwt");
+    }
+  });
+
+  it("reaches the admin panel through one port, wired on both branches", () => {
+    // The same shape the sync and flags guards keep: the panel is the only door to the
+    // `admin` function, so a composition that supplies the port on one branch and not the
+    // other is a build where the owner's own tool silently does not exist.
+    const composition = readRepo("apps/web/src/composition.ts");
+    expect(readRepo("packages/domain/src/ports.ts")).toMatch(/export type AdminPort = \{/);
+    expect(readRepo("packages/application/src/create-app.ts")).toMatch(/admin:\s*AdminPort;/);
+    expect(readRepo("packages/application/src/create-app.ts")).toMatch(
+      /listAccounts\(\): Promise<AdminAccount\[\]>;/,
+    );
+    expect(composition).toMatch(/admin:\s*ports\.admin/);
+    expect(composition).toMatch(/admin:\s*createLocalAdminPort\(\)/);
+    expect(composition).toMatch(/createSupabaseAdminPort\(\{/);
+  });
+
+  it("says on the sign-in screen how a forgotten password is recovered", () => {
+    // The recovery flow *is* a sentence (`DECISIONS.md` §11, `P1 · 36`): no route, no
+    // form, no mailer — the owner sets a new password from the panel and hands it over.
+    // Losing the sentence would silently remove the only answer a reader has, and e2e
+    // cannot catch it: with no cloud pair the panel draws its "continue locally" branch
+    // instead of the form, so the words are unreachable there by construction.
+    const panel = readRepo("apps/web/src/features/auth/AuthPanel.tsx");
+    expect(panel).toMatch(/mode === "signIn" \? \(/);
+    expect(panel, "the reader is told what to do").toMatch(/Forgotten your password\?/);
+    expect(panel, "and who can do it").toMatch(/Ask whoever set up your account/);
   });
 
   it("keeps key material out of committable files", () => {

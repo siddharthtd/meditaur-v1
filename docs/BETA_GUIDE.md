@@ -283,10 +283,9 @@ that *is* worth telling us.
 - **You can ignore the `Account` button.** The welcome screen has one and you
   never need it: press `Continue locally` and everything works. If you would
   rather have your testing attached to an account you can create one there — an
-  account carries your `Settings` between the devices you sign in on, while your
-  material (meditations, symbols, intentions, plans, sounds) stays in this
-  browser. Changing a setting while signed in does need a connection; testing
-  without an account works offline exactly as before.
+  account carries your `Settings` **and your material** to every device you sign
+  in on, so a test started on your laptop can carry on from your phone. Both ends
+  need a connection; testing without an account works offline exactly as before.
 - **Clearing a custom field's box deletes that value** rather than saving an empty
   one. This is intended, but it surprises people.
 - **Restoring the same catalog file twice can duplicate some items.** Restore into

@@ -6,7 +6,6 @@ first, then the document the change touches.
 | Document | What it is |
 | --- | --- |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | The **register**: every tracked item with its id, priority and state, and the only place state lives. Do not start anything else |
-| [docs/ACCOUNT_FLAGS_PLAN.md](docs/ACCOUNT_FLAGS_PLAN.md) | The plan behind `P0 · 23`, `P0 · 35` and `P1 · 36`: the account's flags, the admin panel and the hand-run reset. Detail only — the register holds the state, and this file retires into [docs/HISTORY.md](docs/HISTORY.md) when item 36 closes |
 | [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | The coding contract. Invariants are binding, not advice |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | The owner's answers still in force, and the ones to ask about before reversing |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The shape: hexagon, ports, accounts, sync |
@@ -36,7 +35,7 @@ that table is the only list that may not go quiet.
 
 Node and pnpm live in `meditaur-tools:local`. Everything runs through
 `./scripts/meditaur` — `setup`, `dev`, `check`, `check:full`, `test:unit`,
-`test:integration:hosted|:local|:both`, `build`, `preview`, `e2e`, `up`, `down`,
+`test:integration:hosted|:local|:both`, `build`, `preview`, `e2e [spec|args]`, `up`, `down`,
 `cloud`, `exec`. Never install Node on the host. `./scripts/meditaur up` (the host
 Supabase CLI) is the one exception.
 
@@ -45,7 +44,25 @@ Supabase CLI) is the one exception.
 - **`check:full` is the definition of done**: `check`, both live databases, the
   production build, e2e. It runs `next build`, which is the only thing that
   validates `app/**/route.ts` — a route-level Next mistake passes `check` and the
-  e2e suite (`next dev`) and fails only here.
+  e2e suite (a production build, as of item 17) and fails only here.
+- **A gate says what it costs.** `check:full` prints the machine it is taking
+  (cores, load average, a warning once the load average is above half the cores),
+  shows the previous run's stage timings, and times each stage — because two
+  rounds read a red e2e stage as an app reading when it was a loaded host. Read
+  those lines before believing a slow or red stage (`scripts/cost.sh`).
+- **One gate at a time, and no session tears down another's containers.**
+  `check:full` takes a machine-wide preparation lock (`scripts/session.sh`) and
+  **refuses**, naming the holder, while another session holds it: two gates on one
+  machine make both e2e readings meaningless, which is what round 24's `3 failed /
+  9 flaky / 89 passed in 14.8m` and round 25's subset re-run (`page.goto: Timeout
+  30000ms exceeded`, one `Page crashed`) both were. `check` — the edit loop — takes
+  no lock and is never blocked, and neither is a single-spec run: **`./scripts/meditaur
+  e2e tests/e2e/<spec>.spec.ts` needs no preparation and is the way to read one
+  behaviour while another session's gate is going.** The e2e compose project and
+  image tag are the session's — `MEDITAUR_SESSION=alpha` gives two agents in one
+  checkout their own of both — so a teardown reaches only its own browser
+  containers. A gate killed mid-flight leaves a dead pid, which the next session
+  takes over.
 - **Domain, Dexie and `supabase/migrations` move in lockstep.** A new union needs
   its SQL check in the same change (`tests/unit/architecture/schema-unions.test.ts`).
 - **A migration is additive and re-runnable** — named constraints, `drop constraint
@@ -82,7 +99,9 @@ between two commands, and a directory-scoped add sweeps up work that is not your
 - A unit-test total that grows between two runs of the same tree is probably the
   other session's tests landing, not a cache artifact.
 - `./scripts/meditaur check` can be killed (exit 143) by the other session's
-  `check:full` or a `down`; re-run it.
+  `check:full` or a `down`; re-run it. The preparation lock makes that rarer — it
+  serialises the teardown and the `db reset`, which is where the damage was — but a
+  `down` is the operator's, and the tools container is machine-wide.
 
 ## Proving a change
 
@@ -135,16 +154,29 @@ a typed phrase). A refused tool call is a deliberate gate, not a bug.
 - **The e2e image bakes the sources**: `docker compose … build` must precede
   `docker compose … run --no-deps e2e`, or the run silently tests the previous
   commit. The tell is the **test count** — compare it with the spec file.
-- **The e2e suite retries**, so flakes are silent: grep the log for `flaky`, never
-  just the tail. Two consecutive clean runs is the bar for a new UI test.
-- **A new route needs four things**: the page, a `Suspense` boundary if it reads
-  the query string, `ROUTES` in `tests/e2e/warmup.ts`, and `SHELL` in
-  `apps/web/public/sw.js` with the cache `VERSION` bumped.
-- **Never warm e2e routes concurrently** — `next dev` compiles through one module
-  graph, so a second page queues rather than compiling alongside.
-- **`meditaur-e2e:local` is shared between sessions even when the compose project
-  is not.** Use a private project (`-p meditaur-e2e-mine`) and verify the image
-  holds your build.
+- **The e2e suite does not retry** (`retries: 0`, since item 17), so a failure is a
+  failure: there is no `flaky` line to grep for and no second attempt to hide
+  behind. Read the red one — reproduce it alone (`./scripts/meditaur e2e
+  tests/e2e/<spec>.spec.ts`, no preparation needed) and, when it is not obvious,
+  read the trace the run left in `tests/e2e/artifacts/test-results/` (mounted out of the
+  container, which is otherwise removed with it). Two consecutive clean
+  runs is still the bar for a new UI test.
+- **A new route needs three things**: the page, a `Suspense` boundary if it reads
+  the query string, and `SHELL` in `apps/web/public/sw.js` with the cache
+  `VERSION` bumped. `ROUTES` in `tests/e2e/warmup.ts` is **no longer required** —
+  the suite is served a production build, so there is no compile to warm — but a
+  route added there is still visited once before any worker starts, which is where
+  "this route does not answer" is cheapest to learn.
+- **Warming e2e routes concurrently was a `next dev` property, and is no longer one.**
+  `next dev` compiles through one module graph, so a second page queues rather
+  than compiling alongside the first — which is why `tests/e2e/warmup.ts` visits
+  routes in series. The suite is served a production build now (`P2 · 17`), so
+  there is nothing to compile and the serial visit stays only because it is
+  measured that way.
+- **`meditaur-e2e:local` is the default tag, not a private one.** Name a session
+  (`MEDITAUR_SESSION=alpha`) to get your own project *and* your own image tag, and
+  verify the image holds your build — a tag shared with another session is an image
+  someone else can replace under you.
 - **A class only `packages/ui` names is never generated** by Tailwind: pin it in
   `apps/web/src/lib/ui-package-classes.ts` in the same change.
 - **Playwright**: `filter({ has: … })`'s inner locator is queried *inside* the outer

@@ -1,5 +1,6 @@
 "use client";
 
+import { useSession } from "@/features/auth/SessionProvider";
 import { Button, KeyHints } from "@meditaur/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BinauralPreset, Meditation, Symbol } from "@meditaur/domain";
@@ -32,15 +33,22 @@ import {
   type DraftState,
 } from "./database-model";
 import { DatabaseTable as Grid } from "./DatabaseTable";
+import { activeFilters } from "./grid-filter";
 import type { CellRecords } from "./DatabaseCells";
 
 /**
  * What another screen asked the Database to do on the way in.
  *
- * `Add …` on a browse tab and a sheet's `Edit` want a **row in the grid** to type
- * into — the owner's ask. A preset's `Add`/`Edit` wants its **own page**, because
- * presets are the one record that kept one. The request travels in the address
- * (`database-route.ts`), which is what makes it survive the navigation.
+ * Two things, and both are **creating**. `Add …` on a browse tab wants a **row in the
+ * grid** to type into — the owner's ask — and `Add preset` wants an empty preset in its
+ * editor, because a preset with no row in the store has no id for an address to name.
+ * The request travels in the address (`database-route.ts`), which is what makes it
+ * survive the navigation.
+ *
+ * Opening an **existing** record is not here any more: the owner's round 22 gave a record
+ * an address of its own (`record-route.ts`), where one screen reads it and edits it in
+ * place. Round 20's `record` kind and its `edit` predecessor are both gone with the second
+ * screen they used to open.
  *
  * Since the owner's round 15 a grid request names a **generated** table: the shared
  * Symbols table, or one meditation type's table (`meditation:<id>`). The library's
@@ -48,15 +56,13 @@ import type { CellRecords } from "./DatabaseCells";
  */
 export type DatabaseRequest =
   | { kind: "add"; table: GridTable }
-  | { kind: "edit"; table: GridTable; id: string }
-  | { kind: "record"; table: "presets"; id: string }
   | { kind: "new-record"; table: "presets" };
 
 /** The tables a grid request can name: Symbols, or one type's meditations. */
 export type GridTable = "symbols" | MeditationTable;
 
 /** The half of a request the grid itself can act on. */
-export type GridRequest = Extract<DatabaseRequest, { kind: "add" } | { kind: "edit" }>;
+export type GridRequest = Extract<DatabaseRequest, { kind: "add" }>;
 
 /**
  * The Database tab (§5–§7).
@@ -98,8 +104,20 @@ export function DatabaseTab({
   onError: (message: string | null) => void;
   onLeave: () => void;
 }) {
+  const { flags } = useSession();
+  /**
+   * The tables the strip offers (`P0 · 35`, slice 35c).
+   *
+   * Asked once here, because three things read the same list: the rail, the current
+   * table's label, and which table a plain `/database` lands on. The rows behind the
+   * two Karuna tables are untouched — this is the door, not the data.
+   */
+  const tables = useMemo(
+    () => databaseTables(view.meditationTypes, flags),
+    [view.meditationTypes, flags],
+  );
   const [table, setTable] = useState<DatabaseTable>(() =>
-    parseDatabaseTable(safeSession(DATABASE_TABLE_KEY), view.meditationTypes),
+    parseDatabaseTable(safeSession(DATABASE_TABLE_KEY), view.meditationTypes, flags),
   );
   const [baseline, setBaseline] = useState<DraftState>(() => draftFromLibrary(view));
   const [draft, setDraft] = useState<DraftState>(() => draftFromLibrary(view));
@@ -120,14 +138,14 @@ export function DatabaseTab({
    * they are state here rather than in `DraftState`, where they would make the screen
    * dirty for a change `Save` has nothing to write.
    */
-  const [filter, setFilter] = useState("");
+  const [filters, setFilters] = useState<Record<string, string>>({});
   const [editingColumns, setEditingColumns] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<Record<string, string[]>>(() =>
     readHiddenColumns(),
   );
   const [hintSeen, setHintSeen] = useState(() => safeSession(DATABASE_HINT_KEY) === "1");
-  /** The row a request from the library wants the caret in. */
-  const [focusRowId, setMeditationRowId] = useState<string | null>(null);
+  /** The row an `Add …` request wants the caret in. */
+  const [focusRowId, setFocusRowId] = useState<string | null>(null);
   const loadedAt = useRef(view);
   /** Set by `Save`, so the reload it triggers is read as "this is stored". */
   const justSaved = useRef(false);
@@ -174,20 +192,40 @@ export function DatabaseTab({
   }, [dirty, onDirtyChange]);
 
   /**
-   * The library's `Add …` / `Edit`, acted on once.
+   * Which table is in front of the reader.
    *
-   * `Add` puts a record row **in the grid** to type into; `Edit` lands on the table
-   * that row belongs to with the caret already in its name. Neither opens a page —
-   * that is the whole point of the request existing.
+   * Defined **above** its first use — the effect below changes the table when a request
+   * arrives — because `no-use-before-define` is on for every file now, and a `const` helper
+   * called above its own line is a `ReferenceError` waiting for the one path that reaches it
+   * (the owner's round 22, where exactly that took a whole screen down).
+   */
+  const changeTable = (next: DatabaseTable) => {
+    setTable(next);
+    setArmed(null);
+    setNotice(null);
+    // The filters belong to the tab they were typed in: a chakra's name means nothing
+    // in the Presets table, and carrying them across would show a table the reader did
+    // not ask to narrow. The column view *is* remembered per table, below.
+    setFilters({});
+    setEditingColumns(false);
+    try {
+      sessionStorage.setItem(DATABASE_TABLE_KEY, next);
+    } catch {
+      // The tab memory is a convenience; a browser that refuses it still works.
+    }
+  };
+
+  /**
+   * The library's `Add …`, acted on once.
+   *
+   * `Add` puts a record row **in the grid** to type into. It is the only request the
+   * grid itself acts on: everything else that arrives in the address is a page, and
+   * the shell takes it (`DatabaseScreen`).
    */
   useEffect(() => {
     if (!request) return;
     onRequestHandled();
     changeTable(request.table);
-    if (request.kind === "edit") {
-      setMeditationRowId(request.id);
-      return;
-    }
     const { draft: next, record } = addRecord(
       draftRef.current,
       request.table,
@@ -195,7 +233,7 @@ export function DatabaseTab({
       view.meditationTypes,
     );
     setDraft(next);
-    setMeditationRowId(record.id);
+    setFocusRowId(record.id);
   }, [request, onRequestHandled, workspaceId]);
 
   const records: CellRecords = useMemo(
@@ -207,21 +245,21 @@ export function DatabaseTab({
     [view.meditations, view.symbols, view.presets],
   );
 
-  const changeTable = (next: DatabaseTable) => {
-    setTable(next);
-    setArmed(null);
-    setNotice(null);
-    // The filter belongs to the tab it was typed in: a chakra's name means nothing
-    // in the Presets table, and carrying it across would show a table the reader did
-    // not ask to narrow. The column view *is* remembered per table, below.
-    setFilter("");
-    setEditingColumns(false);
-    try {
-      sessionStorage.setItem(DATABASE_TABLE_KEY, next);
-    } catch {
-      // The tab memory is a convenience; a browser that refuses it still works.
-    }
-  };
+  /**
+   * A remembered table that a flag hides falls back to the strip's landing table, the way
+   * the library treats a remembered tab (`P0 · 35`, slice 35c).
+   *
+   * It matters because the table is **state** and the strip is only what draws it: a
+   * reader whose Karuna is off would otherwise still be shown the Karuna grid after a
+   * reload, with no button to leave it by.
+   */
+  useEffect(() => {
+    // `changeTable` is a fresh closure each render and is deliberately not a dependency:
+    // the guard above is what keeps this effect from doing anything on the renders where
+    // the table is already offered.
+    if (tables.some((row) => row.id === table)) return;
+    changeTable(parseDatabaseTable(null, view.meditationTypes, flags));
+  }, [tables, table, view.meditationTypes, flags]);
 
   /**
    * One heading's `×`: out of the view, not out of the store.
@@ -243,9 +281,25 @@ export function DatabaseTab({
     });
   };
 
-  /** What this tab is called, for the filter box and its own sentence. */
-  const tableLabel =
-    databaseTables(view.meditationTypes).find((row) => row.id === table)?.label ?? "this table";
+  /**
+   * One column's filter: opened with an empty text, narrowed as the reader types, and closed
+   * by `null` (the heading's own `⌕`, or `Escape` in the input).
+   *
+   * It is state here rather than in the grid because it is a **view** setting, like the hidden
+   * columns: it narrows what is drawn and `Save` has nothing to write. It stays in memory
+   * rather than in `sessionStorage` because the old box did — a way of looking, not a setting.
+   */
+  const setColumnFilter = (key: string, value: string | null) => {
+    setFilters((current) => {
+      if (value !== null) return { ...current, [key]: value };
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  };
+
+  /** The filters that are actually narrowing something, for the sentence beside the toolbar. */
+  const filtering = activeFilters(filters);
   /** The columns this table is not drawing.  */
   const hiddenHere = hiddenColumns[table] ?? [];
   /** `Edit table`'s escape hatch: put every column it can see back in the view. */
@@ -401,6 +455,20 @@ export function DatabaseTab({
   };
 
   /**
+   * A row's press, which now **leaves this screen**.
+   *
+   * A meditation's or a symbol's page is the library's (the owner's round 20), and a
+   * preset's is this screen's own editor — either way the reader is going somewhere, and
+   * this screen is holding the only copy of an unsaved cell. So the draft is written
+   * first, which is the rule `Tune` already follows (`onOpenBinaural` below), and a save
+   * that fails keeps the reader where they are.
+   */
+  const openRecord = async (which: RecordTable, id: string) => {
+    if (dirty && !(await save())) return;
+    onOpenRecord(which, id);
+  };
+
+  /**
    * Drops one row from the draft, and the lines written against it.
    *
    * This is the whole of removing a row the store has never seen: `deleteEntry`
@@ -542,10 +610,12 @@ export function DatabaseTab({
   const createRecord = async (
     kind: "meditation" | "symbols" | "presets",
     name: string,
+    /** The table the control that asked was drawn in, when it is a cell's own. */
+    drawnIn?: DatabaseTable,
   ): Promise<string | null> => {
     setError(null);
     try {
-      const empty = emptyRecord(kind, workspaceId, view.meditationTypes);
+      const empty = emptyRecord(kind, workspaceId, view.meditationTypes, drawnIn);
       if (kind === "meditation") {
         const saved = await app.saveMeditation({ ...(empty.source as Meditation), name });
         await onReload();
@@ -601,7 +671,7 @@ export function DatabaseTab({
         data-database-tables=""
         className="flex w-fit flex-wrap items-center gap-1 rounded-2xl border border-line bg-surface p-1.5"
       >
-        {databaseTables(view.meditationTypes).map((row) => (
+        {tables.map((row) => (
           <Button
             key={row.id}
             size="sm"
@@ -618,9 +688,8 @@ export function DatabaseTab({
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
           <p className="text-sm text-muted">
             Drag the <span className="text-text">⠿</span> at the left of a row to move it —
-            intentions have one too — or use <span className="text-text">↑ ↓</span>. Each
-            heading has a <span className="text-text">＋</span> for a new column. Nothing is
-            stored until you press Save.
+            intentions have one too. Each heading has a <span className="text-text">＋</span>{" "}
+            for a new column. Nothing is stored until you press Save.
           </p>
           <Button size="sm" tier="tertiary" onClick={dismissHint}>
             Got it
@@ -628,25 +697,15 @@ export function DatabaseTab({
         </div>
       )}
 
-      {/* The grid's own toolbar (the owner's round 17): a filter over the rows this
-          table is *for*, and the `Edit table` press that puts an `×` on every
-          heading. Both are view settings — neither touches the draft, so neither
-          makes the screen dirty and neither is what `Save` writes. */}
+      {/* The grid's own toolbar (the owner's round 17): the `Edit table` press that puts an
+          `×` on every heading, and what the reader's own column filters are doing. Both are
+          view settings — neither touches the draft, so neither makes the screen dirty and
+          neither is what `Save` writes.
+
+          The single filter box that used to sit here is gone (the owner's round 22): the
+          filters are **per column** now, opened from each heading, and the sentence below is
+          what tells the reader which columns are narrowing the table. */}
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex min-h-11 min-w-56 flex-1 items-center gap-2 rounded-2xl border border-line bg-surface px-3">
-          <span aria-hidden="true" className="text-muted">
-            ⌕
-          </span>
-          <span className="sr-only">{`Filter ${tableLabel}`}</span>
-          <input
-            type="text"
-            aria-label={`Filter ${tableLabel}`}
-            placeholder={`Filter ${tableLabel} by name`}
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            className="min-h-11 w-full bg-transparent text-base text-text outline-none"
-          />
-        </label>
         <Button
           size="sm"
           tier={editingColumns ? "primary" : "tertiary"}
@@ -660,9 +719,11 @@ export function DatabaseTab({
             {`Show ${hiddenHere.length} hidden column${hiddenHere.length === 1 ? "" : "s"}`}
           </Button>
         ) : null}
-        {filter.trim() ? (
+        {filtering.length > 0 ? (
           <p className="text-sm text-muted">
-            {`Showing only rows whose name, text or pair matches “${filter.trim()}”.`}
+            {`Narrowed by ${filtering.length} column filter${
+              filtering.length === 1 ? "" : "s"
+            }: ${filtering.map(([, text]) => `“${text.trim()}”`).join(", ")}.`}
           </p>
         ) : null}
       </div>
@@ -671,16 +732,17 @@ export function DatabaseTab({
         table={table}
         workspaceId={workspaceId}
         types={view.meditationTypes}
-        focusRecordId={focusRowId}
+        focusRowId={focusRowId}
         draft={draft}
         view={view}
         records={records}
-        filter={filter}
+        filters={filters}
+        onFilter={setColumnFilter}
         hiddenColumns={hiddenHere}
         editingColumns={editingColumns}
         onToggleColumn={toggleColumn}
         onDraft={setDraft}
-        onOpenRecord={onOpenRecord}
+        onOpenRecord={(which, id) => void openRecord(which, id)}
         onNewRecord={onNewRecord}
         onArchiveEntry={(row) => void archiveEntry(row)}
         onRemoveEntry={(row) => void removeEntry(row)}
@@ -773,9 +835,11 @@ export function DatabaseTab({
         {dirty && !report && !error ? (
           <p className="mr-auto text-sm text-muted">Unsaved changes</p>
         ) : null}
-        <span className="text-sm text-muted">
-          <KeyHints hints={[{ keys: ["Esc"], label: "back" }]} />
-        </span>
+        {/* The legend *is* the way back (the owner's round 20): a `Back` button
+            sitting beside an `Esc back` legend is the same instruction written
+            twice, and of the two the legend is the one that also works from a
+            keyboard. */}
+        <KeyHints hints={[{ keys: ["Esc"], label: "back", onPress: onLeave }]} />
         <Button
           tier="primary"
           size="lg"
@@ -783,9 +847,6 @@ export function DatabaseTab({
           onClick={() => void save()}
         >
           {saving ? "Saving…" : "Save"}
-        </Button>
-        <Button tier="tertiary" size="lg" onClick={onLeave}>
-          Back
         </Button>
       </div>
     </section>

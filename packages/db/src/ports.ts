@@ -1,9 +1,16 @@
 import {
+  DEFAULT_FEATURE_FLAGS,
   SESSION_LOG_LIST_LIMIT,
+  deleteMark,
+  normalizeFeatureFlags,
+  normalizeTheme,
+  notDeleted,
+  type AccountFlags,
   type BlobStore,
   type BootstrapPort,
   type EventPort,
   type CatalogRepository,
+  type DeletedRow,
   type Entry,
   type FieldValue,
   type Intention,
@@ -14,8 +21,10 @@ import {
   type SessionLogRepository,
   type SnapshotRepository,
   type Symbol,
+  type SyncStatePort,
   type UserPreferences,
-} from "@meditaur/domain";import Dexie from "dexie";
+} from "@meditaur/domain";
+import Dexie, { type Table } from "dexie";
 import { planFromRow, savePlan } from "./plan-mapper.ts";
 import { db, type PlanRow } from "./schema.ts";
 import { ensureSeed } from "./seed.ts";
@@ -24,19 +33,82 @@ function uniqueIds(items: Array<string | null | undefined>): string[] {
   return [...new Set(items.filter((id): id is string => Boolean(id)))];
 }
 
+/**
+ * A local delete, written as the mark instead of a removal — `P2 · 3`'s slice 3, and
+ * `DECISIONS.md` §12 says why it is the protocol's first unit rather than a detail.
+ *
+ * A device used to *remove* the row (`db.symbols.delete(id)` and its siblings), which
+ * is the one shape a push cannot carry: a row that is not there cannot be sent, so a
+ * delete made here could never travel, and the other device would read the missing row
+ * as new and hand it back. The row stays, the mark says it is gone, and every read in
+ * this file leaves the marked rows out through `notDeleted` — so no screen sees a
+ * difference, and a delete is now something the protocol can carry.
+ *
+ * The three fields come from the domain's `deleteMark`, the same function both cloud
+ * adapters mark through, so two copies of one row cannot disagree about what a delete
+ * is. A row this store has never held is not an error: a delete can arrive twice, or
+ * name a row that only ever existed on the other device.
+ */
+async function markLocally<T extends DeletedRow & { revision?: number }>(
+  table: Table<T, string>,
+  id: string,
+  at: number,
+): Promise<void> {
+  const row = await table.get(id);
+  if (!row) return;
+  await table.put({ ...row, ...deleteMark(at, row) });
+}
+
+/** The same mark for the one table keyed by a pair rather than by an id. */
+async function markFieldValueLocally(
+  entityId: string,
+  fieldDefId: string,
+  at: number,
+): Promise<void> {
+  const row = await db.fieldValuesByEntity.get([entityId, fieldDefId]);
+  if (!row) return;
+  await db.fieldValuesByEntity.put({ ...row, ...deleteMark(at, row) });
+}
+
+/**
+ * The lines a row holds, marked with it: Dexie's answer to Postgres's `on delete
+ * cascade`, which this store has to do by hand and which marking makes one pass over
+ * the rows rather than a removal each.
+ */
+async function markIntentionsOfEntry(entryId: string, at: number): Promise<void> {
+  const rows = await db.intentions.where("entryId").equals(entryId).toArray();
+  for (const row of rows) {
+    await db.intentions.put({ ...row, ...deleteMark(at, row) });
+  }
+}
+
+/**
+ * The rows a query found, with the marked ones left out.
+ *
+ * Every read of a catalogue table below goes through it, because "a marked row is
+ * gone" is one rule rather than one filter per read — and a rule half the reads keep is
+ * what `DECISIONS.md` §12 warns about: a reader deletes a row, and the next screen
+ * draws it again. It takes the query rather than its result so a call site stays one
+ * expression and the `await` happens inside the same Dexie transaction zone as the
+ * query itself.
+ */
+async function withoutDeleted<T extends DeletedRow>(rows: Promise<T[]>): Promise<T[]> {
+  return (await rows).filter(notDeleted);
+}
+
 /** The entries of a chakra, and the symbol-only entries of a symbol. */
 async function entriesForMeditationIds(meditationIds: string[]): Promise<Entry[]> {
   if (meditationIds.length === 0) return [];
-  return db.entries.where("meditationId").anyOf(meditationIds).toArray();
+  return withoutDeleted(db.entries.where("meditationId").anyOf(meditationIds).toArray());
 }
 
 async function entriesForSymbolIds(symbolIds: string[]): Promise<Entry[]> {
   if (symbolIds.length === 0) return [];
-  return db.entries.where("symbolId").anyOf(symbolIds).toArray();
+  return withoutDeleted(db.entries.where("symbolId").anyOf(symbolIds).toArray());
 }
 
 async function symbolsInWorkspace(workspaceId: string): Promise<Symbol[]> {
-  return db.symbols.where("workspaceId").equals(workspaceId).toArray();
+  return withoutDeleted(db.symbols.where("workspaceId").equals(workspaceId).toArray());
 }
 
 /**
@@ -55,16 +127,16 @@ async function boundSymbols(meditationIds: string[]): Promise<Symbol[]> {
 }
 
 async function intentionsForWorkspace(workspaceId: string): Promise<Intention[]> {
-  return db.intentions.where("workspaceId").equals(workspaceId).toArray();
+  return withoutDeleted(db.intentions.where("workspaceId").equals(workspaceId).toArray());
 }
 
-async function rowsByIds<T>(
+async function rowsByIds<T extends DeletedRow>(
   getMany: (ids: string[]) => Promise<(T | undefined)[]>,
   ids: string[],
 ): Promise<T[]> {
   if (ids.length === 0) return [];
   const rows = await getMany(ids);
-  return rows.filter((row): row is T => row != null);
+  return rows.filter((row): row is T => row != null && notDeleted(row));
 }
 
 // Field values live in `fieldValuesByEntity`. Dexie cannot re-key a table in an
@@ -72,7 +144,7 @@ async function rowsByIds<T>(
 // the v1 `fieldValues` table.
 async function fieldValuesForEntityIds(entityIds: string[]): Promise<FieldValue[]> {
   if (entityIds.length === 0) return [];
-  return db.fieldValuesByEntity.where("entityId").anyOf(entityIds).toArray();
+  return withoutDeleted(db.fieldValuesByEntity.where("entityId").anyOf(entityIds).toArray());
 }
 
 export const dexieBootstrap: BootstrapPort = {
@@ -82,43 +154,56 @@ export const dexieBootstrap: BootstrapPort = {
 export const dexiePlans: PlanRepository = {
   async getById(planId) {
     const row = await db.plans.get(planId);
-    return row ? planFromRow(row) : null;
+    return row && notDeleted(row) ? planFromRow(row) : null;
   },
   async getMany(planIds) {
     if (planIds.length === 0) return [];
     const rows = await db.plans.bulkGet(planIds);
-    return rows.filter((row): row is PlanRow => row != null).map(planFromRow);
+    return rows.filter((row): row is PlanRow => row != null && notDeleted(row)).map(planFromRow);
   },
   async findFirstInWorkspace(workspaceId) {
-    const row = await db.plans.where("workspaceId").equals(workspaceId).first();
+    const rows = await withoutDeleted(db.plans.where("workspaceId").equals(workspaceId).toArray());
+    const row = rows[0];
     return row ? planFromRow(row) : null;
   },
   async listSummaries(workspaceId) {
-    const rows = await db.plans.where("workspaceId").equals(workspaceId).toArray();
+    const rows = await withoutDeleted(db.plans.where("workspaceId").equals(workspaceId).toArray());
     return rows.map((row) => ({ id: row.id, name: row.name }));
   },
   save: savePlan,
+  // The mark lands on the *row*, not on the domain's `Plan`: that type has no
+  // `deletedAt` and should not have one, because a plan the reader deleted is not a
+  // state the app holds — it is a row the store no longer offers, which is why every
+  // read above filters it out and the mappers never see one (`plan-cloud.ts` takes the
+  // same line for the same reason).
   async delete(planId) {
-    await db.plans.delete(planId);
+    await markLocally(db.plans, planId, Date.now());
   },
 };
 
 export const dexieCatalog: CatalogRepository = {
   async loadCompileLibrary(workspaceId, plan?: Plan) {
-    const workspaceMeditations = await db.meditations.where("workspaceId").equals(workspaceId).toArray();
+    const workspaceMeditations = await withoutDeleted(
+      db.meditations.where("workspaceId").equals(workspaceId).toArray(),
+    );
     // The types come with every read, scoped or not: they are a handful of rows,
     // and both the library and the Database ask which type a meditation is.
-    const meditationTypes = await db.meditationTypes
-      .where("workspaceId")
-      .equals(workspaceId)
-      .toArray();
-    const fieldDefs = await db.fieldDefs.where("workspaceId").equals(workspaceId).toArray();
-    const fieldOptions = await db.fieldOptions.where("workspaceId").equals(workspaceId).toArray();
+    const meditationTypes = await withoutDeleted(
+      db.meditationTypes.where("workspaceId").equals(workspaceId).toArray(),
+    );
+    const fieldDefs = await withoutDeleted(
+      db.fieldDefs.where("workspaceId").equals(workspaceId).toArray(),
+    );
+    const fieldOptions = await withoutDeleted(
+      db.fieldOptions.where("workspaceId").equals(workspaceId).toArray(),
+    );
 
     if (!plan) {
       const meditationIds = workspaceMeditations.map((fp) => fp.id);
       const symbols = await symbolsInWorkspace(workspaceId);
-      const entries = await db.entries.where("workspaceId").equals(workspaceId).toArray();
+      const entries = await withoutDeleted(
+        db.entries.where("workspaceId").equals(workspaceId).toArray(),
+      );
       // A field value hangs off **any** entity, and the Entries table has custom
       // columns of its own. Leaving the entry ids out made every one of those
       // columns write-only: the value was stored, and the grid drew it blank
@@ -132,8 +217,8 @@ export const dexieCatalog: CatalogRepository = {
       const [intentions, fieldValues, presets, mediaAssets] = await Promise.all([
         intentionsForWorkspace(workspaceId),
         fieldValuesForEntityIds(entityIds),
-        db.presets.where("workspaceId").equals(workspaceId).toArray(),
-        db.mediaAssets.where("workspaceId").equals(workspaceId).toArray(),
+        withoutDeleted(db.presets.where("workspaceId").equals(workspaceId).toArray()),
+        withoutDeleted(db.mediaAssets.where("workspaceId").equals(workspaceId).toArray()),
       ]);
       return {
         meditationTypes,
@@ -154,7 +239,7 @@ export const dexieCatalog: CatalogRepository = {
     // names what it uses; symbols come from the entries of the chakras the plan
     // runs, plus any symbol a block names outright (a cool-off block may name one
     // on its own).
-    const meditationIds = uniqueIds(plan.blocks.map((b) => b.meditationId));
+    const meditationIds = uniqueIds(plan.blocks.flatMap((b) => b.meditationIds));
     const meditations = workspaceMeditations.filter((fp) => meditationIds.includes(fp.id));
     const explicitSymbolIds = uniqueIds(plan.blocks.map((b) => b.symbolId));
     const [fromMeditations, pairEntries, soloEntries] = await Promise.all([
@@ -193,79 +278,78 @@ export const dexieCatalog: CatalogRepository = {
     };
   },
   listMeditations: (workspaceId) =>
-    db.meditations.where("workspaceId").equals(workspaceId).toArray(),
+    withoutDeleted(db.meditations.where("workspaceId").equals(workspaceId).toArray()),
   listMeditationTypes: (workspaceId) =>
-    db.meditationTypes.where("workspaceId").equals(workspaceId).toArray(),
+    withoutDeleted(db.meditationTypes.where("workspaceId").equals(workspaceId).toArray()),
   saveMeditationType: (row) => db.meditationTypes.put(row).then(() => undefined),
-  deleteMeditationType: (typeId) => db.meditationTypes.delete(typeId),
+  deleteMeditationType: (typeId) => markLocally(db.meditationTypes, typeId, Date.now()),
   listSymbols: symbolsInWorkspace,
   listEntries: (workspaceId) =>
-    db.entries.where("workspaceId").equals(workspaceId).toArray(),
+    withoutDeleted(db.entries.where("workspaceId").equals(workspaceId).toArray()),
   listIntentions: intentionsForWorkspace,
   listFieldValuesForEntityIds: fieldValuesForEntityIds,
   listFieldOptions: (workspaceId) =>
-    db.fieldOptions.where("workspaceId").equals(workspaceId).toArray(),
+    withoutDeleted(db.fieldOptions.where("workspaceId").equals(workspaceId).toArray()),
   saveMeditation: async (focus) => {
     await db.meditations.put(focus);
   },
   deleteMeditation: async (meditationId) => {
-    await db.meditations.delete(meditationId);
+    await markLocally(db.meditations, meditationId, Date.now());
   },
   saveSymbol: async (symbol) => {
     await db.symbols.put(symbol);
   },
   deleteSymbol: async (symbolId) => {
-    await db.symbols.delete(symbolId);
+    await markLocally(db.symbols, symbolId, Date.now());
   },
   saveEntry: async (entry) => {
     await db.entries.put(entry);
   },
   deleteEntry: async (entryId) => {
     // A row's lines belong to it, which is what `on delete cascade` says in
-    // Postgres. Dexie has no cascades, so this is the one place that has to.
+    // Postgres. Dexie has no cascades, so this is the one place that has to — and the
+    // lines take the mark with the row rather than being removed, because a removal is
+    // the one shape a push cannot carry.
     await db.transaction("rw", db.entries, db.intentions, async () => {
-      await db.intentions.where("entryId").equals(entryId).delete();
-      await db.entries.delete(entryId);
+      const at = Date.now();
+      await markIntentionsOfEntry(entryId, at);
+      await markLocally(db.entries, entryId, at);
     });
   },
   saveIntention: async (intention) => {
     await db.intentions.put(intention);
   },
   deleteIntention: async (intentionId) => {
-    await db.intentions.delete(intentionId);
+    await markLocally(db.intentions, intentionId, Date.now());
   },
   deleteIntentionsForEntry: async (entryId) => {
-    await db.intentions.where("entryId").equals(entryId).delete();
+    await markIntentionsOfEntry(entryId, Date.now());
   },
   saveMediaAsset: async (asset) => {
     await db.mediaAssets.put(asset);
   },
   deleteMediaAsset: async (assetId) => {
-    await db.mediaAssets.delete(assetId);
+    await markLocally(db.mediaAssets, assetId, Date.now());
   },
   listMediaAssets: async (workspaceId) =>
-    db.mediaAssets.where("workspaceId").equals(workspaceId).toArray(),
+    withoutDeleted(db.mediaAssets.where("workspaceId").equals(workspaceId).toArray()),
   saveFieldOption: async (option) => {
     await db.fieldOptions.put(option);
   },
   deleteFieldOption: async (optionId) => {
-    await db.fieldOptions.delete(optionId);
+    await markLocally(db.fieldOptions, optionId, Date.now());
   },
   saveFieldDef: async (def) => {
     await db.fieldDefs.put(def);
   },
   deleteFieldDef: async (fieldDefId) => {
-    await db.fieldDefs.delete(fieldDefId);
+    await markLocally(db.fieldDefs, fieldDefId, Date.now());
   },
   saveFieldValue: async (value) => {
     await db.fieldValuesByEntity.put(value);
   },
-  deleteFieldValue: async (entityId, fieldDefId) => {
-    await db.fieldValuesByEntity
-      .where("[entityId+fieldDefId]")
-      .equals([entityId, fieldDefId])
-      .delete();
-  },
+  deleteFieldValue: (entityId, fieldDefId) =>
+    markFieldValueLocally(entityId, fieldDefId, Date.now()),
 };
 
 export const dexieBlobs: BlobStore = {
@@ -282,16 +366,17 @@ export const dexieBlobs: BlobStore = {
 };
 
 export const dexiePresets: PresetRepository = {
-  list: (workspaceId) => db.presets.where("workspaceId").equals(workspaceId).toArray(),
+  list: (workspaceId) =>
+    withoutDeleted(db.presets.where("workspaceId").equals(workspaceId).toArray()),
   async getFirst(workspaceId) {
-    const row = await db.presets.where("workspaceId").equals(workspaceId).first();
-    return row ?? null;
+    const rows = await withoutDeleted(db.presets.where("workspaceId").equals(workspaceId).toArray());
+    return rows[0] ?? null;
   },
   save: async (preset) => {
     await db.presets.put(preset);
   },
   delete: async (presetId) => {
-    await db.presets.delete(presetId);
+    await markLocally(db.presets, presetId, Date.now());
   },
 };
 
@@ -303,6 +388,11 @@ function normalizePreferences(row: UserPreferences): UserPreferences {
     ttsEnabled: rest.ttsEnabled ?? false,
     alarmVolume: rest.alarmVolume ?? 0.6,
     masterVolume: rest.masterVolume ?? masterGain ?? 0.7,
+    // A row written before the eight schemes existed paints in the app's own, exactly as
+    // it did — the same reading `textSize` and `revision` get below, and the reason the
+    // scheme needed no Dexie version: a stored row that lacks the field is filled in on
+    // the way out rather than repaired in place.
+    theme: normalizeTheme(rest.theme),
     // Rows written before v12 carry no revision; the first write sees 0 and the
     // store's revision is what a stale save is measured against.
     revision: rest.revision ?? 0,
@@ -346,6 +436,40 @@ export const dexiePreferences: LocalPreferences = {
   },
 };
 
+/**
+ * The local mirror of the account's flags: the read the cache makes, plus the one write
+ * the port does not have.
+ *
+ * `writeCopy` is deliberately not part of `FeatureFlagsPort`. That port is read-only by
+ * design — a flag is written through the service role and nowhere else — and this is the
+ * same split `LocalPreferences` makes: the write a *mirror* performs is the opposite of
+ * the write a port refuses, because the row has already been accepted somewhere else.
+ *
+ * Nothing here invents a value. An absent row is the defaults, and a stored row goes
+ * through `normalizeFeatureFlags`, so a flag added since this device last read is filled
+ * in with its own default rather than read as off.
+ */
+export type LocalAccountFlags = {
+  read(userId: string): Promise<AccountFlags>;
+  writeCopy(userId: string, row: AccountFlags): Promise<void>;
+};
+
+export const dexieFlagsCache: LocalAccountFlags = {
+  async read(userId) {
+    const row = await db.accountFlags.get(userId);
+    if (!row) return { flags: DEFAULT_FEATURE_FLAGS, isAdmin: false };
+    return { flags: normalizeFeatureFlags(row.flags), isAdmin: row.isAdmin };
+  },
+  async writeCopy(userId, row) {
+    await db.accountFlags.put({
+      userId,
+      isAdmin: row.isAdmin,
+      flags: { ...row.flags },
+      readAt: Date.now(),
+    });
+  },
+};
+
 export const dexieSnapshots: SnapshotRepository = {
   async get(instanceId) {
     const row = await db.snapshots.get(instanceId);
@@ -368,6 +492,23 @@ export const dexieEvents: EventPort = {
   // twice is the same event rather than a primary-key collision.
   append: async (event) => {
     await db.events.put(event);
+  },
+};
+
+/**
+ * The watermark store (`P2 · 3`, slice 3): how far a sync has got, per table.
+ *
+ * One row per table, written on its own — never inside a save — which is why
+ * `syncState` sits on `OUTSIDE_THE_SCOPE` in `tests/unit/db/transaction-scope.test.ts`
+ * rather than in the one read-modify-write scope. A mark is this device's own
+ * bookkeeping: nothing in the product reads it and it never travels.
+ */
+export const dexieSyncState: SyncStatePort = {
+  async get(table) {
+    return (await db.syncState.get(table)) ?? null;
+  },
+  async save(mark) {
+    await db.syncState.put(mark);
   },
 };
 

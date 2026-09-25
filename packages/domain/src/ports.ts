@@ -1,5 +1,6 @@
 import type { AppEvent } from "./events.ts";
 import type { CompileLibrary } from "./compile-plan.ts";
+import type { FeatureFlags } from "./feature-flags.ts";
 import type {
   BinauralPreset,
   Entry,
@@ -236,6 +237,87 @@ export type AccountPort = {
 };
 
 /**
+ * The flags an account is gated by (`P0 · 23`), and the marker that decides who may set
+ * them.
+ *
+ * `flags` is **complete** — every flag present, an absent key in the stored row already
+ * resolved to its default — because a screen asks a question and should not have to
+ * answer for the store. `isAdmin` is not a flag: it is the once-set marker that decides
+ * whether an account may reach the admin panel at all, and it travels in the same read
+ * because it lives in the same row.
+ */
+export type AccountFlags = {
+  flags: FeatureFlags;
+  isAdmin: boolean;
+};
+
+/**
+ * Where an account's flags come from.
+ *
+ * **Read-only by design**, and that is the point rather than a gap: the browser has no
+ * way to write a flag and no policy that would let it, because a flag is the owner's
+ * decision about an account. The writer is a function holding the service role, reached
+ * from the panel. A `save` here would be an invitation to add the second one.
+ *
+ * It is only ever asked about a real account. A device with nobody signed in is the
+ * app's own answer — `DEFAULT_FEATURE_FLAGS` — because there is nothing to read, and that
+ * is what makes a local-only build behave exactly as it did before flags existed.
+ *
+ * `isConfigured` is false on a build with no cloud pair, the same rule `AuthPort` and
+ * `AccountPort` follow, so the panel can ask whether it could write anything at all
+ * before it offers to.
+ */
+export type FeatureFlagsPort = {
+  isConfigured(): boolean;
+  read(userId: string): Promise<AccountFlags>;
+};
+
+/**
+ * One account, as the panel's table draws it (`P0 · 23`, slice 23f).
+ *
+ * The identity and the dates are the Auth admin API's — this app never stores an address
+ * — and the two fields under them are what the app actually gates on. `flags` is complete
+ * for the same reason `AccountFlags.flags` is: a row the panel draws should not have to
+ * resolve a missing key.
+ */
+export type AdminAccount = {
+  userId: string;
+  email: string;
+  createdAt: string | null;
+  lastSignInAt: string | null;
+  isAdmin: boolean;
+  flags: FeatureFlags;
+};
+
+/**
+ * The owner's own tool: the accounts, and the three writes the panel offers.
+ *
+ * **Not a reader-facing port.** Everything here needs something the browser does not have
+ * — `account_flags` grants an account a self-select and no write at all, and creating an
+ * account or setting a password needs the Auth admin API, which needs the service-role
+ * key — so every method reaches the `admin` function, which re-checks the caller's marker
+ * on each request. That is what makes a screen's own gate an affordance rather than the
+ * boundary: hiding the panel is a courtesy, and the function is the check.
+ *
+ * `isConfigured()` is false on a build with no cloud pair, the same rule `AuthPort`,
+ * `AccountPort` and `FeatureFlagsPort` follow — so the panel asks before it draws, and a
+ * build without an account to administer says so rather than refusing after a press.
+ *
+ * `setFlags` **sets** the flags it is given: an absent key stays absent, which in the
+ * stored row means the default. The panel sends the set it drew, so what it did not send
+ * is not silently kept. `createAccount` confirms the address on the spot, because this
+ * deployment has no mailer, and `setPassword` is the hand-run reset — the owner chooses
+ * the password and hands it over.
+ */
+export type AdminPort = {
+  isConfigured(): boolean;
+  listAccounts(): Promise<AdminAccount[]>;
+  setFlags(userId: string, flags: Partial<FeatureFlags>): Promise<AccountFlags>;
+  createAccount(email: string, password: string): Promise<{ userId: string; email: string }>;
+  setPassword(userId: string, password: string): Promise<void>;
+};
+
+/**
  * Where an event the app records about itself is written.
  *
  * Append-only by design: nothing reads these back into the product, they are
@@ -244,4 +326,76 @@ export type AccountPort = {
  */
 export type EventPort = {
   append(event: AppEvent): Promise<void>;
+};
+
+/**
+ * How far a sync has got, per table (`P2 · 3`, slice 3).
+ *
+ * The protocol is per table and push-then-pull: a push sends the local rows the table
+ * has not sent yet, a pull reads the cloud's rows it has not read yet, and neither
+ * mark may pass a row that was only half sent. Per table rather than per row is the
+ * owner's answer (`DECISIONS.md` §12) — *"I would rather not have a per-row flag, that
+ * would be too much. but per-table seems okay"* — and its cost, said plainly: the push
+ * is per table, and a mark may only move to the last row actually written.
+ *
+ * Two marks and not one, because the two directions ask different stores: `pushedAt` is
+ * where this device stopped **sending**, `pulledAt` where it stopped **reading**. One
+ * value could not answer both — a row written by the other device mid-push would look
+ * to have travelled already.
+ */
+export type SyncWatermark = {
+  /** The store's own table name — `symbols`, `entries`, `binaural_presets`. */
+  table: string;
+  pushedAt: number;
+  pulledAt: number;
+};
+
+/**
+ * Where those marks live: this device's own record of how far it has got.
+ *
+ * Deliberately not a repository. Nothing here is a row of the product, no screen draws
+ * it, and it never leaves the device — the rules that *decide* the values are pure and
+ * live in `sync-rules.ts`; this only remembers them.
+ */
+export type SyncStatePort = {
+  get(table: string): Promise<SyncWatermark | null>;
+  save(mark: SyncWatermark): Promise<void>;
+};
+
+/**
+ * What one run did, as counts of rows.
+ *
+ * `sent` is rows written to the cloud, `received` rows read back, `written` the local
+ * rows a pull actually changed — the last one is the count that says whether a run
+ * touched the device at all. Three plain numbers rather than a word each, because the
+ * only caller that reads the answer is a test: the app runs a sync for its effect and
+ * never draws it.
+ */
+export type SyncOutcome = {
+  sent: number;
+  received: number;
+  written: number;
+};
+
+/**
+ * One pass of the protocol (`P2 · 3`, slice 3), as the app asks for it.
+ *
+ * *What* a run does — the tables, their order, push before pull, and the watermarks —
+ * is the storage adapter's business, and this port is the seam that keeps it there. A
+ * caller asks for a run and gets counts; it cannot name a table, and that is the point.
+ *
+ * A build with no cloud pair is wired to an adapter that answers with zeroes rather
+ * than being absent, so nothing upstream has to branch on whether an account is
+ * configured before it can ask for a sync.
+ *
+ * **A failure is survivable and callers are expected to let it be quiet.** The store is
+ * local-first: a run that throws has written what it wrote and leaves the watermarks
+ * where they were, so the next run re-reads from there and the reader is no worse off.
+ * A sync the reader did not ask for must not become an error they have to dismiss.
+ *
+ * `workspaceId` is passed in rather than read from the store, because the caller that
+ * starts a run has just bootstrapped and already knows which workspace this device uses.
+ */
+export type SyncPort = {
+  run(workspaceId: string): Promise<SyncOutcome>;
 };

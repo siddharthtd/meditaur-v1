@@ -1,6 +1,7 @@
 "use client";
 
 import { app } from "@/composition";
+import { useSession } from "@/features/auth/SessionProvider";
 import { useArmedFlag } from "@/lib/armed";
 import { errorText } from "@/lib/error-text";
 import { TEXT_SIZE_STORAGE_KEY } from "@/lib/text-size";
@@ -12,6 +13,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 export default function AccountPage() {
+  // The panel's door (`P0 · 23`, slice 23f): a link, not a nav entry, and only for the
+  // account that runs the beta. What it can do is checked again by the function.
+  const { isAdmin, flags } = useSession();
   const router = useRouter();
   const [session, setSession] = useState<AuthSession | null>(null);
   const [ready, setReady] = useState(false);
@@ -137,34 +141,59 @@ export default function AccountPage() {
             ? `Signed in as ${session.userId}.`
             : "Local workspace is active on this device. Cloud login is available when Supabase is configured."}
       </p>
-      {session ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void signOut()}
-          className="min-h-14 rounded-2xl bg-surface text-lg disabled:opacity-60"
-        >
-          Sign out
-        </button>
-      ) : (
-        <>
+      {/* The session's own controls are the `account_management` flag's (`P0 · 35`, slice
+          35f): with the sign-in door shut, a `Sign out` would be a one-way exit — the door
+          back is the same flag — so it goes with the two links rather than staying as a
+          button the reader cannot undo. What stays is the line above (a fact about this
+          device, not an offer) and the two erasures below, which are rights rather than
+          management: `Erase this device's data` and `Close this account`. */}
+      {flags.account_management ? (
+        session ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void signOut()}
+            className="min-h-14 rounded-2xl bg-surface text-lg disabled:opacity-60"
+          >
+            Sign out
+          </button>
+        ) : (
+          <>
+            <Link
+              href="/login"
+              className="flex min-h-14 items-center justify-center rounded-2xl bg-surface text-lg"
+            >
+              {configured ? "Sign in" : "Login"}
+            </Link>
+            {configured ? (
+              <Link
+                href="/signup"
+                className="flex min-h-14 items-center justify-center rounded-2xl border border-line text-lg text-text"
+              >
+                Create an account
+              </Link>
+            ) : null}
+          </>
+        )
+      ) : null}
+      {isAdmin && flags.admin_panel ? (
+        <section className="flex flex-col gap-3 border-t border-line pt-6">
+          <h2 className="text-2xl font-semibold">Admin</h2>
+          <p className="text-muted">The accounts, and what each one may see.</p>
           <Link
-            href="/login"
+            href="/admin"
             className="flex min-h-14 items-center justify-center rounded-2xl bg-surface text-lg"
           >
-            {configured ? "Sign in" : "Login"}
+            Open the admin panel
           </Link>
-          {configured ? (
-            <Link
-              href="/signup"
-              className="flex min-h-14 items-center justify-center rounded-2xl border border-line text-lg text-text"
-            >
-              Create an account
-            </Link>
-          ) : null}
-        </>
-      )}
+        </section>
+      ) : null}
       {app.accountIsConfigured() ? (
+        // Not gated, deliberately (`P0 · 35`, slice 35f, `DECISIONS.md` §11): closing the
+        // account is how a reader erases themselves and everything the app holds, and a
+        // flag about who *manages* an account must not take away a right that `/privacy`
+        // and the user guide promise. Same line the Archive draws: hiding a surface is not
+        // hiding the data behind it.
         <section className="flex flex-col gap-3 border-t border-line pt-6">
           <h2 className="text-2xl font-semibold">Close this account</h2>
           <p className="text-muted">

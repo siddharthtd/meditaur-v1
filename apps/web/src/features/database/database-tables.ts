@@ -1,4 +1,4 @@
-import type { MeditationType } from "@meditaur/domain";
+import { flagIsOn, type FeatureFlags, type MeditationType } from "@meditaur/domain";
 import { liveTypes } from "../library/library-model";
 
 /**
@@ -84,12 +84,31 @@ export function meditationTableTypeId(table: string): string | null {
 }
 
 /** The whole strip: one table per live type, then the fixed ones (§8). */
-export function databaseTables(types: MeditationType[]): { id: DatabaseTable; label: string }[] {
+export function databaseTables(
+  types: MeditationType[],
+  flags?: FeatureFlags | null,
+): { id: DatabaseTable; label: string }[] {
   return [
     ...liveTypes(types).map((row) => ({ id: meditationTableId(row.id), label: row.name })),
-    ...FIXED_DATABASE_TABLES,
+    ...FIXED_DATABASE_TABLES.filter(
+      (row) =>
+        (!KARUNA_TABLES.includes(row.id) || flagIsOn(flags, "karuna_reiki")) &&
+        (row.id !== "presets" || flagIsOn(flags, "binaural")),
+    ),
   ];
 }
+
+/**
+ * The two tables the Karuna Reiki catalogue lives in (`P0 · 35`, slice 35c).
+ *
+ * `entries` is Karuna and `affirmations` draws the same rows, so they are one feature:
+ * the owner's "the Karuna Database is only available on the `karuna_reiki` FF". Both
+ * are hidden **here** rather than inside the grid, because the strip, the table's label
+ * and the table a plain `/database` lands on all come through this file — one answer,
+ * three readers. The rows themselves are untouched, and the reader's own sentences stay
+ * on the meditation they belong to.
+ */
+const KARUNA_TABLES: readonly FixedDatabaseTable[] = ["entries", "affirmations"];
 
 /** What a table is called in a heading, from the rows that name it. */
 export function databaseTableLabel(table: DatabaseTable, types: MeditationType[]): string {
@@ -113,12 +132,16 @@ export function databaseTableLabel(table: DatabaseTable, types: MeditationType[]
 export function parseDatabaseTable(
   raw: string | null,
   types: MeditationType[] = [],
+  flags?: FeatureFlags | null,
 ): DatabaseTable {
-  const live = databaseTables(types);
+  const live = databaseTables(types, flags);
   if (raw && live.some((row) => row.id === raw)) return raw as DatabaseTable;
   if (raw === "focus" || (raw && meditationTableTypeId(raw) != null)) {
     const first = live.find((row) => meditationTableTypeId(row.id) != null);
     if (first) return first.id;
   }
-  return "entries";
+  // Karuna is where a plain `/database` lands — unless a flag hides it, and then the
+  // reader lands on the first table the strip still offers. Returning `entries` anyway
+  // would open a table the rail does not carry, which reads as a lost screen.
+  return live.some((row) => row.id === "entries") ? "entries" : (live[0]?.id ?? "symbols");
 }

@@ -1,5 +1,12 @@
 import { fail } from "./app-error.ts";
-import type { PlanBlock, PlanBlockStage, PlanDisplay, StageKind, SymbolScope } from "./models.ts";
+import type {
+  IntentionRandomiser,
+  PlanBlock,
+  PlanBlockStage,
+  PlanDisplay,
+  StageKind,
+  SymbolScope,
+} from "./models.ts";
 import { normalizePlanDisplay } from "./plan-display.ts";
 import { autoScrollForKind, STAGE_KIND_LABELS } from "./stages.ts";
 
@@ -64,6 +71,45 @@ function requireBlockDisplay(value: unknown): PlanDisplay | null {
   return normalizePlanDisplay(value);
 }
 
+/**
+ * A block's own randomiser, or `null` for "this block reads every line".
+ *
+ * **Tolerant on purpose, and tolerant in the direction that cannot surprise a reader.**
+ * The value arrives from a `jsonb` column, written by a build that may have known a shape
+ * this one does not, so damage reads as `null` — never asked — rather than as a half-on
+ * setting that would thin a list the reader never asked to thin. That is the reading
+ * `normalizePlanDisplay` gives a damaged Display, and it is why this is exported:
+ * `plan-rows.ts` reads the same column on the cloud side, and one rule read twice is how
+ * the two stores stay in step.
+ *
+ * A count is floored and never negative; a half whose count is not a number reads as `0` —
+ * none of that half — because the other fallback, keeping all of it, would quietly undo
+ * the setting the reader did make.
+ */
+export function normalizeIntentionRandomiser(value: unknown): IntentionRandomiser | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  return {
+    on: item.on === true,
+    own: randomiserHalf(item.own),
+    symbols: randomiserHalf(item.symbols),
+  };
+}
+
+/** One half of the setting: a switch, and the count it keeps. */
+function randomiserHalf(value: unknown): { on: boolean; count: number } {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return { on: false, count: 0 };
+  }
+  const item = value as Record<string, unknown>;
+  const count =
+    typeof item.count === "number" && Number.isFinite(item.count) && item.count > 0
+      ? Math.floor(item.count)
+      : 0;
+  return { on: item.on === true, count };
+}
+
 function requireNumber(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) invalid();
   return value;
@@ -123,20 +169,63 @@ function requireStages(value: unknown, legacy: Record<string, unknown>): PlanBlo
 }
 
 /**
- * The meditation a block names, under either word for it.
+ * The meditations a block names, under any of the three shapes a stored block may have.
  *
- * `focusPointId` is what a block stored before the rename says, and a plan is a
- * row of the reader's own making — a stored plan that stopped opening because a
- * field was renamed is not a trade anyone agreed to. Both keys are read here
- * rather than migrated in place, for the same reason the display's old `chakra`
- * area is mapped in `normalizePlanDisplay`.
+ * `meditationIds` is what the app writes now: the owner's round 22 made a block's
+ * meditations a **list**, so a point block can club several points into one pass.
+ * `meditationId` is what every block written before that says, and `focusPointId` what one
+ * written before the round-15 rename says — a plan is a row of the reader's own making, and
+ * a stored plan that stopped opening because a field changed shape is not a trade anyone
+ * agreed to. All three are read here rather than migrated in place, for the same reason the
+ * display's old `chakra` area is mapped in `normalizePlanDisplay`.
  */
-function requireMeditationId(item: Record<string, unknown>): string | null {
+function requireMeditationIds(item: Record<string, unknown>): string[] {
+  if (Array.isArray(item.meditationIds)) {
+    // A blank entry is not a meditation: it is a row the reader has not chosen yet, and
+    // `compilePlan` refuses a block that names nothing rather than running silence.
+    return item.meditationIds.filter(
+      (row): row is string => typeof row === "string" && row !== "",
+    );
+  }
   // `??` would turn a block that names no meditation (`null`) into the missing old
   // key, and then into a failure — so the *presence* of the new key is what decides,
   // not its value.
-  const value = item.meditationId !== undefined ? item.meditationId : item.focusPointId;
-  return requireNullableString(value);
+  const single = item.meditationId !== undefined ? item.meditationId : item.focusPointId;
+  const value = requireNullableString(single);
+  return value ? [value] : [];
+}
+
+/**
+ * The meditation a block leads with, or `null` for a block that names none.
+ *
+ * A block's stages, its binaural answer, its Display facts and the picture a Focus stage
+ * draws all come from its **first** point: one set of timers is what "the block's stages"
+ * means, and the first point is the one the reader put there. Everything else — the
+ * intentions, the symbols the points have in common — reads across the whole list
+ * (`compilePlan`).
+ */
+export function leadMeditationId(block: PlanBlock): string | null {
+  return block.meditationIds[0] ?? null;
+}
+
+/**
+ * A block with some of its meditations taken out, or `null` when it has none left.
+ *
+ * A delete cascades into the plans — the owner's rule is that removing a meditation from
+ * the library removes it from the plans — so the blocks that ran it step out of the plan.
+ * A block that ran **only** that one has nothing left to run, which is the state
+ * `compilePlan` refuses, so it leaves as well; a point block that loses one point of three
+ * keeps its place and its other two. A block that named none of them is returned **by
+ * identity**, so a caller patching a list can tell that nothing moved.
+ */
+export function withoutMeditations(
+  block: PlanBlock,
+  gone: ReadonlySet<string>,
+): PlanBlock | null {
+  const meditationIds = block.meditationIds.filter((id) => !gone.has(id));
+  if (meditationIds.length === block.meditationIds.length) return block;
+  if (meditationIds.length === 0) return null;
+  return { ...block, meditationIds };
 }
 
 /**
@@ -158,7 +247,7 @@ export function parsePlanBlocks(value: unknown): PlanBlock[] {
         id: requireString(item.id),
         sortOrder: requireNumber(item.sortOrder),
         stages: requireStages(item.stages, item),
-        meditationId: requireMeditationId(item),
+        meditationIds: requireMeditationIds(item),
         symbolId: requireNullableString(item.symbolId),
         symbolScope: requireSymbolScope(item.symbolScope),
         binauralPresetId: requireNullableString(item.binauralPresetId),
@@ -168,6 +257,9 @@ export function parsePlanBlocks(value: unknown): PlanBlock[] {
         // stored block that has never been asked is the plan's, not its own answer.
         alarmEnabled: requireNullableBoolean(item.alarmEnabled),
         display: requireBlockDisplay(item.display),
+        // The owner's round 24, and the same reading as `alarmEnabled`: a block that has
+        // never been asked reads every line rather than a made-up count.
+        intentionRandomiser: normalizeIntentionRandomiser(item.intentionRandomiser),
       };
     });
 }

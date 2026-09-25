@@ -14,9 +14,10 @@ import Link from "next/link";
  * package exists to prevent.
  *
  * Deliberately small: this is a private beta whose accounts collect an email
- * address and a settings row, and nothing else leaves the device. The page says
- * exactly that rather than borrowing the shape of a corporate policy — a notice
- * a reader can finish is worth more than one they scroll past.
+ * address, a settings row, and — while the reader is signed in — the material
+ * itself, so a second device can open it. The page says exactly that rather than
+ * borrowing the shape of a corporate policy — a notice a reader can finish is
+ * worth more than one they scroll past.
  *
  * Two things must stay true for this page to be honest, and both are checkable:
  * nothing here is sold or used for advertising, and there is no third-party
@@ -35,24 +36,27 @@ export default function PrivacyPage() {
       <h1 className="text-3xl font-semibold">What Meditaur stores about you</h1>
 
       <section className="flex flex-col gap-3">
-        <h2 className={HEADING}>Almost nothing leaves your browser</h2>
+        <h2 className={HEADING}>Where your material lives</h2>
         <p className={BODY}>
           Your meditations, symbols, intentions, plans, uploaded sounds and your
-          session history live in this browser on this device. They are not
-          uploaded, and nothing else copies them. That is why{" "}
-          <strong className="text-text">Download catalog</strong> matters: it is
-          your only backup, and clearing this site&rsquo;s data erases it.
+          session history live in this browser on this device, and nothing reads
+          them from anywhere else. <strong className="text-text">Signed in</strong>,
+          they are also kept with your account, so a device you sign in on can pick
+          them up; signed out, nothing of yours is uploaded. Either way{" "}
+          <strong className="text-text">Download catalog</strong> is worth having,
+          because clearing this site&rsquo;s data erases the copy in this browser.
         </p>
       </section>
 
       <section className="flex flex-col gap-3">
-        <h2 className={HEADING}>An account stores two things</h2>
+        <h2 className={HEADING}>What an account stores</h2>
         <p className={BODY}>
           An email address, so you can sign in, and your{" "}
           <strong className="text-text">Settings</strong> — volumes, text size and
-          the other switches — so a device you sign in on can pick them up. That
-          is the whole of it. Your material stays where it is, on each device,
-          and is not synced.
+          the other switches — so a device you sign in on can pick them up. While
+          you are signed in, your material is kept with the account as well, which
+          is what lets it open on another device. Nothing else is stored, and
+          nothing is shared.
         </p>
       </section>
 

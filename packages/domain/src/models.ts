@@ -115,6 +115,24 @@ export type UserPreferences = {
   alarmVolume: number;
   ttsEnabled: boolean;
   textSize: "sm" | "md" | "lg" | "xl";
+  /**
+   * Which of the eight colour schemes this reader paints the app in (`P2 · 46`).
+   *
+   * A preference rather than a device setting, and stored as the **name** of a scheme
+   * rather than as colours: the hexes are the app's, so a scheme can be tuned without
+   * rewriting anybody's row, and the same reader on another device gets the same scheme.
+   * `DEFAULT_THEME` is the app's own, which is what a row written before this field
+   * existed reads as.
+   */
+  theme:
+    | "warm"
+    | "midnight"
+    | "forest"
+    | "copper"
+    | "plum"
+    | "paper"
+    | "sea"
+    | "sakura";
   lastPlanId: string | null;
   /**
    * Bumped on every write, like `Plan.revision`. A save carries the revision it
@@ -384,15 +402,55 @@ export type MediaAsset = Versioned & {
   sortOrder: number;
 };
 
+/**
+ * How a plan card thins the intentions it reads, or `null` for all of them.
+ *
+ * The owner's round 24 (`P2 · 45`): *"if we will have a plenty of intentions, we will
+ * randomly choose the fixed number of intentions to use for this particular session …
+ * without having the burden to choose the intentions, or go fast at the intention stage
+ * in order to meditate on all the intentions."* A list the reader keeps adding to stops
+ * being a list they can get through in one sitting, so a session draws a subset and the
+ * next session draws a different one.
+ *
+ * **`null` means the block has never been asked**, which is why it is a value rather than
+ * a default: every plan written before this reads as the whole list, and nothing is
+ * copied into a block until the reader turns the master switch on. It is the
+ * `alarmEnabled`/`display` shape, one level down from the plan.
+ *
+ * A count is a **ceiling, not a quota**: a count at or above the list keeps all of it,
+ * `0` keeps none, and a list shorter than the count is never padded or duplicated.
+ */
+export type IntentionRandomiser = {
+  /** The card's master switch. Off — or `null` above — means every line is read. */
+  on: boolean;
+  /**
+   * The lines that belong to the meditation and to no symbol — the `(meditationId, null)`
+   * pair, which for a point block is every point's own lines read as one list.
+   */
+  own: { on: boolean; count: number };
+  /**
+   * The lines read under a symbol: one count for **every** symbol of the block, applied
+   * to that symbol's own lines pooled with the meditations' lines for it — the group the
+   * session draws under that symbol's name.
+   */
+  symbols: { on: boolean; count: number };
+};
+
 export type PlanBlock = {
   id: string;
   sortOrder: number;
   /**
-   * The meditation this block runs. **Always set**: the owner's round 15 deleted
-   * cool-off, so every block is a meditation block and a block that names nothing
-   * has nothing to run (`compilePlan` refuses one).
+   * The meditations this block runs, in the reader's order. **Never empty**: the owner's
+   * round 15 deleted cool-off, so every block is a meditation block and one that names
+   * nothing has nothing to run (`compilePlan` refuses one).
+   *
+   * A **list** since round 22: a point block clubs several points into one pass — one set
+   * of stages and timers, one intentions reading, and the symbols its points have in
+   * common shown together — because that is how the owner practises the body's points. A
+   * chakra block holds one, and every block written before this round is read as a list of
+   * one (`parsePlanBlocks`), so nothing stored has to move.
    */
-  meditationId: string | null;
+  meditationIds: string[];
   /**
    * The stages this block runs, materialised from its meditation's type (or from
    * the meditation's own copy) when the block was made.
@@ -436,6 +494,17 @@ export type PlanBlock = {
    * arranges one.
    */
   display: PlanDisplay | null;
+  /**
+   * How many of this meditation's intentions the session draws, or `null` for all of
+   * them.
+   *
+   * The owner's round 24 (`P2 · 45`), and the one setting on this card that changes
+   * nothing in the store: it decides what a **session** reads, so a block that carries it
+   * still owns every line it ever did. `null` is the honest default for the same reason
+   * `alarmEnabled`'s is — a plan written before the field existed reads every line, and
+   * nothing is written into a block until the reader asks for it.
+   */
+  intentionRandomiser: IntentionRandomiser | null;
 };
 
 /**
@@ -550,7 +619,32 @@ export type CompiledBlock = {
    * Protection stage showed nothing at all (item 0.1).
    */
   affirmations: string[];
+  /**
+   * The block's **lead** meditation, by name — its first point.
+   *
+   * The session screen's accent and its Media Session title read this, so a point block
+   * still has one meditation it is "about"; the title spells out the rest from
+   * `meditationNames` beside it.
+   */
   meditationName: string | null;
+  /**
+   * Every meditation the block runs, by name, in the block's own order.
+   *
+   * A point block clubs several into one pass (the owner's round 22) and the session screen
+   * heads itself with all of them. Stamped here for the same reason the type is: the
+   * snapshot is what a running session reads, and a point's name is a row the reader can
+   * rename.
+   */
+  meditationNames: string[];
+  /**
+   * The meditation's picture and its own colour, stamped like the name.
+   *
+   * A Focus stage draws the meditation's picture in its colour (the owner's round 20, item
+   * 5), and neither is a row the session may look up later: the snapshot is what a running
+   * session reads, exactly as it reads `meditationTypeName` beside them.
+   */
+  representationAssetId: string | null;
+  colour: string | null;
   /**
    * The meditation's type, by name, at compile time.
    *

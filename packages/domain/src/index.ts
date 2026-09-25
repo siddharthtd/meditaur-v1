@@ -35,12 +35,20 @@ export {
 } from "./meditation-types.ts";
 export {
   DEFAULT_REIKI_SYSTEM,
-  ENABLED_REIKI_SYSTEMS,
   REIKI_SYSTEMS,
   SEEDED_REIKI_SYMBOLS,
   isSymbolSystemEnabled,
+  visibleSymbols,
 } from "./reiki-systems.ts";
 export {
+  DEFAULT_FEATURE_FLAGS,
+  FEATURE_FLAGS,
+  FEATURE_FLAG_INFO,
+  flagIsOn,
+  normalizeFeatureFlags,
+  visibleTypes,
+} from "./feature-flags.ts";
+export type { FeatureFlag, FeatureFlagInfo, FeatureFlags, ReikiFlag } from "./feature-flags.ts";export {
   STAGE_KINDS,
   STAGE_KIND_LABELS,
   STAGE_KIND_DEFAULT_MS,
@@ -88,6 +96,7 @@ export type {
   BinauralPreset,
   MediaAsset,
   PlanBlock,
+  IntentionRandomiser,
   PlanDisplay,
   PlanDisplayArea,
   PlanDisplayColumn,
@@ -123,7 +132,15 @@ export type {
   StoredBlob,
   MaintenancePort,
   AccountPort,
+  AccountFlags,
+  FeatureFlagsPort,
+  AdminPort,
+  AdminAccount,
   EventPort,
+  SyncStatePort,
+  SyncWatermark,
+  SyncOutcome,
+  SyncPort,
   WorkspaceRepository,
 } from "./ports.ts";
 export type { AppEvent, AppEventType, ClientErrorPayload } from "./events.ts";
@@ -154,7 +171,33 @@ export {
   visibleLines,
 } from "./visibility.ts";
 export type { ArchivedRow, Liveness } from "./visibility.ts";
-export { parsePlanBlocks, PLAN_BLOCK_ERRORS, DEFAULT_ALARM_ENABLED } from "./plan-blocks.ts";
+export { deleteMark, notDeleted } from "./delete-mark.ts";
+export type { DeleteMark, DeletedRow } from "./delete-mark.ts";
+export {
+  incomingWins,
+  pullWatermarkAfter,
+  pushedWatermark,
+  rowsPast,
+} from "./sync-rules.ts";
+export {
+  parsePlanBlocks,
+  leadMeditationId,
+  withoutMeditations,
+  normalizeIntentionRandomiser,
+  PLAN_BLOCK_ERRORS,
+  DEFAULT_ALARM_ENABLED,
+} from "./plan-blocks.ts";
+export { systemPick } from "./pick.ts";
+export type { PickLines } from "./pick.ts";
+export {
+  THEME_NAMES,
+  THEME_INFO,
+  LIGHT_THEMES,
+  DEFAULT_THEME,
+  themeIsLight,
+  normalizeTheme,
+} from "./themes.ts";
+export type { ThemeName, ThemeInfo } from "./themes.ts";
 export { SessionEngine, sessionIsLive } from "./session-engine.ts";
 export type {
   SessionStatus,

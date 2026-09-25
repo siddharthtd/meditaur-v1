@@ -59,7 +59,7 @@ export function LatchButton({
           aria-hidden="true"
           className={`inline-flex shrink-0 items-center rounded-full transition-colors ${
             compact ? "h-6 w-10" : "h-7 w-12"
-          } ${pressed ? "bg-chakra-heart" : "bg-line"}`}
+          } ${pressed ? "bg-accent" : "bg-line"}`}
         >
           <span
             className={`inline-block rounded-full bg-text shadow transition-transform ${

@@ -1,6 +1,7 @@
 "use client";
 
 import { app } from "@/composition";
+import { useSession } from "@/features/auth/SessionProvider";
 import { errorText } from "@/lib/error-text";
 import { Button } from "@meditaur/ui";
 import Link from "next/link";
@@ -42,6 +43,7 @@ const LINK_CLASS =
  * instead of leaving them in front of a form that silently did nothing.
  */
 export function AuthPanel({ mode }: { mode: AuthMode }) {
+  const { flags } = useSession();
   const router = useRouter();
   const copy = COPY[mode];
   const configured = app.authIsConfigured();
@@ -73,6 +75,20 @@ export function AuthPanel({ mode }: { mode: AuthMode }) {
       setBusy(false);
     }
   };
+
+  if (!flags.account_management) {
+    // The flag hides the app's own account surfaces (`P0 · 35`, slice 35f). This panel is
+    // the whole of sign-in and sign-up, and both routes draw it — so the sentence covers
+    // the addresses as well as the links that no longer point here, and it says what to do
+    // instead, which is what makes a stale link into a dead end rather than a dead end.
+    // The owner's model: the account is theirs to manage, and the reader asks them.
+    return (
+      <p className="text-lg text-muted">
+        Signing in and creating an account are managed for you — ask whoever set up your
+        account.
+      </p>
+    );
+  }
 
   if (!configured) {
     // Local-first. With no cloud config there is nothing to sign in to and no
@@ -137,6 +153,16 @@ export function AuthPanel({ mode }: { mode: AuthMode }) {
           className="min-h-16 rounded-2xl bg-surface px-4 text-xl text-text"
         />
       </label>
+      {mode === "signIn" ? (
+        // The owner's answer to password recovery (`DECISIONS.md` §11): by hand, so the
+        // app sends no mail and needs no mailer. The sentence is the whole recovery flow —
+        // there is no form, no route and no link, because the owner sets the new password
+        // from the panel and hands it over.
+        <p className="text-lg text-muted">
+          Forgotten your password? Ask whoever set up your account — they can set a new one
+          for you.
+        </p>
+      ) : null}
       <Button tier="primary" size="lg" type="submit" className="w-full" disabled={busy}>
         {busy ? copy.busy : copy.submit}
       </Button>

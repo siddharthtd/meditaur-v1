@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { THEME_NAMES } from "@meditaur/domain";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -76,6 +77,11 @@ describe("schema unions", () => {
     // is nullable on purpose: a symbol the reader adds names none, which is what
     // keeps it out of the flag's reach (`isSymbolSystemEnabled`).
     expectConstrained("reiki_system", unionValues(models, "ReikiSystem"));
+    // The owner's round 24 added the eight colour schemes (`P2 · 46`), and this column is
+    // `not null default 'warm'` where `reiki_system` is nullable: a preference is a value
+    // the app always has, so a row that predates the field is a reader on the app's own
+    // scheme rather than a reader who has never been asked.
+    expectConstrained("theme", unionValues(models, "theme"));
   });
 
   it("reads the unions it is asserting on", () => {
@@ -95,6 +101,9 @@ describe("schema unions", () => {
       "usui_reiki",
       "reiki_master",
     ]);
+    // The eight schemes: the same names the palette record is keyed by and the picker
+    // offers, so a scheme added to one list and forgotten in another fails here.
+    expect(unionValues(models, "theme")).toEqual([...THEME_NAMES]);
     expect(unionValues(models, "CellType")).toEqual([
       "text",
       "longText",

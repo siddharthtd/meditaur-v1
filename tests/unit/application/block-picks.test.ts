@@ -31,7 +31,7 @@ describe("applyBlockPick", () => {
   it("applies a meditation's default preset and its own stages when the meditation is picked", () => {
     const block = makeBlock("b1", 0, { binauralPresetId: "preset1", durationMs: 1000 });
     const next = applyBlockPick(block, "meditation", "fp2", entries, focuses, types);
-    expect(next.meditationId).toBe("fp2");
+    expect(next.meditationIds).toEqual(["fp2"]);
     expect(next.binauralPresetId).toBe("preset2");
     // The stage rows follow the meditation (§12.14): `fp2` carries its own copy of
     // its type's template, and that is what the card shows.
@@ -41,7 +41,7 @@ describe("applyBlockPick", () => {
   it("clears the symbol when the chakra has no row with it", () => {
     const block = makeBlock("b1", 0, { symbolId: "s1" });
     const next = applyBlockPick(block, "meditation", "fp2", entries);
-    expect(next.meditationId).toBe("fp2");
+    expect(next.meditationIds).toEqual(["fp2"]);
     expect(next.symbolId).toBeNull();
   });
 

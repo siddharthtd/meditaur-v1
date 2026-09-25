@@ -34,6 +34,47 @@ test("offers four text sizes and grows only the text", async ({ page }) => {
   );
 });
 
+test("offers eight colour schemes, and repaints the app when one is chosen", async ({ page }) => {
+  // The owner's round 24 (`P2 · 46`): eight pre-offered schemes rather than a colour
+  // picker, so the app stops being one dark room for every reader. What this proves is
+  // both halves of the promise — the eight are offered, and choosing one paints the
+  // document — plus the one that only a reload can prove: the choice is *stored*, and
+  // the very first paint of the next load is already the chosen scheme rather than a
+  // flash of the default (`theme.ts`'s mirror, the boot script in the layout).
+  await page.goto("/settings");
+  const schemes = page.getByRole("group", { name: "Colour scheme" });
+  for (const name of [
+    "Warm Earth",
+    "Midnight Indigo",
+    "Forest",
+    "Slate & Copper",
+    "Plum Noir",
+    "Paper",
+    "Sea Glass",
+    "Sakura",
+  ]) {
+    await expect(schemes.getByRole("button", { name: new RegExp(`^${name}`) })).toBeVisible();
+  }
+
+  const root = page.locator("html");
+  const pageBackground = () =>
+    page.locator("body").evaluate((node) => getComputedStyle(node).backgroundColor);
+  // The app's own scheme, which is what a reader who has never chosen one gets.
+  await expect(root).toHaveAttribute("data-theme", "warm");
+  await expect.poll(pageBackground).toBe("rgb(23, 18, 13)");
+
+  await schemes.getByRole("button", { name: /^Midnight Indigo/ }).click();
+  await expect(root).toHaveAttribute("data-theme", "midnight");
+  await expect.poll(pageBackground).toBe("rgb(14, 16, 32)");
+
+  await page.reload();
+  await expect(root).toHaveAttribute("data-theme", "midnight");
+  await expect.poll(pageBackground).toBe("rgb(14, 16, 32)");
+  await expect(
+    schemes.getByRole("button", { name: /^Midnight Indigo/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
 test("a Button keeps its size whatever the text size is", async ({ page }) => {
   // The other half of the owner's ask — "reflect the size in all the texts, not
   // the text on the button". The root attribute the Settings tiles write is moved

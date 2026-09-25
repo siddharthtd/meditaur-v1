@@ -14,19 +14,23 @@ describe("parsePlanBlocks", () => {
     expect(parsePlanBlocks([block])).toEqual([block]);
   });
 
-  it("reads the meditation a block named before the rename", () => {
-    // A plan is stored as JSON inside its own row, so the word `meditationId`
-    // replaced cannot be rewritten by a Dexie upgrade. `focusPointId` is read for
-    // exactly that reason: a plan the reader built keeps opening.
-    const { meditationId: _meditationId, ...rest } = makeBlock("b1", 0);
-    expect(parsePlanBlocks([{ ...rest, focusPointId: "fp-old" }])[0]?.meditationId).toBe(
+  it("reads the meditations a block named before the list", () => {
+    // A plan is stored as JSON inside its own row, so neither of the two field names the
+    // list replaced can be rewritten by a Dexie upgrade. `meditationId` is what every block
+    // written before round 22 says and `focusPointId` what one written before the rename
+    // says; both are read for exactly that reason, so a plan the reader built keeps opening.
+    const { meditationIds: _ids, ...rest } = makeBlock("b1", 0);
+    expect(parsePlanBlocks([{ ...rest, meditationId: "fp-one" }])[0]?.meditationIds).toEqual([
+      "fp-one",
+    ]);
+    expect(parsePlanBlocks([{ ...rest, focusPointId: "fp-old" }])[0]?.meditationIds).toEqual([
       "fp-old",
-    );
-    // And a block that named no meditation still reads as one that names none —
-    // the *presence* of the key decides, not its value, so a stored `null` under
-    // the old name is `null` rather than a failure.
-    const { meditationId: _none, ...noMeditation } = makeBlock("b1", 0);
-    expect(parsePlanBlocks([{ ...noMeditation, focusPointId: null }])[0]?.meditationId).toBeNull();
+    ]);
+    // And a block that named no meditation still reads as one that names none — the
+    // *presence* of a key decides, not its value, so a stored `null` under an old name is
+    // an empty list rather than a failure.
+    expect(parsePlanBlocks([{ ...rest, meditationId: null }])[0]?.meditationIds).toEqual([]);
+    expect(parsePlanBlocks([{ ...rest, focusPointId: null }])[0]?.meditationIds).toEqual([]);
   });
 
   it("throws AppError with a stable code", () => {
@@ -98,6 +102,49 @@ describe("parsePlanBlocks", () => {
     const block = makeBlock("b1", 0, {
       alarmEnabled: false,
       display: { columns: [{ key: "usage", area: "symbol", shown: true, pinned: false }] },
+    });
+    expect(parsePlanBlocks([block])).toEqual([block]);
+  });
+
+  it("reads a missing or damaged randomiser as a block that was never asked", () => {
+    // The owner's round 24 (`P2 · 45`). `null` is the state a plan written before the
+    // field existed is in, so it has to read as **every line** rather than as a made-up
+    // count — and damage reads the same way, in the direction that cannot thin a list the
+    // reader never asked to thin.
+    const block = makeBlock("b1", 0);
+    const { intentionRandomiser: _r, ...rest } = block;
+    expect(parsePlanBlocks([rest])[0]?.intentionRandomiser).toBeNull();
+
+    // A value that is not an object at all reads as "never asked" — the whole setting —
+    // while a value that *is* an object but says nonsense reads as that object with its
+    // halves off: a count that cannot be read is no lines of that half, never all of them,
+    // because keeping all would quietly undo the setting the reader did make.
+    const off = { on: false, count: 0 };
+    const cases: { damaged: unknown; expected: unknown }[] = [
+      { damaged: null, expected: null },
+      { damaged: "", expected: null },
+      { damaged: 7, expected: null },
+      { damaged: [], expected: null },
+      { damaged: { on: "yes" }, expected: { on: false, own: off, symbols: off } },
+      {
+        damaged: { on: true, own: { count: -4 } },
+        expected: { on: true, own: off, symbols: off },
+      },
+      {
+        // A fractional count is floored, so the store never holds a half line.
+        damaged: { on: true, own: { on: true, count: 2.7 }, symbols: { on: true, count: 0 } },
+        expected: { on: true, own: { on: true, count: 2 }, symbols: { on: true, count: 0 } },
+      },
+    ];
+    for (const { damaged, expected } of cases) {
+      const read = parsePlanBlocks([{ ...rest, intentionRandomiser: damaged }])[0];
+      expect(read?.intentionRandomiser, JSON.stringify(damaged)).toEqual(expected);
+    }
+  });
+
+  it("keeps a block's own randomiser, counts and all", () => {
+    const block = makeBlock("b1", 0, {
+      intentionRandomiser: { on: true, own: { on: true, count: 2 }, symbols: { on: false, count: 5 } },
     });
     expect(parsePlanBlocks([block])).toEqual([block]);
   });

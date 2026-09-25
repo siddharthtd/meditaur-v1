@@ -3,6 +3,7 @@ import {
   DEFAULT_FOCUS_DURATION_MS,
   DEFAULT_PLAN_DISPLAY,
   DEFAULT_REIKI_SYSTEM,
+  DEFAULT_THEME,
   defaultEarEq,
   type BinauralPreset,
   type CompileLibrary,
@@ -253,7 +254,7 @@ export function stageFixture(
  * and one stage of that length is the same session — so the fixture keeps its old
  * spelling and the tests keep testing what they were testing. A test about several
  * stages passes `stages` in `extra`, and one about a block whose meditation is gone
- * passes `meditationId: null`.
+ * passes `meditationIds: []`.
  *
  * There is no `type` to pass: the owner's round 15 deleted cool-off, so every block
  * is a meditation block and the argument that used to say which is gone with it.
@@ -268,16 +269,18 @@ export function makeBlock(
     id,
     sortOrder,
     stages: [stageFixture(durationMs)],
-    meditationId: "fp1",
+    meditationIds: ["fp1"],
     symbolId: null,
     symbolScope: "rotate",
     binauralPresetId: "preset1",
     ambientAssetId: null,
     alarmAssetId: null,
-    // Both `null` by default, which is what a block the reader has never opened the
-    // editor on says: the plan's answer stands (the owner's round 17).
+    // All three `null` by default, which is what a block the reader has never opened the
+    // editor on says: the plan's answer stands (the owner's round 17), and the randomiser
+    // reads every line (round 24).
     alarmEnabled: null,
     display: null,
+    intentionRandomiser: null,
     ...rest,
   };
 }
@@ -292,6 +295,7 @@ export function makePrefs(extra: Partial<UserPreferences> = {}): UserPreferences
     alarmVolume: 0.6,
     ttsEnabled: false,
     textSize: "lg",
+    theme: DEFAULT_THEME,
     lastPlanId: "plan1",
     revision: 0,
     updatedAt: 0,

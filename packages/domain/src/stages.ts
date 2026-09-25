@@ -112,9 +112,16 @@ export const PROTECTION_STAGES: PlanBlockStage[] = [
   stage("affirmations", "affirmations", 401_000),
 ];
 
-/** Thanks Giving: one stage, and it is silent (§12.10). */
+/**
+ * Thanks Giving: one stage, and it is silent (§12.10).
+ *
+ * A **minute** since the owner's round 20 — *"Update thanks giving meditation's
+ * affirmation stage timing to 1 minute"* — which is what the block's own duration and
+ * the Dexie repair that carries it to a device already holding the catalogue both read
+ * (`thanksGivingMinute`).
+ */
 export const AFFIRMATION_STAGES: PlanBlockStage[] = [
-  stage("affirmations", "affirmations", 3 * MINUTE),
+  stage("affirmations", "affirmations", 1 * MINUTE),
 ];
 
 /** A copy, so a template can never be edited through the row that materialised it. */

@@ -77,7 +77,12 @@ const PICKER =
   "flex flex-col items-start gap-1 text-sm font-normal opacity-70 " +
   "flex items-start gap-2 min-h-14 min-w-0 flex-1 h-auto min-h-14 w-full justify-start " +
   "flex w-full min-w-0 flex-col items-start gap-1 w-full truncate text-left text-lg " +
-  "text-sm font-normal text-muted text-lg text-destructive text-lg text-muted min-w-0";
+  "text-sm font-normal text-muted text-lg text-destructive text-lg text-muted min-w-0 " +
+  // The picker draws the shell's own bar since round 25, so its legend and its action
+  // (`Choose` / `Done`) sit together in it — the classes below are that bar.
+  "flex min-h-[100dvh] flex-col gap-4 min-h-[100dvh] " +
+  "sticky bottom-0 z-10 mt-auto flex flex-wrap items-center justify-end gap-3 border-t " +
+  "border-line bg-bg/95 py-4 backdrop-blur mr-auto text-sm text-muted";
 
 /** Stepper — both sizes. The numeric picker is the one primitive that is
  *  compact inside a plan card (`size="sm"`) and page-level everywhere else. */
@@ -94,7 +99,7 @@ const TIME_WHEEL =
   "flex flex-col items-center gap-1 w-11 text-2xl text-xs w-14 text-4xl text-sm " +
   "relative select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
   "pointer-events-none absolute inset-x-0 rounded-xl bg-surface-raised " +
-  "time-wheel h-full w-full cursor-ns-resize snap-y snap-mandatory overflow-y-scroll overscroll-contain " +
+  "time-wheel h-full w-full cursor-ns-resize snap-y snap-mandatory overflow-y-scroll overflow-x-hidden overscroll-contain " +
   "flex snap-center items-center justify-center tabular-nums text-text text-muted " +
   "top-1/2 -translate-y-1/2 px-1 text-center";
 
@@ -105,11 +110,13 @@ const TILE_GRID =
   "grid grid-cols-2 gap-3 sm:grid-cols-3 flex flex-wrap gap-2 " +
   "min-h-16 rounded-2xl px-4 py-4 text-lg min-h-11 rounded-xl px-3 text-base font-medium";
 
-/** KeyHints — the keyboard legend. */
+/** KeyHints — the keyboard legend, and the same legend as a control. */
 const KEY_HINTS =
   "flex flex-wrap items-center gap-x-4 gap-y-1 flex items-center gap-1.5 " +
   "rounded-md border border-line bg-surface-raised px-2 py-0.5 font-sans text-xs text-text " +
-  "text-xs text-muted";
+  "text-xs text-muted rounded-[14px] bg-surface px-3 py-1.5 " +
+  "hover:bg-surface-raised active:scale-95 " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 export const UI_PACKAGE_CLASSES = [
   BUTTON_SIZES,

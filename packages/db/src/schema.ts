@@ -3,6 +3,11 @@ import { assetsWithOrder } from "./asset-order.ts";
 import { FOCUS_ORDER, SYMBOL_ORDER, rankOf } from "./catalog-order.ts";
 import { DEFAULT_PLAN_ID } from "./default-workspace.ts";
 import { scopedSeededTypes } from "./meditation-type-scope.ts";
+import { thanksGivingMinute, withoutSeededCrown } from "./seeded-circuit.ts";
+import { planFromRow, planRowForStore } from "./plan-mapper.ts";
+import { regroupSeededPointsCircuit, withSeededPointsCircuit } from "./seeded-plans.ts";
+import { withReikiBindings } from "./seeded-bindings.ts";
+import { splitPancreasAndSpleen, splitThyroidAndThymus, withSeededPoints } from "./seeded-points.ts";
 import { symbolsWithReikiSystems } from "./reiki-symbols.ts";
 import {
   CHAKRA_TYPE_ID,
@@ -28,6 +33,7 @@ import {
   type Plan,
   type SessionSnapshot,
   type Symbol,
+  type SyncWatermark,
   type UserPreferences,
   type Workspace,
   type WorkspaceMember,
@@ -39,9 +45,34 @@ export type PlanRow = Omit<Plan, "blocks" | "display"> & {
   /** `Plan.display`, as stored JSON — the same shape `normalizePlanDisplay` reads. */
   displayJson: string;
   updatedAt: number;
+  /**
+   * The delete mark, in the store's own column rather than in the domain's `Plan`
+   * (`P2 · 3`, slice 3).
+   *
+   * A plan the reader deleted is not a state the app holds — it is a row this store no
+   * longer offers — so `deletedAt` lives here and every read in `ports.ts` filters it
+   * out, exactly as `plan-cloud.ts` filters the column on the way in. The mark is what
+   * lets a delete travel: an absence on one device is a row the other reads as new.
+   */
+  deletedAt?: number | null;
 };
 
 export type SnapshotRow = SessionSnapshot & { updatedAt: number };
+
+/**
+ * The account's flags as this device last read them from the cloud (`P0 · 23`, slice 23c).
+ *
+ * Written from a resolved read, so this is a complete set *as of the build that wrote it* —
+ * and a flag added since is filled in by `normalizeFeatureFlags` on the way out rather than
+ * read as off, which is what makes the mirror safe to keep across a release.
+ */
+export type StoredAccountFlags = {
+  userId: string;
+  isAdmin: boolean;
+  flags: Record<string, unknown>;
+  /** When this device read it, for the record; nothing decides anything from it. */
+  readAt: number;
+};
 
 export type MediaBlobRow = {
   id: string;
@@ -126,6 +157,24 @@ function focusDefaults(row: Record<string, unknown>): Meditation {
   };
 }
 
+/**
+ * Rows with a repair's changes applied: the changed ones replaced, and any the repair **added**
+ * appended.
+ *
+ * The second half is the part that is easy to lose, and the tree lost it once. Round 22's v32
+ * used the first half alone, so the `Thymus` its walk planted was never handed to
+ * `withReikiBindings` — a device that ran it got the point with its sentences and **without** its
+ * four symbols, which the version's own comment claimed it had. Round 25's v34 uses this shape
+ * and, because `withReikiBindings` plants only what is missing, its run also gives `Thymus` the
+ * bindings v32 dropped.
+ */
+function withChanges<T extends { id: string }>(rows: readonly T[], changes: readonly T[]): T[] {
+  const byId = new Map(changes.map((row) => [row.id, row]));
+  const merged = rows.map((row) => byId.get(row.id) ?? row);
+  const known = new Set(rows.map((row) => row.id));
+  return [...merged, ...changes.filter((row) => !known.has(row.id))];
+}
+
 export class MeditaurDB extends Dexie {
   workspaces!: EntityTable<Workspace, "id">;
   members!: Table<WorkspaceMember, [string, string]>;
@@ -150,6 +199,21 @@ export class MeditaurDB extends Dexie {
   snapshots!: EntityTable<SnapshotRow, "instanceId">;
   sessionLogs!: EntityTable<SessionLog, "id">;
   events!: EntityTable<AppEvent, "id">;
+  /**
+   * How far a sync has got, per table (`P2 · 3`, slice 3).
+   *
+   * The device's own bookkeeping rather than a row of the product: nothing draws it,
+   * it never travels, and `dexieSyncState` (`ports.ts`) is its only reader and writer.
+   */
+  syncState!: EntityTable<SyncWatermark, "table">;
+  /**
+   * The account's flags as the cloud last said them (`P0 · 23`, slice 23c).
+   *
+   * A mirror, not a second source: written only from a read the cloud answered, so a
+   * reader whose flags are off does not see them on while offline. `dexieFlagsCache`
+   * (`ports.ts`) is its only reader and writer.
+   */
+  accountFlags!: EntityTable<StoredAccountFlags, "userId">;
 
   constructor() {
     super("meditaur");
@@ -1103,6 +1167,258 @@ export class MeditaurDB extends Dexie {
             await tx.table(table).put({ ...row, deletedAt: null });
           }
         }
+      });
+
+    /**
+     * The watermark store (`P2 · 3`, slice 3).
+     *
+     * A **new table**, which is the one shape an upgrade is safe with: nothing is
+     * re-keyed, renamed or backfilled, and a device that has never synced simply has no
+     * row in it — the protocol reads a missing mark as "nothing has travelled yet",
+     * which is the truth. One row per table, keyed by the store's own name.
+     */
+    this.version(28).stores({ syncState: "table" });
+
+    /**
+     * The account's flags, mirrored (`P0 · 23`, slice 23c).
+     *
+     * A **new table**, the one shape an upgrade is safe with, and the mirror is written
+     * only from an accepted cloud read (`flags-cache.ts`) — so a device that has never
+     * read them has no row, which is the truth rather than an empty answer: the defaults
+     * are what an absent row means and they are what the app already draws.
+     *
+     * Keyed by `userId`, not by workspace: the flags belong to the *account* (the owner's
+     * answer, `DECISIONS.md` §11), and an account is not a workspace.
+     */
+    this.version(29).stores({ accountFlags: "userId" });
+
+    /**
+     * Two changes to what the seed plants, carried to a device that already seeded itself
+     * (the owner's round 20).
+     *
+     * A seed runs once, so neither change reaches a device that has one — which is v24's
+     * whole reason for existing. Both rules live in `seeded-circuit.ts` as pure functions
+     * because the unit suite has no IndexedDB, and both are gated on the rows still
+     * looking like the ones the app wrote: the Thanks Giving stage is only moved while it
+     * is still exactly 3:00, and the Crown block is only removed by the id the seed gave
+     * it, so a reader's own press is never the thing being repaired.
+     */
+    this.version(30)
+      .stores({})
+      .upgrade(async (tx) => {
+        const [types, meditations, plans] = await Promise.all([
+          tx.table("meditationTypes").toArray(),
+          tx.table("meditations").toArray(),
+          tx.table("plans").toArray(),
+        ]);
+        const minute = thanksGivingMinute({
+          types,
+          meditations,
+          // **The store keeps a plan's blocks as JSON**, so a row is not a plan: the
+          // mapper is the one place that knows both shapes. Reading the rows straight into
+          // the rule left `plan.blocks` undefined, which threw inside the upgrade and
+          // aborted the open — the whole upgrade path below the newest version is untested
+          // by construction (every test starts from an empty database), which is why the
+          // type system did not catch it either: `tx.table(name)` is untyped.
+          plans: plans.map(planFromRow),
+        });
+        const stored = new Map(plans.map((row) => [row.id, row]));
+        for (const [table, rows] of [
+          ["meditationTypes", minute.types],
+          ["meditations", minute.meditations],
+          [
+            "plans",
+            withoutSeededCrown(minute.plans).map((plan) => ({
+              ...planRowForStore(plan),
+              // A repair is not a save: the row keeps its own timestamp, and its delete
+              // mark, so a plan the reader deleted is not resurrected by it.
+              updatedAt: stored.get(plan.id)?.updatedAt ?? Date.now(),
+              deletedAt: stored.get(plan.id)?.deletedAt ?? null,
+            })),
+          ],
+        ] as const) {
+          for (const row of rows) await tx.table(table).put(row);
+        }
+      });
+
+    /**
+     * The twelve body points, their sentences, and the four reiki symbols bound to every
+     * chakra and point (the owner's round 21).
+     *
+     * The same reason v30 exists: the seed runs once, so what it plants reaches a fresh
+     * device and nobody else. Both rules are pure functions in `seeded-points.ts` and
+     * `seeded-bindings.ts` — the unit suite has no IndexedDB — and both add only what the
+     * store does not already hold, matched by id and then by name, which is the one case that
+     * matters here: the owner's own `Thighs`, created by hand in round 20, *is* the point, so
+     * it keeps its row and gains the sentences rather than being joined by a second one.
+     *
+     * The points are written before the bindings are decided, so a point planted by this
+     * version is bound by this version rather than by one that never runs.
+     */
+    this.version(31)
+      .stores({})
+      .upgrade(async (tx) => {
+        const [meditations, symbols, entries, intentions] = await Promise.all([
+          tx.table("meditations").toArray(),
+          tx.table("symbols").toArray(),
+          tx.table("entries").toArray(),
+          tx.table("intentions").toArray(),
+        ]);
+        const points = withSeededPoints({ meditations, entries, intentions });
+        for (const row of points.meditations) await tx.table("meditations").put(row);
+        for (const row of points.entries) await tx.table("entries").put(row);
+        for (const row of points.intentions) await tx.table("intentions").put(row);
+
+        const bindings = withReikiBindings({
+          meditations: [...meditations, ...points.meditations],
+          symbols,
+          entries: [...entries, ...points.entries],
+        });
+        for (const row of bindings.entries) await tx.table("entries").put(row);
+      });
+
+    /**
+     * `Thyroid and thymus` is two points, and the owner said so (round 22).
+     *
+     * One of round 21's twelve rows was two places written as one, so the seed writes
+     * thirteen. The row the app wrote is renamed to `Thyroid` and keeps its id — every other
+     * device knows it by that id — and `Thymus` is a row the walk in `withSeededPoints`
+     * plants beside it, which is why that walk takes its order from
+     * `pointsInCatalogueOrder()` rather than from the array it reads, and why a missing point
+     * now moves the rows after it up by one instead of landing at the tail.
+     *
+     * Both halves are gated on the rows still looking like the ones the app wrote: a name or
+     * a sentence the reader has changed is left alone. The four reiki symbols `Thyroid`
+     * already carries are its own rows, and `Thymus` gets its four the way every other point
+     * did.
+     */
+    this.version(32)
+      .stores({})
+      .upgrade(async (tx) => {
+        const [meditations, symbols, entries, intentions] = await Promise.all([
+          tx.table("meditations").toArray(),
+          tx.table("symbols").toArray(),
+          tx.table("entries").toArray(),
+          tx.table("intentions").toArray(),
+        ]);
+        const split = splitThyroidAndThymus({ meditations, entries, intentions });
+        for (const row of split.meditations) await tx.table("meditations").put(row);
+        for (const row of split.intentions) await tx.table("intentions").put(row);
+
+        // The planting walk has to see the renamed row, or it would look for `Thyroid` under
+        // a name the store no longer uses.
+        const current = withChanges(meditations, split.meditations);
+        const lines = withChanges(intentions, split.intentions);
+        const points = withSeededPoints({ meditations: current, entries, intentions: lines });
+        for (const row of points.meditations) await tx.table("meditations").put(row);
+        for (const row of points.entries) await tx.table("entries").put(row);
+        for (const row of points.intentions) await tx.table("intentions").put(row);
+
+        const bindings = withReikiBindings({
+          meditations: withChanges(current, points.meditations),
+          symbols,
+          entries: [...entries, ...points.entries],
+        });
+        for (const row of bindings.entries) await tx.table("entries").put(row);
+      });
+
+    /**
+     * The **points circuit** — the owner's round 22.
+     *
+     * The same reason v30 and v31 exist: the seed runs once, so a plan it plants reaches a
+     * fresh device and nobody else. The rule is a pure function in `seeded-plans.ts` — the
+     * unit suite has no IndexedDB — and it plants the plan only when the store holds the
+     * app's own points, matched by the id the seed gives the plan so a reader who renamed,
+     * edited or deleted their own circuit is never handed a second one.
+     *
+     * The rows go through the plan mappers, the way v30's fix does: the store keeps a plan's
+     * blocks as JSON (`PlanRow`) and the rule works on the plan.
+     */
+    this.version(33)
+      .stores({})
+      .upgrade(async (tx) => {
+        const [meditations, plans] = await Promise.all([
+          tx.table("meditations").toArray(),
+          tx.table("plans").toArray(),
+        ]);
+        const planted = withSeededPointsCircuit({
+          meditations,
+          plans: plans.map(planFromRow),
+        });
+        for (const plan of planted) await tx.table("plans").put(planRowForStore(plan));
+      });
+
+    /**
+     * `Pancreas and spleen` is two points, and the owner said so (round 25).
+     *
+     * The same shape as v32's split: the row the app wrote is renamed to `Pancreas` and keeps
+     * its id — every other device knows it by that id — and `Spleen` is a row the walk in
+     * `withSeededPoints` plants beside it, with the whole of a point: its own symbol-less row,
+     * its sentences, and its four reiki bindings.
+     *
+     * Both halves are gated on the rows still looking like the ones the app wrote: a name or a
+     * sentence the reader has changed is left alone.
+     */
+    this.version(34)
+      .stores({})
+      .upgrade(async (tx) => {
+        const [meditations, symbols, entries, intentions] = await Promise.all([
+          tx.table("meditations").toArray(),
+          tx.table("symbols").toArray(),
+          tx.table("entries").toArray(),
+          tx.table("intentions").toArray(),
+        ]);
+        const split = splitPancreasAndSpleen({ meditations, entries, intentions });
+        for (const row of split.meditations) await tx.table("meditations").put(row);
+        for (const row of split.intentions) await tx.table("intentions").put(row);
+
+        // The planting walk has to see the renamed row, or it would look for `Pancreas` under a
+        // name the store no longer uses — and `withChanges` hands the walk's own additions on to
+        // the bindings below, which is what gives `Spleen` its four symbols.
+        const current = withChanges(meditations, split.meditations);
+        const lines = withChanges(intentions, split.intentions);
+        const points = withSeededPoints({ meditations: current, entries, intentions: lines });
+        for (const row of points.meditations) await tx.table("meditations").put(row);
+        for (const row of points.entries) await tx.table("entries").put(row);
+        for (const row of points.intentions) await tx.table("intentions").put(row);
+
+        const bindings = withReikiBindings({
+          meditations: withChanges(current, points.meditations),
+          symbols,
+          entries: [...entries, ...points.entries],
+        });
+        for (const row of bindings.entries) await tx.table("entries").put(row);
+      });
+
+    /**
+     * The points circuit is five groups, each with its own timers and its own tone (round 25).
+     *
+     * The owner's grouping: the head's three points, the throat's four, the organs' four, the
+     * legs' three and the feet's two — 1:00 of intentions, 1:00 of symbols, and a focus of one
+     * minute a point with a three-minute floor. The rule lives in `seeded-plans.ts`; this
+     * version is what carries it to a device that already holds round 22's circuit, whose blocks
+     * are rewritten whether or not the reader has touched them. That is the owner's answer —
+     * *"regroup always"* — and it is the tree's one repair that may overrule a press.
+     *
+     * A marked plan is not resurrected: `deletedAt` is read here and only live rows are handed
+     * in. A tone is named only when the store still holds that preset, because `requireListed`
+     * fails hard on a missing reference and a plan that refuses to start is worse than a silent
+     * block.
+     */
+    this.version(35)
+      .stores({})
+      .upgrade(async (tx) => {
+        const [meditations, planRows, presets] = await Promise.all([
+          tx.table("meditations").toArray(),
+          tx.table("plans").toArray(),
+          tx.table("presets").toArray(),
+        ]);
+        const regrouped = regroupSeededPointsCircuit({
+          meditations,
+          plans: planRows.filter((row) => row.deletedAt == null).map(planFromRow),
+          presetIds: presets.map((row) => row.id as string),
+        });
+        for (const plan of regrouped) await tx.table("plans").put(planRowForStore(plan));
       });
   }
 }
