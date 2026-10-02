@@ -2,6 +2,9 @@ import {
   DEFAULT_ALARM_ENABLED,
   DEFAULT_PLAN_DISPLAY,
   POINT_TYPE_ID,
+  THANKS_GIVING_TYPE_ID,
+  copyStages,
+  declarationStage,
   stage,
   type Meditation,
   type Plan,
@@ -9,7 +12,7 @@ import {
   type PlanBlockStage,
 } from "@meditaur/domain";
 import { normaliseName } from "./catalog-order.ts";
-import { nid } from "./seeded-ids.ts";
+import { nid, stagesForType } from "./seeded-ids.ts";
 
 /**
  * The seeded **points circuit** — the owner's round 22.
@@ -36,6 +39,16 @@ export const POINTS_PLAN_NAME = "Points circuit";
 
 /** Where the circuit's blocks sit: `nid(0x220)` is the first of them. */
 const BLOCK_SLOT_BASE = 0x220;
+
+/**
+ * The two Thanks Giving blocks that open and close the circuit (the owner's round 26).
+ *
+ * Fixed slots above the group range rather than `blocks.length`-derived: the groups keep
+ * the numbering they already hand out, so adding the ends could not renumber a block a
+ * device already holds.
+ */
+const THANKS_GIVING_OPEN_SLOT = 0x230;
+const THANKS_GIVING_CLOSE_SLOT = 0x231;
 
 /**
  * The five groups the circuit walks, each written in the order the catalogue reads.
@@ -102,14 +115,25 @@ function circuitPoints(meditations: readonly Meditation[]): Meditation[] {
     .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
 }
 
-/** A block's stages: a minute of intentions, a minute of symbols, and the focus. */
+/** A block's stages: the declaration, a minute of intentions, a minute of symbols, and the focus. */
 export function circuitStages(pointCount: number): PlanBlockStage[] {
   const focus = Math.max(CIRCUIT_FOCUS_FLOOR_MINUTES, pointCount) * 60_000;
   return [
+    declarationStage(),
     stage("intentions", "intentions", CIRCUIT_STAGE_MINUTES * 60_000),
     stage("symbols", "symbols", CIRCUIT_STAGE_MINUTES * 60_000),
     stage("focus", "focus", focus),
   ];
+}
+
+/**
+ * The circuit's Thanks Giving, or `null` for a store that no longer holds it.
+ *
+ * A reader who deleted the row is not waiting for it back, which is the same rule the
+ * groups follow for a point: the circuit is built from the store's own rows.
+ */
+function circuitThanksGiving(meditations: readonly Meditation[]): Meditation | null {
+  return meditations.find((row) => row.typeId === THANKS_GIVING_TYPE_ID) ?? null;
 }
 
 /**
@@ -126,6 +150,12 @@ export function circuitStages(pointCount: number): PlanBlockStage[] {
  * follows the points that are really there, so a three-point group runs a three-point group's
  * five minutes.
  *
+ * The circuit opens and closes with **Thanks Giving** (the owner's round 26), the way the chakra
+ * circuit does — *"Thanks Giving at the start and at the end of the seeded plan"*. Those two
+ * blocks carry Thanks Giving's own stages rather than a group's, name no tone, and are the one
+ * place in the seed that answers the alarm question for itself: `false`, which is what *"only
+ * OFF for thanks giving"* means.
+ *
  * `livePresetIds` is the store's presets, when the caller has them: a tone is named only if it
  * is really there, because a block pointing at a missing preset makes the whole plan refuse to
  * compile — `requireListed` fails hard, and a session that will not start is worse than a
@@ -134,10 +164,11 @@ export function circuitStages(pointCount: number): PlanBlockStage[] {
 export function pointsCircuit(
   workspaceId: string,
   points: readonly Meditation[],
+  thanksGiving: Meditation | null,
   livePresetIds?: readonly string[],
 ): Plan {
   const ours = livePresetIds === undefined ? null : new Set(livePresetIds);
-  const blocks: PlanBlock[] = [];
+  const groups: PlanBlock[] = [];
   POINT_GROUPS.forEach((group, index) => {
     const mine = group
       .map((name) => points.find((row) => normaliseName(row.name) === normaliseName(name)))
@@ -145,9 +176,9 @@ export function pointsCircuit(
     if (mine.length === 0) return;
     const slot = GROUP_PRESET_SLOTS[index];
     const wanted = slot == null ? null : nid(slot);
-    blocks.push({
-      id: nid(BLOCK_SLOT_BASE + blocks.length),
-      sortOrder: blocks.length,
+    groups.push({
+      id: nid(BLOCK_SLOT_BASE + groups.length),
+      sortOrder: groups.length,
       stages: circuitStages(mine.length),
       meditationIds: mine.map((row) => row.id),
       symbolId: null,
@@ -164,6 +195,33 @@ export function pointsCircuit(
       intentionRandomiser: null,
     });
   });
+  /** One end of the circuit, or `null` for a store that has no Thanks Giving row. */
+  const ending = (slot: number): PlanBlock | null =>
+    thanksGiving === null
+      ? null
+      : {
+          id: nid(slot),
+          sortOrder: 0,
+          // Thanks Giving's own copy of its stages, exactly as a group takes the circuit's:
+          // the block runs what the seeded row says rather than what its type says today.
+          stages: copyStages(thanksGiving.stages ?? stagesForType(thanksGiving.typeId)),
+          meditationIds: [thanksGiving.id],
+          symbolId: null,
+          symbolScope: "all",
+          // A Thanks Giving is spoken, not sounded: no tone to name, which is also why
+          // nothing has to check that a preset is still in the store.
+          binauralPresetId: null,
+          ambientAssetId: null,
+          alarmAssetId: null,
+          alarmEnabled: false,
+          display: null,
+          intentionRandomiser: null,
+        };
+  const blocks = [ending(THANKS_GIVING_OPEN_SLOT), ...groups, ending(THANKS_GIVING_CLOSE_SLOT)]
+    .filter((block): block is PlanBlock => block !== null)
+    // The order every block is stored with: the open, the groups, the close. `sortOrder` is a
+    // running index of the whole list, never of a group's place in `POINT_GROUPS`.
+    .map((block, index) => ({ ...block, sortOrder: index }));
   return {
     id: POINTS_PLAN_ID,
     workspaceId,
@@ -205,7 +263,7 @@ export function withSeededPointsCircuit(input: {
   if (!workspaceId) return [];
   const points = circuitPoints(input.meditations);
   if (points.length < MIN_CIRCUIT_POINTS) return [];
-  return [pointsCircuit(workspaceId, points)];
+  return [pointsCircuit(workspaceId, points, circuitThanksGiving(input.meditations))];
 }
 
 /**
@@ -231,6 +289,11 @@ export function regroupSeededPointsCircuit(input: {
   if (!workspaceId) return [];
   const stored = input.plans.find((row) => row.id === POINTS_PLAN_ID);
   if (!stored) return [];
-  const next = pointsCircuit(workspaceId, circuitPoints(input.meditations), input.presetIds);
+  const next = pointsCircuit(
+    workspaceId,
+    circuitPoints(input.meditations),
+    circuitThanksGiving(input.meditations),
+    input.presetIds,
+  );
   return [{ ...stored, blocks: next.blocks }];
 }

@@ -58,6 +58,18 @@
 }
 
 /*
+ * A breathing picture is a compositor job, not a repaint one (the owner's round 26: *"The
+ * breathing animation needs to be smoother, today I can see it growing and shrinking frame by
+ * frame"*). `transform` and `opacity` are the two properties a compositor can animate without
+ * touching layout or paint, and `will-change` is what asks it to keep the layer around; the
+ * glyphs themselves no longer carry a `drop-shadow`, because a filter on an animating subtree is
+ * re-rasterised on every frame — which is what the visible stepping was.
+ */
+.animate-breathe {
+  will-change: transform, opacity;
+}
+
+/*
  * The seven other colour schemes (`P2 · 46`).
  *
  * The `@theme` block above is the document's **default** — Warm Earth, the scheme the app

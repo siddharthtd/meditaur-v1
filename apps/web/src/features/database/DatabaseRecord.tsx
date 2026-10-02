@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { BinauralPreset, FieldDef, FieldScope, Meditation, Symbol } from "@meditaur/domain";
-import type { LibraryView, MeditaurApp } from "@meditaur/application";
+import type { BinauralPreset, FieldDef, FieldScope, FieldValue, Meditation, MediaAsset, Symbol } from "@meditaur/domain";
+import { oneRowChangeSet, type CatalogChangeSet, type LibraryView, type MeditaurApp } from "@meditaur/application";
 import { errorText } from "@/lib/error-text";
 import { GoneScreen } from "../library/GoneScreen";
 import { MeditationEditor, MeditationPresetPicker, SymbolEditor } from "../library/MeditationTable";
@@ -34,7 +34,8 @@ export function DatabaseRecord({
   screen,
   imageUrls,
   onBack,
-  onReload,
+  onChanges,
+  onAsset,
   onAddColumn,
   onOpenBinaural,
   registerSave,
@@ -46,7 +47,10 @@ export function DatabaseRecord({
   screen: DatabaseRecordScreen;
   imageUrls: Record<string, string>;
   onBack: () => void;
-  onReload: () => Promise<void>;
+  /** The answer a save, a field's delete or an edit gives, applied to the screen's view. */
+  onChanges: (changes: CatalogChangeSet) => void;
+  /** A picture this editor just wrote, whose row no change-set carries. */
+  onAsset: (asset: MediaAsset) => void;
   onAddColumn: () => void;
   onOpenBinaural: (focus: Meditation) => void;
   /**
@@ -144,7 +148,7 @@ export function DatabaseRecord({
 
   /** One picture for one record: the write starts now, the id arrives later. */
   const choosePicture = (entityId: string, file: File | undefined) => {
-    const assetId = uploadImage(app, workspaceId, file, setError, onReload);
+    const assetId = uploadImage(app, workspaceId, file, setError, onAsset);
     pendingPicture.current = { entityId, assetId };
     void assetId.then((id) => {
       if (!id) return;
@@ -160,19 +164,26 @@ export function DatabaseRecord({
     });
   };
 
-  const saveValues = async (entityId: string, which: FieldScope): Promise<void> => {
+  const saveValues = async (entityId: string, which: FieldScope): Promise<FieldValue[]> => {
+    const written: FieldValue[] = [];
     for (const def of defsFor(which)) {
       const stored = view.fieldValues.find(
         (row) => row.entityId === entityId && row.fieldDefId === def.id,
       );
-      await app.saveFieldValue({
-        entityId,
-        fieldDefId: def.id,
-        text: fieldDrafts[def.id] ?? "",
-        revision: stored?.revision ?? 0,
-        updatedAt: 0,
-      });
+      written.push(
+        await app.saveFieldValue({
+          entityId,
+          fieldDefId: def.id,
+          text: fieldDrafts[def.id] ?? "",
+          revision: stored?.revision ?? 0,
+          updatedAt: 0,
+        }),
+      );
     }
+    // What it wrote is handed back rather than dropped: a patched screen has to hold the
+    // values it just stored, or the next open of this record would read the store's copy
+    // through the view and lose the edit (`P2 · 4`).
+    return written;
   };
 
   const fieldDelete = {
@@ -190,8 +201,8 @@ export function DatabaseRecord({
       setFieldImpact(null);
       void (async () => {
         try {
-          await app.deleteFieldDef(workspaceId, def.id);
-          await onReload();
+          // The column **and** its options, which is the half an id cannot name (`P2 · 4`).
+          onChanges(await app.deleteFieldDef(workspaceId, def.id));
         } catch (err) {
           setError(errorText(err, "Could not delete the column"));
         }
@@ -225,16 +236,18 @@ export function DatabaseRecord({
       if (focus) {
         const saved = await app.saveMeditation(focus);
         setDraft({ focus: saved });
-        await saveValues(saved.id, "meditation");
+        const values = await saveValues(saved.id, "meditation");
+        onChanges(oneRowChangeSet({ meditations: [saved], fieldValues: values }));
       } else if (symbol) {
         const saved = await app.saveSymbol(symbol);
         setDraft({ symbol: saved });
-        await saveValues(saved.id, "symbol");
+        const values = await saveValues(saved.id, "symbol");
+        onChanges(oneRowChangeSet({ symbols: [saved], fieldValues: values }));
       } else if (current.preset) {
         const saved = await app.savePreset(current.preset);
         setDraft({ preset: saved });
+        onChanges(oneRowChangeSet({ presets: [saved] }));
       }
-      await onReload();
       if (leave) onBack();
     } catch (err) {
       const message = errorText(err, "Save failed");
@@ -365,7 +378,7 @@ async function uploadImage(
   workspaceId: string,
   file: File | undefined,
   setError: (message: string | null) => void,
-  onReload: () => Promise<void>,
+  onAsset: (asset: MediaAsset) => void,
 ): Promise<string | null> {
   if (!file) return null;
   try {
@@ -378,7 +391,9 @@ async function uploadImage(
       mimeType: file.type,
       durationMs: 0,
     });
-    await onReload();
+    // The row itself, not a refetch: the screen decodes every asset its view holds, so
+    // this is what puts the new picture on screen (`P2 · 4`).
+    onAsset(asset);
     return asset.id;
   } catch (err) {
     setError(errorText(err, "Could not add image"));

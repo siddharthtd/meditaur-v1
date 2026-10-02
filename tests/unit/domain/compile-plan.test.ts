@@ -835,3 +835,208 @@ describe("the intention randomiser", () => {
     ]);
   });
 });
+
+/**
+ * The Declaration stage (the owner's round 26).
+ *
+ * It is an **affirmations** stage pointed at a pool of its own through `pool`, which is what
+ * lets the owner keep one `StageKind` for everything spoken: its sentences are stored separately
+ * (tagged `declaration`) and read with the block's own meditations substituted into them, so one
+ * sentence declares whatever the reader is sitting with.
+ */
+describe("the declaration stage", () => {
+  /** A declaration stage, exactly as the seeded templates write one. */
+  const declaration = {
+    key: "declaration",
+    label: "Declaration",
+    kind: "affirmations" as const,
+    pool: "declaration" as const,
+    durationMs: 10_000,
+    binaural: false,
+    autoScroll: true,
+  };
+  /** The sentence the app ships, whose placeholder is the owner's own. */
+  const SEEDED = "I declare this as the front and back of my <>";
+
+  it("reads its own pool, with the block's meditation substituted for the placeholder", () => {
+    const snapshot = compilePlan(
+      makePlan([makeBlock("b1", 0, { stages: [declaration] })]),
+      makeLibrary({ intentions: [makeIntention("d1", SEEDED, { tag: "declaration" })] }),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(snapshot.blocks[0]?.declarations).toEqual([
+      "I declare this as the front and back of my Root",
+    ]);
+    // A declaration is **not** the meditation's own sentences: that is the whole reason it has a
+    // tag of its own, and why this list is empty however many affirmations the block carries.
+    expect(snapshot.blocks[0]?.affirmations).toEqual([]);
+  });
+
+  it("declares each meditation of a group in turn, in the block's own order", () => {
+    const snapshot = compilePlan(
+      makePlan([
+        makeBlock("b1", 0, { meditationIds: ["fp2", "fp1"], stages: [declaration] }),
+      ]),
+      makeLibrary({ intentions: [makeIntention("d1", "I declare <>", { tag: "declaration" })] }),
+      { now: 1, id: () => "inst1" },
+    );
+    // Heart first, because the reader put Heart first — not the catalogue's order.
+    expect(snapshot.blocks[0]?.declarations).toEqual(["I declare Heart", "I declare Root"]);
+  });
+
+  it("leaves a blank declaration out, and an untagged sentence behind", () => {
+    const snapshot = compilePlan(
+      makePlan([makeBlock("b1", 0, { stages: [declaration] })]),
+      makeLibrary({
+        intentions: [
+          makeIntention("d1", "   ", { tag: "declaration" }),
+          makeIntention("d2", "I declare <>", { tag: null }),
+          makeIntention("d3", "I declare <>", { tag: "declaration" }),
+        ],
+      }),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(snapshot.blocks[0]?.declarations).toEqual(["I declare Root"]);
+  });
+
+  it("keeps the two spoken pools apart: an affirmations stage names its own", () => {
+    const lines = makeEntries([{ meditationId: "fp1", symbolId: null, texts: ["I am whole"] }]);
+    const snapshot = compilePlan(
+      makePlan([
+        makeBlock("b1", 0, {
+          stages: [
+            stageFixture(30_000, {
+              key: "affirmations",
+              label: "Affirmations",
+              kind: "affirmations",
+              binaural: false,
+              autoScroll: true,
+            }),
+          ],
+        }),
+      ]),
+      makeLibrary({
+        ...lines,
+        intentions: [
+          ...lines.intentions,
+          makeIntention("d1", SEEDED, { tag: "declaration" }),
+        ],
+      }),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(snapshot.blocks[0]?.affirmations).toEqual(["I am whole"]);
+    expect(snapshot.blocks[0]?.declarations).toEqual([]);
+  });
+
+  it("reads a declaration with no placeholder as it stands", () => {
+    const snapshot = compilePlan(
+      makePlan([makeBlock("b1", 0, { stages: [declaration] })]),
+      makeLibrary({ intentions: [makeIntention("d1", "I am here", { tag: "declaration" })] }),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(snapshot.blocks[0]?.declarations).toEqual(["I am here"]);
+  });
+});
+
+/**
+ * A block of several points, read **by point** as well as by symbol (the owner's round 26).
+ *
+ * *"Intentions can be categorized based on the point they belong to (since we're grouping things
+ * together). So, a column on the left where each cell tells which point these set of intentions
+ * are for."* The symbol grouping is what round 22 built and it does not change; this is the same
+ * lines grouped the other way, which is what lets the session screen name the point.
+ */
+describe("a points block's own grouping", () => {
+  const two = () =>
+    makeLibrary({
+      ...makeEntries([
+        { meditationId: "fp1", symbolId: null, texts: ["Root's own"] },
+        { meditationId: "fp1", symbolId: "s1", texts: ["Root under Lam"] },
+        { meditationId: "fp2", symbolId: null, texts: ["Heart's own"] },
+        { meditationId: "fp2", symbolId: "s1", texts: ["Heart under Lam"] },
+      ]),
+    });
+  const block = (extra: Partial<PlanBlock> = {}) =>
+    makePlan([
+      makeBlock("b1", 0, { meditationIds: ["fp1", "fp2"], symbolId: null, symbolScope: "all", ...extra }),
+    ]);
+
+  it("keeps the symbol grouping and adds the points'", () => {
+    const snapshot = compilePlan(block(), two(), { now: 1, id: () => "inst1" });
+    const compiled = snapshot.blocks[0]!;
+    // Round 22's view, unchanged: a symbol two points share is **one** group holding both.
+    expect(compiled.symbolGroups.map(groupShape)).toEqual([
+      { name: "Lam", intentions: ["Root under Lam", "Heart under Lam"] },
+    ]);
+    // And the other reading: each point, its own sentences first and then its sentences for the
+    // symbol — in the block's own order, which is the reader's.
+    expect(compiled.pointLines).toEqual([
+      { name: "Root", lines: ["Root's own", "Root under Lam"] },
+      { name: "Heart", lines: ["Heart's own", "Heart under Lam"] },
+    ]);
+    // The flat list every other reader uses is untouched.
+    expect(compiled.intentions).toEqual([
+      "Root's own",
+      "Heart's own",
+      "Root under Lam",
+      "Heart under Lam",
+    ]);
+  });
+
+  it("puts a symbol-only line under the symbol's name, because no point owns it", () => {
+    const snapshot = compilePlan(
+      block(),
+      makeLibrary({
+        ...makeEntries([
+          { meditationId: "fp1", symbolId: null, texts: ["Root's own"] },
+          { meditationId: "fp1", symbolId: "s1", texts: ["Root under Lam"] },
+          { meditationId: "fp2", symbolId: null, texts: ["Heart's own"] },
+          { meditationId: "fp2", symbolId: "s1", texts: ["Heart under Lam"] },
+          // A sentence written about the symbol and nobody in particular: it belongs in the table,
+          // and the only honest name for it is the symbol's.
+          { meditationId: null, symbolId: "s1", texts: ["Lam alone"] },
+        ]),
+      }),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(snapshot.blocks[0]?.pointLines.at(-1)).toEqual({
+      name: "Lam",
+      lines: ["Lam alone"],
+    });
+  });
+
+  it("leaves the grouping empty for a block of one, and for a block that draws", () => {
+    // One meditation has nothing to group: the table reads its symbol groups, exactly as it
+    // always has.
+    const single = compilePlan(
+      makePlan([makeBlock("b1", 0, { symbolId: null, symbolScope: "all" })]),
+      library,
+      { now: 1, id: () => "inst1" },
+    );
+    expect(single.blocks[0]?.pointLines).toEqual([]);
+    // A block that draws a subset keeps the symbol grouping: the draw is defined per symbol box,
+    // so re-attributing it per point would show the reader a set the draw did not choose.
+    const drawn = compilePlan(
+      block({ intentionRandomiser: { on: true, own: { on: true, count: 1 }, symbols: { on: true, count: 1 } } }),
+      two(),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(drawn.blocks[0]?.pointLines).toEqual([]);
+  });
+
+  it("skips a point with nothing to read rather than printing an empty cell", () => {
+    const snapshot = compilePlan(
+      block(),
+      makeLibrary({
+        ...makeEntries([
+          { meditationId: "fp1", symbolId: null, texts: ["Only Root speaks"] },
+          { meditationId: "fp2", symbolId: null, texts: [] },
+        ]),
+      }),
+      { now: 1, id: () => "inst1" },
+    );
+    expect(snapshot.blocks[0]?.pointLines).toEqual([
+      { name: "Root", lines: ["Only Root speaks"] },
+    ]);
+  });
+});

@@ -564,11 +564,55 @@ save until the e2e suite caught it.
   different ids for the same row — id-keyed sync would duplicate it rather than merge it.
   A new seeded row goes at the **end** of its list: the seed numbers its entries in the
   order it plants them, so a row inserted in the middle moves every id after it.
-- **A glyph is drawn in `currentColor`.** Where the app paints an accent on a picture
-  (`FocusVisuals`, `focus-glyphs.tsx`), the accent is set once as `color` on the region and
-  every stroke inherits it — an accent is **ink**, never a fill, and a component that
-  hard-codes a colour cannot take the reader's own. Reduced motion is a prop, not a class
+- **A glyph is drawn in `currentColor`, stroked or filled.** Where the app paints an accent on
+  a picture (`FocusVisuals`, `focus-glyphs.tsx`), the accent is set once as `color` on the
+  region and everything under it inherits it — an accent is **ink**, and a component that
+  hard-codes a colour cannot take the reader's own. The owner's art (`symbol-art.ts`) has no
+  stroke to inherit it with, because a brush stroke exports as the outline of the width it
+  swept, so that art **fills** — and the export's own black is stripped rather than shipped,
+  which `focus-glyphs.test.ts` fails on if it comes back. Reduced motion is a prop, not a class
   the CSS never reads.
+
+### The session's stages since round 26
+
+- **A stage's `pool` names the sentences it reads.** An affirmations-kind stage with no pool reads
+  the sentences written about the block's own meditations; one with `pool: "declaration"` reads the
+  workspace's `declaration`-tagged rows instead, with `<>` substituted by each meditation's name —
+  one line per meditation, in the block's own order. `SNAPSHOT_SCHEMA_VERSION` is **10**, and the
+  declaration is the one seeded sentence whose id names its own slot (`seeded-sentences.ts`),
+  because a repair cannot reproduce the seed's running counter.
+- **A compiled block of several points carries `pointLines`** as well as its symbol groups: the same
+  lines grouped by the point they were written for, which is what the table's left column names.
+  It is `[]` for a block of one, and for a block that **draws** a subset — the draw is defined per
+  symbol box, so re-attributing it per point would show a set the draw did not choose. A sentence
+  written about a symbol **alone** belongs to no point, so it follows the points under the symbol's
+  own name rather than being dropped.
+- **Which name the table's left column prints is the block's shape, not the stage's**: a block of
+  one prints the **symbol**, a block of several prints the **point**.
+- **The rail's rules are one list, and its subject is one function.** `railSubject` answers what the
+  panel holds — the symbol in play (its `facts` + `entryFacts`), or the **meditation** where the
+  block's lines are its own (its picture and its Display columns, and no name, because the name is
+  the screen's title) — and the region list asks that same function, so the panel and the decision
+  to draw it cannot disagree. `sessionRegions` skips the rail on a points block and on a focus
+  stage; otherwise it is drawn whenever `railSubject` answers something. Where it holds the
+  meditation, the **strip stands down**: the rail carries those columns, and a fact is drawn once.
+  The three reasons are asserted, one case each.
+- **The focus and symbols stages are both clock-driven.** A stage with no scrolling column of lines
+  cannot report which symbol is in play, so `currentGroupIndex` reads `progressIndex` for them; a
+  stage that falls back to the column's report freezes on the first symbol, which is the defect
+  round 26 reported.
+- **The symbols stage draws pictures and nothing else** — no boxes, no panel behind them, and no
+  names: the rail names the one in play and the region's `aria-label` names it for a screen reader.
+  The line beneath keeps the block's whole order rather than only the symbols still to come.
+- **Nothing under a breathing node may take a filter.** `animate-breathe` is `transform` +
+  `opacity` under `will-change`, and a `drop-shadow` on an animating subtree is re-rasterised every
+  frame — which is what "growing and shrinking frame by frame" was.
+- **A sentence's tag travels with the row, on every write.** The Affirmations grid writes a line
+  **whole** (`commitDatabaseDraft` → `saveLine`), so a draft that did not carry `Intention.tag`
+  told the store the sentence had none: editing the seeded declaration's own words would have
+  unwritten the tag its stage reads, from a screen that shows no tag at all. The draft carries it,
+  `sameLine` compares it, and the grid's `Tag` column (`P4 · 60`) is its only writer. The three
+  values are `SENTENCE_TAGS` in the domain — one list behind the union, the SQL check and the chip.
 
 ## The Database screen (owner's design, 2026-09-18)
 
@@ -761,6 +805,37 @@ the grid's own drag tests read a handle's box before it is hovered.
   it inside `save()`. Without that, clicking `Save` straight after choosing a
   picture stores the row without it — the race `DatabaseRecord` already carries a
   fix for.
+- **A mutation patches the view from the answer the write gives it; it never
+  refetches the catalogue** (`P2 · 4`, landed 2026-09-25). `getLibrary` is nine
+  storage scans, and a screen runs it once — on mount — plus the one operation no
+  answer can describe, a whole-catalog restore. Everything else patches:
+  `patchView` (`apps/web/src/features/library/library-patch.ts`, one module because
+  the Library, the Database and a record's page all hold a `LibraryView`) applies a
+  `CatalogChangeSet`'s every bucket, and `withRow` puts a row a write *returned* in
+  its place. Three things this rule is easy to break:
+  - **The answer has to be complete.** A write that rewrites rows it was not asked
+    about answers a change-set rather than the row it stored, and a write that moves
+    a row (a drag, a reorder, an orphan sweep) answers the **rows**, because a place
+    and an `archivedAt` are only readable from the row. An answer that names an id
+    alone leaves the screen drawing a row the store no longer has in that shape.
+  - **A value is never named.** `field_values` is keyed by `(entityId, fieldDefId)`,
+    so `patchView` drops a value when either half goes, and treats an empty text as
+    no row at all — `saveFieldValue` answers a cleared cell that way and deletes the
+    stored row.
+  - **The draft keeps its own copy of what the view drops.** A patched view merges
+    into a draft that has edits in it exactly as a refetch did (`mergeRecords` brings
+    records in and leaves columns alone), so a handler that hides a row or removes a
+    column must drop it from the draft and the baseline too (`dropRecord`,
+    `dropDraftEntry` / `forgetLine`, `dropColumn`) — otherwise the next `Save` writes
+    it back into a store that no longer has it.
+  - **A grid draws live records.** The view holds archived rows because the Archive
+    reads them from there; the draft is built from `isLive` rows only, or an
+    archived record returns to its table the moment a write rebuilds the draft
+    (the defect this item found, 2026-09-25).
+  The guards are `tests/unit/web/{database,library,planner}-refetch.test.ts` (a
+  screen's `app.getLibrary(` count is 1, and no handler mentions `onReload`,
+  `reload(` or `getLibrary(`), `library-patch.test.ts` for the merge itself, and the
+  Database and Library e2e specs for the paths a reader takes.
 
 ## What the guards keep still (2026-09-24)
 

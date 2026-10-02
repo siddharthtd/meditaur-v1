@@ -25,8 +25,15 @@ import { SEEDED_CROWN_BLOCK_ID, SEEDED_CROWN_ID } from "./default-workspace.ts";
 
 /** The affirmations stage the seed used to plant: 3:00. */
 const OLD_AFFIRMATION_MS = 180_000;
-/** What it plants now — read off the template, so the two cannot drift. */
-const NEW_AFFIRMATION_MS = AFFIRMATION_STAGES[0]!.durationMs;
+/**
+ * What it plants now — read off the template, so the two cannot drift.
+ *
+ * By **key** rather than by position, which the owner's round 26 made load-bearing: a
+ * Declaration stage now leads `AFFIRMATION_STAGES`, so `[0]` would hand Thanks Giving's
+ * affirmation a Declaration's ten seconds.
+ */
+const NEW_AFFIRMATION_MS =
+  AFFIRMATION_STAGES.find((row) => row.key === "affirmations")?.durationMs ?? 60_000;
 
 /**
  * The rows to rewrite so Thanks Giving is a minute, and nothing for a device that reads a

@@ -27,8 +27,8 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import type { BinauralPreset, CellType, Meditation, RefKind, Symbol } from "@meditaur/domain";
-import { durationFromParts, durationParts } from "@meditaur/domain";
+import type { BinauralPreset, CellType, Meditation, RefKind, SentenceTag, Symbol } from "@meditaur/domain";
+import { durationFromParts, durationParts, SENTENCE_TAGS, sentenceTagLabel } from "@meditaur/domain";
 import { ImageFrame } from "../library/ImageFrame";
 import type { DraftColumn, DraftLine, DraftOption } from "./database-model";
 
@@ -915,5 +915,40 @@ export function ColumnMenu({
       </label>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * The cell that says what kind of sentence a row is (`P4 · 60`).
+ *
+ * Round 26 gave a sentence a **tag** and made a declaration stage read the workspace's
+ * declarations — *"Protection, ThanksGiving and Decleration can have their own tags"* — but nothing
+ * in the app wrote one, so the only Declaration that could ever exist was the one the app seeded.
+ * Three values and no more: `SENTENCE_TAGS` is the domain's list, so the union, the SQL check and
+ * this chip cannot drift.
+ *
+ * It is a `ChipPicker` rather than a `<select>` for the same reason the Association beside it is —
+ * the shape the Database asked for in place of a native menu — and its `X` is what takes a tag
+ * back off.
+ */
+export function TagCell({
+  value,
+  records,
+  onCommit,
+}: {
+  value: SentenceTag | null;
+  records: CellRecords;
+  onCommit: (tag: SentenceTag | null) => void;
+}): React.ReactNode {
+  return (
+    <ChipPicker
+      value={value ?? ""}
+      label={value ? sentenceTagLabel(value) : "＋ tag"}
+      placeholder="Find a tag"
+      options={SENTENCE_TAGS.map((tag) => ({ id: tag.value, label: tag.label }))}
+      records={records}
+      onPick={(id) => onCommit(id as SentenceTag)}
+      onClear={() => onCommit(null)}
+    />
   );
 }

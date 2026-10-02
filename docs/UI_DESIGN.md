@@ -604,11 +604,19 @@ play, and its lines. The three regions:
    columns below (`meditationFacts`). This is the ask the owner recorded in round 15
    item 1 rather than building ("no place for it, the current screen is already
    crowded") and it landed here.
-2. **The symbol panel** (fixed, updates **in place**) — the pair whose lines are at
-   the top of the column: its picture (`alt="<name> symbol"`), its name as the
-   region's heading, and `facts` + `entryFacts`. As the reader's position crosses
-   into another symbol's lines, the panel's *contents* change and nothing on screen
-   moves. A block with no symbols says so rather than drawing an empty box.
+2. **The rail** (fixed, updates **in place**) — it holds **what the block is about** beside the
+   lines, and its subject follows where they hang: the **symbol in play** (its picture,
+   `alt="<name> symbol"`, its name as the region's heading, and `facts` + `entryFacts`) or, where
+   the lines are the meditation's own, the **meditation** and its details. As the reader's
+   position crosses into another symbol's lines, the panel's *contents* change and nothing on
+   screen moves. The meditation is drawn as its picture and its Display columns and **no name**,
+   because the name is already the screen's title — the round-16 reason the panel that repeated it
+   was deleted — and the top strip stands down there, so no fact is drawn twice. A block with
+   neither gets no panel rather than an empty box. **Round 26 made the rail's rules one list**
+   (`railSubject`, which the region rule asks too): it is never drawn on a block of several points
+   (that table's left column names the point instead), it is not drawn on a focus stage (*"The
+   focus stage won't need any side-panels now"*), and otherwise it is drawn — including on a
+   **symbols** stage, where it names the picture the stage is breathing.
 3. **The intentions column** (the one scroller) — every line of the block in order,
    in one continuous list: the meditation's own lines first, then each pair's, which
    is the order `compile-plan` already emits. An **affirmations** stage shows the
@@ -711,31 +719,36 @@ Files: `apps/web/src/features/runner/SessionRegions.tsx` (the three regions),
   each inside two seconds. The `KeyHints` legend says so, and says it only while the
   arrows do something (§1.8), which excludes the alarm hold.
 - **A `symbols` stage shows symbols.** *"The symbol stage doesn't need to show me the
-  intentions, only symbols"* — its main region is a sheet of the block's symbols,
-  pictures where a symbol has one and names until then, and the panel beside it follows
-  the **clock**, because a sheet has nothing to scroll. An intentions or affirmations
+  intentions, only symbols"* — its main region is the block's symbols, and the rail beside it
+  follows the **clock**, because there is nothing to scroll. An intentions or affirmations
   stage whose column has run out of travel falls back to the clock too: *"it should be
-  updated with time even though the scrolling stops."*
-- **The sheet is the whole stage, and it is boxes in rows** (owner's rounds 20 and 22). The rail
-  beside it is gone — it drew the same symbols twice, in the width the boxes needed — and the
-  boxes are large and **framed** (`h-36 w-36`, a picture at `h-24 w-24`). Round 20 laid them out
-  as one staggered line; round 22 replaced that with `symbolRows`: balanced rows, the extra box
-  of an odd count in the **middle** row, and every other row nudged half a box across —
-  *"something like hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in first
-  row 2 in the 2nd row in the middle … something that feels organized but not constricted like a
-  list."* There is **no panel behind them**: *"that background strip or panel is not required,
-  just the boxes."*
-- **A `focus` stage draws the meditation and its symbols, in one colour, breathing** (the same
-  round, built 2026-09-24). *"During focus, we would want to show beautiful visuals of the
+  updated with time even though the scrolling stops."* **Round 26 is the same rule with the
+  clock made the only source**: the stage and the rail advance together, because the rail is
+  the thing that names the picture the stage is drawing.
+- **Round 26 replaced the sheet with one picture over a line.** The owner, on round 22's
+  honeycomb: *"The current boxes of symbols is absolutely hideous, it is a sore in my sight. …
+  The boxes and their names aligned to one side of the screen have to go. Instead, I want the
+  view you currently have for the focus stage. One big symbol at the top which breathes and
+  updates as the time passes. Rest of the symbols at the bottom in a single line also
+  breathing."* So the stage draws the symbol in play large and breathing (`h-48`/`h-64`), names
+  it on the region rather than in a caption, and keeps every symbol of the block in one line
+  beneath (`h-16`/`h-20`, one size, staggered breathing) with the one in play at full strength.
+  The line carries **all** of them, not only the ones still to come, so the map does not
+  reshuffle as the clock moves.
+- **A `focus` stage is a ring.** Round 20 asked for the artwork — *"beautiful visuals of the
   chakra's picture in its colour, as well as all the symbols in the same colour breathing etc.
-  occupying the entire space that was earlier occupied by the intentions table."* So the region
-  holds the meditation's picture — the reader's own upload, or the glyph `focus-glyphs.tsx`
-  draws for it — and the block's symbols under it, all in the meditation's accent, each
-  breathing on a stagger. **The accent is ink, never a fill**: every glyph is a line drawing in
-  `currentColor`, because §1.2's rule about a large background wash matters most on the largest
-  surface the app has. A chakra's petal count is data (2, 4, 6, 10, 12, 16, and a bloom for
-  Crown), a place on the body gets a location mark instead, and the symbol the stage's clock
-  has reached is drawn larger. Reduced motion gets the same picture, still.
+  occupying the entire space that was earlier occupied by the intentions table"* — and round 26
+  gave it its shape: *"all the symbols in a circle (without any boxes like they are today), all
+  of the same size, all of them breathing"*, with the meditation *"at the centre of the
+  circle"*. `ringPositions` is the arithmetic (the first symbol at the top, the rest evenly
+  round, 40% of the box); the ring has **no rail**, and only the drawn strength says which
+  symbol the clock has reached. **The accent is ink, and `currentColor` whatever shape carries
+  it**: the glyphs this file draws are line drawings, and the two the owner drew by hand
+  (`Hon Sha Ze Sho Nen` and `Dai Kyo Mo`, on an iPad in Linearity Curve) are filled outlines —
+  either way one colour is declared on the region, because §1.2's rule about a large background
+  wash matters most on the largest surface the app has. A chakra's petal count is data (2, 4, 6,
+  10, 12, 16, and a bloom for Crown), a place on the body gets a location mark instead. Reduced
+  motion gets the same picture, still.
 - **The whole screen takes the meditation's colour** (the owner's round 24). `Runner` puts
   `data-chakra="root|hara|…"` on its `<main>`, and one rule per chakra replaces the ground,
   the two surface tiers, the hairline and the accent token **for that subtree** — so the stage
@@ -988,6 +1001,14 @@ The treatment, which is the rule from here on:
   which nothing reads, and the saved row would be dropped for having no name. Its
   width comes from a `width` on the column (`min-w-[28rem]`: a sentence needs the
   room) rather than from `BUILTIN_WIDTH`'s per-key table.
+- **…and it has two more, because a sentence is more than its words** (`P4 · 60`): `Associated
+  with`, the pair it is written about (§5.2), and **`Tag`**, which says what kind of sentence it
+  is — `Declaration`, `Thanks Giving` or `Protection`, or nothing. The tag is what a **declaration
+  stage** reads (round 26), so this column is the only way a reader can write a second Declaration,
+  retag a sentence, or take a tag off; it is the same chip-with-a-search-bar as the Association
+  beside it, because a native `<select>` is what the Database replaced, and its `X` clears the tag
+  without touching the sentence. The three values come from `SENTENCE_TAGS` in the domain, so the
+  column, the union and the SQL check cannot drift.
 - **The Add-column form is a form**: `Heading` and `Description` labels over
   their controls, `Type` and `Points at` under `TileGrid`s, `Add column` as the
   one action and `Cancel` on the heading line.

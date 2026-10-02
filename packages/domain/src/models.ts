@@ -162,6 +162,22 @@ export type SessionLog = {
 export type StageKind = "intentions" | "symbols" | "focus" | "affirmations";
 
 /**
+ * Which sentences an **affirmations** stage reads.
+ *
+ * `meditation` is the app's own answer, and what every stage written before this field
+ * meant: the stage reads the sentences written about the block's own meditations
+ * (round 16's rule). `declaration` reads the workspace's **declaration** sentences
+ * instead, one shared template substituted with each meditation the block runs (the
+ * owner's round 26).
+ *
+ * A Declaration is therefore an affirmations stage pointed at the other pool rather
+ * than a kind of its own: the owner asked for the sentences to be stored separately,
+ * and that is what this field says. Nothing else about the stage changes — it is
+ * silent and it scrolls, because that is what its kind is.
+ */
+export type StagePool = "meditation" | "declaration";
+
+/**
  * One subsection of a meditation block, with its own timer.
  *
  * On a type this is the **template** a new block is built from; on a meditation it
@@ -183,6 +199,13 @@ export type PlanBlockStage = {
   binaural: boolean;
   /** The run screen's auto-scrolling intentions column (the owner's §12.19). */
   autoScroll: boolean;
+  /**
+   * Which sentences an affirmations stage reads — absent is `"meditation"`.
+   *
+   * Optional rather than defaulted in the stored shape so a stage written before the
+   * field existed keeps the bytes it had: the reading is what the absence means.
+   */
+  pool?: StagePool;
 };
 
 /** A type's stage template, which is the shape a block's stage is materialised in. */
@@ -312,7 +335,35 @@ export type Intention = Archived & {
   entryId: string | null;
   sortOrder: number;
   text: string;
+  /**
+   * What pool this sentence belongs to, when it belongs to one of its own.
+   *
+   * Absent is the ordinary case and the app's own answer: the sentence is read by the
+   * column of intentions it is written among, and by an affirmations stage when it hangs
+   * off the meditation that stage is running. A **tag** says the sentence is read from a
+   * pool of its own instead (the owner's round 26):
+   *
+   * - `protection` and `thanks_giving` label the sentences those meditations carry — they
+   *   are already read by their own stage, so the tag is the reader's word for them rather
+   *   than a second way of finding them;
+   * - `declaration` is the one the app reads **by tag**, because a Declaration stage is
+   *   written about the meditation in front of the reader rather than about a row: one
+   *   shared sentence, with the block's own meditations substituted into it.
+   */
+  tag?: SentenceTag | null;
 };
+
+/**
+ * The pools a sentence can be labelled with (the owner's round 26).
+ *
+ * The owner: *"Protection, ThanksGiving and Decleration can have their own tags"*, and the
+ * vocabulary that goes with it — *"today I think you use 'sentence' as a common term for
+ * intentions, affirmations etc … All will be called Intentions itself from now on. The tab can
+ * still be called affirmation in the database."* So the rows are **intentions** everywhere the
+ * app speaks about them, the Affirmations table keeps its name, and these three tags are what
+ * tells the three spoken meditations' pools apart.
+ */
+export type SentenceTag = "protection" | "thanks_giving" | "declaration";
 
 export type FieldDef = Archived & {
   id: string;
@@ -560,6 +611,19 @@ export type Plan = {
   blocks: PlanBlock[];
 };
 
+/**
+ * One point's lines, as a block of several reads them (the owner's round 26).
+ *
+ * `name` is the point itself — a body place a reader sits with — and `lines` is everything
+ * written for it: its own sentences, then its sentences for each symbol the block carries, in the
+ * block's symbol order. A line written about a **symbol alone** belongs to no point, so it follows
+ * the points under the symbol's own name rather than being dropped from the table.
+ */
+export type CompiledPointLines = {
+  name: string;
+  lines: string[];
+};
+
 export type CompiledBinaural = {
   leftTones: Tone[];
   rightTones: Tone[];
@@ -588,8 +652,7 @@ export type CompiledFact = {
   pinned: boolean;
 };
 
-export type CompiledSymbolGroup = {
-  name: string;
+export type CompiledSymbolGroup = {  name: string;
   description: string;
   usage: string;
   /** The symbol's picture, as a media-asset id the run screen resolves to a
@@ -619,6 +682,23 @@ export type CompiledBlock = {
    * Protection stage showed nothing at all (item 0.1).
    */
   affirmations: string[];
+  /**
+   * What a **declaration** stage reads: the workspace's declaration sentences with this
+   * block's meditations substituted into them, one line each, in the block's own order
+   * (the owner's round 26). Empty for a block with no declaration stage.
+   */
+  declarations: string[];
+  /**
+   * The block's lines grouped by the **point** they belong to, or `[]` for a block that runs
+   * one meditation.
+   *
+   * The owner's round 26, on a points block: *"Intentions can be categorized based on the point
+   * they belong to (since we're grouping things together). So, a column on the left where each
+   * cell tells which point these set of intentions are for."* A block of several has several
+   * points' lines under one symbol, and the symbol's name cannot say which point a line was
+   * written for — so the session screen names the point instead.
+   */
+  pointLines: CompiledPointLines[];
   /**
    * The block's **lead** meditation, by name — its first point.
    *

@@ -21,7 +21,12 @@ import { useSession } from "@/features/auth/SessionProvider";
 import { isInteractive } from "@/lib/interactive-target";
 import { Button, EYEBROW_CLASS, KeyHints, LatchButton } from "@meditaur/ui";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { flagIsOn, type FieldScope, type FeatureFlags, type Meditation } from "@meditaur/domain";
+import {
+  sentenceTagLabel,
+  type FieldScope,
+  type Meditation,
+  type SentenceTag,
+} from "@meditaur/domain";
 import type { LibraryView } from "@meditaur/application";
 import {
   addColumn,
@@ -43,6 +48,7 @@ import {
   renameColumn,
   sentenceRows,
   setEntriesOrder,
+  withLineTag,
   type DraftColumn,
   type DraftEntry,
   type DraftLine,
@@ -61,6 +67,7 @@ import {
   REVEAL,
   ReferenceCell,
   SelectCell,
+  TagCell,
   TextCell,
   cellTypeLabel,
   type CellRecords,
@@ -68,6 +75,7 @@ import {
 import { rowMatches } from "./grid-filter";
 import type { DatabaseTable, RecordTable } from "./database-tables";
 import { meditationTableTypeId, recordTableOf } from "./database-tables";
+import { builtinColumnsOf, isRecordColumn } from "./database-columns";
 import { recordMeditationTypeId } from "./database-model";
 import { columnIsInPool } from "../library/library-model";
 import type { MeditationType } from "@meditaur/domain";
@@ -160,78 +168,6 @@ type GridColumn =
   | { kind: "builtin"; key: string; label: string; scope: FieldScope; width?: string }
   | { kind: "custom"; column: DraftColumn };
 
-/** One built-in column, with the width it gets when its key's is not the right one. */
-type BuiltinColumn = { key: string; label: string; width?: string };
-
-/** The columns a meditation table draws, whichever type it belongs to. */
-const MEDITATION_BUILTIN_COLUMNS: BuiltinColumn[] = [
-  { key: "name", label: "Name" },
-  { key: "location", label: "Location" },
-  { key: "picture", label: "Picture" },
-  { key: "defaultSound", label: "Default sound" },
-  { key: "binaural", label: "Binaural" },
-  // §5.3: the meditation's own sentences — the lines that carry no symbol, which
-  // are the ones that would otherwise have no table to be written in. It is last
-  // because it is the column that takes what the others leave, the way an entry's
-  // own Intentions cell does.
-  { key: "intentions", label: "Intentions" },
-];
-
-const BUILTIN_COLUMNS: Record<
-  "symbols" | "presets" | "types" | "affirmations",
-  BuiltinColumn[]
-> = {
-  symbols: [
-    { key: "name", label: "Name" },
-    { key: "picture", label: "Picture" },
-    { key: "description", label: "Description" },
-    { key: "usage", label: "Usage" },
-  ],
-  presets: [
-    { key: "name", label: "Name" },
-    { key: "sound", label: "Sound" },
-  ],
-  /** A type's own columns are its meditations' and its stage template's; the row
-   *  itself carries a name and an order (§8, §12.6). */
-  types: [{ key: "name", label: "Name" }],
-  /**
-   * An affirmation's row is a **sentence**, so this table has two built-ins: the
-   * sentence — the cell a reader types into, and the one that takes the caret when
-   * a row arrives — and the Association, which is the pair the sentence is written
-   * about (§5.2). Neither is a record's name: the sentence never routes through
-   * `name`, which is the trap that once wrote `builtins.text` and dropped the saved
-   * row for having no name.
-   */
-  affirmations: [
-    { key: "name", label: "Affirmation", width: "min-w-[28rem]" },
-    { key: "association", label: "Associated with" },
-  ],
-};
-
-/**
- * The builtin columns of a table.
- *
- * A type's table is a meditation table, so it draws the meditation columns; the
- * Types table draws only a name. The two are one lookup rather than a branch at
- * every use.
- */
-/** The two columns that exist for the sounds: the preset a row defaults to, and its switch. */
-const BINAURAL_COLUMNS: readonly string[] = ["defaultSound", "binaural"];
-
-function builtinColumnsOf(table: DatabaseTable, flags?: FeatureFlags | null): BuiltinColumn[] {
-  if (!meditationTableTypeId(table)) {
-    return BUILTIN_COLUMNS[table as "symbols" | "presets" | "types" | "affirmations"];
-  }
-  // The two binaural columns leave with the flag (`P0 · 35`, slice 35d): one holds the
-  // sound a row defaults to and the other is its switch, so both are ways into a tone.
-  // The `Edit table` toolbar draws this same list, which is what stops the column being
-  // added back by hand — and a stored column key that is no longer here is simply not
-  // drawn, the way a key whose column was deleted is not.
-  return MEDITATION_BUILTIN_COLUMNS.filter(
-    (row) => !BINAURAL_COLUMNS.includes(row.key) || flagIsOn(flags, "binaural"),
-  );
-}
-
 /**
  * The width an **Intentions** column asks for.
  *
@@ -264,26 +200,10 @@ const BUILTIN_WIDTH: Record<string, string> = {
   usage: "w-64",
   // Two chips, and the pair is what the reader scans the table along.
   association: "min-w-56",
+  // One chip whose word is short: `Declaration`, `Thanks Giving` or `Protection`.
+  tag: "min-w-40",
   intentions: INTENTIONS_WIDTH,
 };
-
-/**
- * The builtin columns that are a *field* of the row rather than one of its text
- * columns — a chakra's picture, its default sound, its binaural setting, and a
- * sentence's Association.
- *
- * The Association is one for the same reason: its value is a pair of references,
- * not a string, so it is drawn as a cell of its own and never as a text box.
- */
-function isRecordColumn(key: string): boolean {
-  return (
-    key === "picture" ||
-    key === "defaultSound" ||
-    key === "binaural" ||
-    key === "intentions" ||
-    key === "association"
-  );
-}
 
 /** What the copy calls one row of a table. "Record" is spec vocabulary and never
  *  reaches the reader (§12.32). */
@@ -502,12 +422,27 @@ export function DatabaseTable(props: DatabaseTableProps) {
     );
   };
 
+  const setLineTag = (lineId: string, tag: SentenceTag | null) =>
+    props.onDraft((current) => withLineTag(current, lineId, tag));
+
+  /**
+   * The Tag cell (`P4 · 60`): what kind of sentence this is, and the only writer of the tag a
+   * declaration stage reads. Three values, and `X` takes one back off.
+   */
+  const tagCell = (row: SentenceRow) => (
+    <TagCell
+      value={row.line.tag}
+      records={props.records}
+      onCommit={(tag) => setLineTag(row.line.id, tag)}
+    />
+  );
+
   /**
    * One cell of a sentence's row (§5.2).
    *
    * A sentence is a line, not a record, so its cells are the line's: the sentence
-   * itself in the table's leading column — the one cell a reader scans down — and
-   * the Association beside it. Its own columns are the `affirmation` pool's and draw
+   * itself in the table's leading column — the one cell a reader scans down — the Association
+   * beside it, and its Tag. Its own columns are the `affirmation` pool's and draw
    * exactly as they do over any other row, which is what keeps one `TextCell` and one
    * `ChipPicker` behind both tables.
    */
@@ -516,6 +451,7 @@ export function DatabaseTable(props: DatabaseTableProps) {
       // The Association is the one record column a sentence has (`isRecordColumn`
       // also names the chakras' cells, and a sentence is not a chakra).
       if (column.key === "association") return associationCell(row);
+      if (column.key === "tag") return tagCell(row);
       return (
         <TextCell
           value={row.line.text}
@@ -576,6 +512,8 @@ export function DatabaseTable(props: DatabaseTableProps) {
               "builtin:association": row.entry
                 ? rowLabel(row.entry, props.records, index)
                 : "",
+              // The word the eye reads in the cell, so the filter and the column agree.
+              "builtin:tag": sentenceTagLabel(row.line.tag),
             },
             props.filters,
           ),

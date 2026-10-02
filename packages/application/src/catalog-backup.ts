@@ -19,12 +19,13 @@ import {
   type MediaAsset,
   type MeditationType,
   type Plan,
+  type SentenceTag,
   type SessionLog,
   type Symbol,
   type Versioned,
 } from "@meditaur/domain";
 
-export const CATALOG_BACKUP_SCHEMA_VERSION = 9;
+export const CATALOG_BACKUP_SCHEMA_VERSION = 10;
 
 export const CATALOG_BACKUP_ERRORS = {
   invalid: "That file is not a Meditaur catalog",
@@ -363,9 +364,23 @@ function parseIntentions(value: unknown, workspaceId: string): Intention[] {
     entryId: typeof row.entryId === "string" && row.entryId.length > 0 ? row.entryId : null,
     sortOrder: row.sortOrder ?? 0,
     text: row.text,
+    tag: sentenceTagOf(row),
     archivedAt: row.archivedAt ?? null,
     ...versionOf(row),
   }));
+}
+
+/**
+ * A sentence's tag read out of a file, or `null` for anything the app does not know.
+ *
+ * A backup file is hand-editable — the same reason `versionOf` defaults a missing field — so an
+ * unknown tag is dropped rather than carried into the store, where it would be a value no reader
+ * could see and no screen could offer.
+ */
+function sentenceTagOf(row: { tag?: unknown }): SentenceTag | null {
+  return row.tag === "protection" || row.tag === "thanks_giving" || row.tag === "declaration"
+    ? row.tag
+    : null;
 }
 
 function parseFieldValues(value: unknown): FieldValue[] {
@@ -674,6 +689,7 @@ export function parseCatalogBackup(value: unknown): CatalogBackup {
             entryId: null,
             text: row.text ?? "",
             sortOrder: row.sortOrder ?? index,
+            tag: sentenceTagOf(row),
             archivedAt: row.archivedAt ?? null,
             ...versionOf(row),
           }))

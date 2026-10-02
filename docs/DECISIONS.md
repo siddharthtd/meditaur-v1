@@ -173,6 +173,10 @@ Both are one-way, so **ask before reversing either**:
   switch on the plan and a plan that carries `true` is still obeyed. Dexie v25
   corrects only the two rows the app itself wrote (the seeded preference and the
   seeded plan); a plan the reader made keeps whatever it carries.
+  **Reversed again in round 26 — see §20.** The default is `true`, and a seeded Thanks Giving
+  block is now the one place the app answers for itself. The rest of this bullet (the switch is
+  the reader's, a plan that carries a value is obeyed, a repair corrects only the app's own two
+  rows) still holds.
 - **A meditation may answer the alarm question for itself.** `PlanBlock.alarmEnabled`
   is `boolean | null`, `null` for "the plan's answer", so a circuit can hold a silent
   Thanks Giving beside seven ringing chakras. Nothing is copied into a block until
@@ -300,7 +304,8 @@ Four questions were put back before anything was built, and the answers are bind
   short names against keeping `Auto-scroll`/`Auto-advance`, the owner took the short
   ones: the switch is in the session's own footer, and there is nothing else for either
   word to be about. With `sm` they also lose the `On`/`Off` word, so the state lives in
-  `aria-pressed`.
+  `aria-pressed`. **`Advance` is `Auto-Advance` again in round 26 — see §20** — so two of the
+  three keep a short name and the third does not.
 - **Every seconds wheel in the app wraps.** The choice was the session screen alone or
   the whole app; the owner took the whole app, so `DurationSteppers`' `wrapSeconds`
   defaults to true and one rule covers the run screen, a plan's editor, a Database cell
@@ -683,6 +688,70 @@ draws its bar on every screen it builds (action or not), the dead-end screens ge
 foot of the window, and the picker gets one holding the legend and its own action — `Choose`
 leaves the form for the bar, and `Enter` still commits because the form's submit is unchanged.
 The legend is never drawn beside the title.
+
+## 20. The Declaration, the alarm's default, and the two symbol stages (the owner's answers, 2026-09-25)
+
+The owner's round 26 landed as one round: the session's stages, the points circuit, and the
+symbols. These are the calls behind it.
+
+- **The alarm is ON by default, and Thanks Giving is the one exception.** *"Alarm should be ON by
+  default, only OFF for thanks giving."* `DEFAULT_ALARM_ENABLED` is `true` again — this reverses
+  §5 — the preference a new plan is built from follows it, and the two seeded Thanks Giving blocks
+  carry `alarmEnabled: false` **in the seed**, so the exception is visible where the block is
+  rather than hidden inside a default. Dexie **v36** corrects only the two rows the app itself
+  wrote (the seeded plan and the preference), and only while they still read the `false` v25 put
+  there; a plan the reader saved with `false` on purpose is a plan, not a default. A **new** Thanks
+  Giving block a reader adds follows the plan like every other block, which is the answer to
+  *"only OFF for thanks giving"* read as a rule about the seed.
+- **A Declaration leads every meditation.** *"In all the meditations (chakra, points, protection),
+  I want to add another stage called 'Declaration' … It will last a total of 10 seconds. It should
+  be inserted as a first stage to all the meditations before the intentions."* It is an
+  **affirmations** stage, because the owner's own steer was *"you can reuse the affirmations kind
+  instead of creating a new one"* if the sentences could be stored apart — and they are: the stage
+  names a `pool` and the row carries a `tag`.
+- **A Declaration is one sentence, substituted per meditation.** *"during decleration, I just say
+  'i declare this as the front and back of my <>' where <> is that chakra where I am meditating, or
+  the point I am meditating on. So, we can have a single decleration and substitute the points (in
+  a group when meditated together on) or chakras for the ongoing one."* The placeholder is the
+  owner's own `<>`; one line is read per meditation **in the block's own order**, so a three-point
+  group declares each of its points inside the one ten-second stage.
+- **The three spoken pools are three tags.** *"Protection, ThanksGiving and Decleration can have
+  their own tags"*, and *"All will be called Intentions itself from now on. The tab can still be
+  called affirmation in the database."* `Intention.tag` is `protection` · `thanks_giving` ·
+  `declaration`, nullable, and only `declaration` is read **by** its tag: the other two label
+  sentences that their own meditation's stage already reads.
+- **The symbols read in one order, the master first.** *"Their order should be - Dai-Kyo-Mo first
+  because it is the master symbol. It will be followed by Hon-Sha-Ze-Sho-Nen … then Sei-Hei-Ki …
+  and Cho-Ku-Rei. These are Usui Symbols. Then in this order - Harth/Rama first, Gnosa, Halu, Iava
+  in the middle, Kriya at the end, Shanti right before Kriya."* Asked where `Zonar` goes, the
+  owner answered that it keeps the place it had, after `Kriya`. It reaches an existing device
+  through **Dexie v36** and a new SQL migration, and a **binding keeps its id** — an id is derived
+  from the slot array's index — so only each binding's `sortOrder` moves.
+- **The symbols stage is one picture over a line; the focus stage is a ring.** *"One big symbol at
+  the top which breathes and updates as the time passes. Rest of the symbols at the bottom in a
+  single line also breathing"*; and for focus, *"all the symbols in a circle (without any boxes
+  like they are today), all of the same size, all of them breathing"*, with the meditation *"at
+  the centre of the circle"*. The rail is **kept** on a symbols stage — *"the focus stage has a
+  side-panel, so it will be retained and utilized to properly stay in step with the big symbol"* —
+  and gone on the focus stage: *"The focus stage won't need any side-panels now."*
+- **A points block names its points, on every stage.** *"Intentions can be categorized based on the
+  point they belong to … So, a column on the left where each cell tells which point these set of
+  intentions are for. You can remove the symbol side-panel for points."* A block of several
+  therefore draws no rail at all, its table's left column is the **point**, and its symbol and
+  focus stages are the chakra's. *"The top of the session page only displays the 1st point of the
+  group. It should display all the points constituted in the group"* — the header names every one.
+- **`Advance` is `Auto-Advance` again.** *"Re-name the 'Advance' back to 'Auto-Advance'."* This
+  reverses the short name §9 took; `Scroll` keeps its own, because there is still nothing else for
+  that word to be about in a session's footer.
+- **The breathing is a compositor job.** *"The breathing animation needs to be smoother, today I
+  can see it growing and shrinking frame by frame."* The animation is `transform` + `opacity` under
+  `will-change`, and nothing inside it carries a `drop-shadow` any more: a filter on an animating
+  subtree is re-rasterised on every frame, which is what the stepping was.
+- **The symbol artwork is the owner's to supply, and it has to be vector.** Asked how to hand the
+  exact symbols over, the owner answered that they will find a way and asked whether images would
+  do. They will not: *"hopefully animated to drawing the symbol line by line"* needs paths, and a
+  raster has none. What is owed, and the mechanism already in place for it, are
+  [ROADMAP.md](./ROADMAP.md)'s item 59.
 
 ## 10. Still the owner's
 

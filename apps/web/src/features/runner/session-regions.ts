@@ -61,6 +61,61 @@ export function factsHaveValues(facts: CompiledFact[] | undefined): boolean {
 }
 
 /**
+ * What the rail beside the lines holds.
+ *
+ * The owner's round 26, item 11: *"if it is a chakra-only intention, the side-panel should
+ * display the details of the chakra. If it is a symbol-only intention display the details of the
+ * symbol in the side-panel (most probably, this will be true for the master symbol or the usui
+ * symbols. As the Karuna symbols are all tied to the chakra/symbol pair, for which case the view
+ * is correct today)."*
+ *
+ * So the rail holds **what the block is about**, decided by where its lines hang: the symbol in
+ * play — the pair a Karuna sentence belongs to, or the symbol a Usui one does — or, where the
+ * lines are the meditation's own, the meditation. It is one function rather than a condition
+ * inside the component because the arrangement is what `session-regions.test.ts` asserts, and
+ * because `sessionRegions` has to ask the same question to know whether the strip is needed.
+ *
+ * A meditation is rendered as its **picture and its Display columns**, with no name: the name is
+ * the screen's own title, which is the reason round 16 removed the panel that repeated it. That
+ * is also why the subject is `null` rather than a nameless panel when there is neither a picture
+ * nor a column with a value — a box with nothing in it is what that round deleted.
+ */
+export type RailSubject = {
+  kind: "symbol" | "meditation";
+  name: string;
+  imageAssetId: string | null;
+  facts: CompiledFact[];
+};
+
+export function railSubject(input: {
+  symbolGroups?: CompiledSymbolGroup[];
+  /** Which symbol the stage's clock has reached; clamped, so a stale index cannot blank it. */
+  groupIndex?: number;
+  meditationName?: string | null;
+  representationAssetId?: string | null;
+  meditationFacts?: CompiledFact[];
+}): RailSubject | null {
+  const groups = input.symbolGroups ?? [];
+  if (groups.length > 0) {
+    const index = Math.min(Math.max(input.groupIndex ?? 0, 0), groups.length - 1);
+    const group = groups[index]!;
+    return {
+      kind: "symbol",
+      name: group.name,
+      imageAssetId: group.imageAssetId,
+      facts: [...(group.facts ?? []), ...(group.entryFacts ?? [])],
+    };
+  }
+  if (!factsHaveValues(input.meditationFacts) && !input.representationAssetId) return null;
+  return {
+    kind: "meditation",
+    name: input.meditationName ?? "",
+    imageAssetId: input.representationAssetId ?? null,
+    facts: input.meditationFacts ?? [],
+  };
+}
+
+/**
  * The regions the session screen draws, in order top to bottom.
  *
  * `skip` is computed here rather than inside each component so that the whole
@@ -78,45 +133,92 @@ export function sessionRegions(input: {
   symbolGroups?: CompiledSymbolGroup[];
   /** The kind of the stage on screen, which decides what the main region holds. */
   stageKind?: StageKind | null;
+  /**
+   * How many meditations the block runs.
+   *
+   * A block of several is a **points block** (the owner's round 22), and round 26 made it a
+   * shape of its own on this screen: it draws no rail on any stage, because what a reader needs
+   * beside its table is the *point* a line belongs to rather than the symbol it hangs off — and
+   * its symbols are all shown at the symbol and focus stages anyway.
+   */
+  meditationCount?: number;
+  /**
+   * The meditation's own name and picture.
+   *
+   * The rail needs them for the one block shape that has no symbol groups: the owner's round 26,
+   * item 11 — *"if it is a chakra-only intention, the side-panel should display the details of
+   * the chakra."*
+   */
+  meditationName?: string | null;
+  representationAssetId?: string | null;
 }): SessionRegion[] {
   const groups = input.symbolGroups ?? [];
+  const many = (input.meditationCount ?? 1) > 1;
   // A `symbols` stage shows the block's symbols; every other stage shows the lines
   // it reads. Both take the main slot, so the other two regions do not move when a
   // block walks from one stage to the next.
   const showsSymbols = input.stageKind === "symbols";
-  // The kind with nothing of its own to draw yet (the owner's round 20).
-  const blankFocus = input.stageKind === "focus";
+  // The stage the owner moved the artwork to: *"The focus stage's animations are good, so
+  // they're going into the symbol stage. … The focus stage won't need any side-panels now, only
+  // all the symbols breathing, same size, big enough to look beautiful."*
+  const isFocus = input.stageKind === "focus";
+  /**
+   * What the rail would hold, and therefore whether there is a rail at all.
+   *
+   * The same `railSubject` the panel renders from — asked with no index, because whether a
+   * subject exists does not depend on which symbol the clock has reached. One rule, so the
+   * region and the panel cannot disagree about whether there is anything to draw: a block whose
+   * lines are the meditation's own gets the meditation, and only a block with neither symbols
+   * nor a meditation with a picture or a column to its name gets no rail.
+   */
+  const railHere =
+    many || isFocus
+      ? null
+      : railSubject({
+          symbolGroups: groups,
+          meditationName: input.meditationName,
+          representationAssetId: input.representationAssetId,
+          meditationFacts: input.meditationFacts,
+        });
+  const railHoldsMeditation = railHere?.kind === "meditation";
   return [
     {
       id: "meditation",
       slot: "top",
       area: "meditation",
-      skip: factsHaveValues(input.meditationFacts)
-        ? null
-        : "the plan shows no meditation column with a value",
+      // The strip stands down where the rail holds the meditation, because the rail carries the
+      // same columns: a fact has one home on this screen, and the panel is the one the owner
+      // asked for (the owner's round 26, item 11).
+      skip: railHoldsMeditation
+        ? "the rail holds the meditation on a block whose lines are its own"
+        : factsHaveValues(input.meditationFacts)
+          ? null
+          : "the plan shows no meditation column with a value",
     },
     {
-      // The rail is the symbol **in play** beside the lines. A `symbols` stage draws
-      // every symbol as the stage's own content, so the rail there is the same
-      // information twice and half the width to say it in — the owner's round 20:
-      // *"I don't want a rail or a strip of bigger symbols, I want individual
-      // scattered (yet arranged) boxes … on the screen."*
+      // The rail is **what the block is about** beside the lines, and its details are what makes
+      // a session readable at a glance: the symbol in play on a block whose lines hang off
+      // symbols, and the meditation itself where they do not. It is kept on a symbols stage too,
+      // since round 26: the stage draws the pictures and the rail **names** the one the clock has
+      // reached — *"the focus stage has a side-panel, so it will be retained and utilized to
+      // properly stay in step with the big symbol"*.
       id: "symbol",
       slot: "rail",
       area: "symbol",
-      skip:
-        input.stageKind === "symbols"
-          ? "a symbols stage draws every symbol in the main region"
-          : groups.length > 0
+      skip: many
+        ? "a points block names its points in the table instead"
+        : isFocus
+          ? "a focus stage draws every symbol in a ring"
+          : railHere !== null
             ? null
             : "this meditation has no symbols",
     },
     {
       // Always drawn: the region is the stage's content, and "this stage has
       // nothing for you" is a thing it has to be able to say — the intentions
-      // column says it for an empty stage, and the gallery says it for a symbols
-      // stage with no symbols.
-      id: showsSymbols ? "symbols" : blankFocus ? "focus" : "intentions",
+      // column says it for an empty stage, and the symbols stage says it for a block
+      // with no symbols.
+      id: showsSymbols ? "symbols" : isFocus ? "focus" : "intentions",
       slot: "main",
       area: null,
       skip: null,
@@ -166,36 +268,24 @@ export function drawnRegions(regions: SessionRegion[]): SessionRegion[] {
 }
 
 /**
- * How many symbol boxes each row of a `symbols` stage holds.
+ * Where each symbol sits on the focus stage's ring, as a percentage of the ring's own box.
  *
- * The owner's round 22, on the sheet round 20 built: *"I didn't mean floating on a giant
- * panel … they still need to follow an organized grid structure, but, something like
- * hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in first row 2 in the
- * 2nd row in the middle. Something that feels organized but not constricted like a list."*
+ * The owner's round 26: *"For the Focus stage, I want all the symbols in a circle (without any
+ * boxes like they are today), all of the same size, all of them breathing"* — and, on the
+ * meditation, *"at the centre of the circle — the symbols ring the meditation"*.
  *
- * So the boxes are laid out in **balanced rows**: as few rows as the count needs at
- * `maxPerRow`, each row as even as the count allows, and the extra box of an odd count in the
- * **middle** row. Six become 3 + 3, five 3 + 2, seven 2 + 3 + 2 — a honeycomb the eye reads
- * as a shape, which is neither the rail of names nor the single line of boxes that were
- * tried before it.
+ * The first symbol sits at the top and the rest follow clockwise, evenly spaced: four symbols
+ * make a diamond, eight an octagon, one sits above the centre. Pure arithmetic, so the geometry
+ * can be asserted without a browser — the equal **size** of the symbols is the stylesheet's
+ * business, and the fact that they do not collide is the radius's.
  */
-export function symbolRows(count: number, maxPerRow = 3): number[] {
+export function ringPositions(count: number, radiusPercent = 40): { x: number; y: number }[] {
   if (count <= 0) return [];
-  const rows = Math.ceil(count / maxPerRow);
-  const base = Math.floor(count / rows);
-  const widths = Array.from({ length: rows }, () => base);
-  const order = centreFirst(rows);
-  for (let extra = count - base * rows; extra > 0; extra -= 1) {
-    const at = order[extra - 1];
-    if (at !== undefined) widths[at] += 1;
-  }
-  return widths;
-}
-
-/** Row indices from the middle outwards, so a spare box lands in the centre rows first. */
-function centreFirst(count: number): number[] {
-  const centre = (count - 1) / 2;
-  return Array.from({ length: count }, (_, index) => index).sort(
-    (a, b) => Math.abs(a - centre) - Math.abs(b - centre) || a - b,
-  );
+  return Array.from({ length: count }, (_, index) => {
+    const angle = (2 * Math.PI * index) / count;
+    return {
+      x: 50 + radiusPercent * Math.sin(angle),
+      y: 50 - radiusPercent * Math.cos(angle),
+    };
+  });
 }

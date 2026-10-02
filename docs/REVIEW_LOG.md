@@ -1,6 +1,6 @@
 # Meditaur — the owner's review log
 
-**Status:** living. Newest round at the bottom. Last entry: 2026-09-23.
+**Status:** living. Newest round at the bottom. Last entry: 2026-10-01.
 
 ## What this is
 
@@ -1738,6 +1738,161 @@ gate cannot clear another session's lock. Gate: `check` green — 89 files / 662
 duplicate `pnpm test:integration` in `deploy.yml`), and the CI reading itself — the next
 run is the first one in which the production-build suite actually executes there.
 
+## 2026-09-25 — round 26: the Declaration, the two symbol stages, and the points circuit (commits `08cda99`, `3db748e`)
+
+Fourteen asks in one message — thirteen about the screen, one about the seed — plus three answers
+given while the plan was being drawn. Every answer is [DECISIONS.md](./DECISIONS.md) §20, and the
+round reversed two earlier defaults: §5's alarm and §9's `Advance`.
+
+| # | The ask | What happened |
+| --- | --- | --- |
+| 1 | *"Alarm should be ON by default, only OFF for thanks giving"* | **Done** (`08cda99`). `DEFAULT_ALARM_ENABLED` is `true` again, and the two seeded Thanks Giving blocks answer for themselves with `alarmEnabled: false`. Dexie **v36** corrects only the two rows the app itself wrote, and only while they still read the `false` that v25 put there. [DECISIONS.md](./DECISIONS.md) §5 is annotated, §20 records it. |
+| 2 | *"Thanks Giving at the start and at the end of the seeded plan"* | **Done** (`08cda99`). The points circuit opens and closes with it, on fixed block slots above the group range so no group block is renumbered; the chakra circuit already did. |
+| 3 | *"The \"Intentions\" heading is out of the panel with intentions - Make it so that the Intentions Heading is inside the panel, so that the panel properly aligns with the vertical Symbol panel on the left"* | **Done** (`3db748e`). The heading moved inside the bordered scroller it heads, and it is sticky to it. |
+| 4 | *"In all the meditations (chakra, points, protection), I want to add another stage called \"Declaration\". This stage will be like thanksgiving itself, i.e. it can have only affirmations which will be inserted at a later stage, but it is a meditation's stage not a meditation. It will last a total of 10 seconds. It should be inserted as a first stage to all the meditations before the intentions"* | **Done** (`08cda99`). An **affirmations** stage pointed at a pool of its own by `PlanBlockStage.pool`, ten seconds, silent and scrolling like the kind it borrows. The pool is `Intention.tag`, and the app ships one Declaration — the owner's own sentence, *"I declare this as the front and back of my `<>`"*, with `<>` substituted by the block's meditations at compile time, so a three-point group declares each point in turn. |
+| 5 | *"The Symbols are unordered right now. Their order should be - Dai-Kyo-Mo first because it is the master symbol. It will be followed by Hon-Sha-Ze-Sho-Nen …, then Sei-Hei-Ki … and Cho-Ku-Rei …. These are Usui Symbols. Then in this order - Harth/Rama first, Gnosa, Halu, Iava in the middle, Kriya at the end, Shanti right before Kriya"* — and, asked where `Zonar` goes, *"keep it where it is"* | **Done** (`08cda99`). `Zonar` keeps the place it had, after `Kriya`. A binding keeps its id — an id is derived from the slot array's index — so only each binding's `sortOrder` moved, through Dexie **v36** and a new SQL migration. |
+| 6 | *"The current boxes of symbols is absolutely hideous, it is a sore in my sight. … The boxes and their names aligned to one side of the screen have to go. Instead, I want the view you currently have for the focus stage. One big symbol at the top which breathes and updates as the time passes. Rest of the symbols at the bottom in a single line also breathing."* | **Done** (`3db748e`). Round 22's framed boxes and `symbolRows` are deleted. The symbol in play is drawn large and breathing, named on the region rather than in a caption, with every symbol of the block in one line beneath it at one size — all of them, not only the ones still to come, so the map does not reshuffle as the clock moves. |
+| 7 | *"For the Focus stage, I want all the symbols in a circle (without any boxes like they are today), all of the same size, all of them breathing"* | **Done** (`3db748e`). `ringPositions` is the arithmetic and needs no browser; the meditation is at the centre, and the rail goes. Asked as a follow-up, the owner confirmed the rail's two halves separately: kept on the symbols stage — *"the focus stage has a side-panel, so it will be retained and utilized to properly stay in step with the big symbol"* — and not on focus — *"The focus stage won't need any side-panels now."* |
+| 8 | *"on the current focus screen, the symbol side-panel doesn't advance with time, that needs to be fixed too, now on symbol screen, the layout etc doesn't have to change at all, only the symbols advance properly so that with time next symbol is displayed in the side-panel as well as the main symbol screen updates for the bigger symbol synchronously with the side-panel"* | **Done** (`3db748e`) — and it was **not** a styling bug. A focus stage reported its symbol through the intentions column, and a stage with no column of lines never writes that report, so `currentGroupIndex` stayed on the first symbol for the whole six minutes. Both stages now read the clock. |
+| 9 | *"The symbol images themselves need to be updated. Do you know of a way in which I can give you the exact symbols? … (I don't want images that will completely destroy the feel of our polished app). This entire data should be seeded to the plan."* | **Not in this round's hands — register item 59.** Asked, the owner answered that they will find a way and asked whether images would do. They will not: *"hopefully animated to drawing the symbol line by line"* needs paths, and a raster has none. What the round did land is the mechanism — one glyph component per symbol, in the same hand — so what is owed is the vector source. The order itself is seeded. |
+| 10 | *"The breathing animation needs to be smoother, today I can see it growing and shrinking frame by frame, it needs to be much much more smoother"* | **Done** (`3db748e`). A `drop-shadow` sat inside the animating subtree, and a filter there is re-rasterised every frame. The animation is now `transform` + `opacity` under `will-change`, and nothing a breathing node contains may take a filter — it is a rule in [IMPLEMENTATION.md](./IMPLEMENTATION.md), not a tidy-up. |
+| 11 | *"For intention stage - if it is a chakra-only intention, the side-panel should display the details of the chakra. If it is a symbol-only intention display the details of the symbol in the side-panel (most probably, this will be true for the master symbol or the usui symbols. As the karuna symbols are all tied to the chakra/symbol pair, for which case the view is correct today)"* | **Not in this round's own commits — landed the same day in `3615b11`.** The rail was driven by the block's **symbol** groups alone, so a chakra-only intentions stage drew no rail at all and said "this meditation has no symbols" where the owner asked for that chakra's details. It is one rule now, `railSubject`, which the region list asks too: the rail holds the symbol in play, or the **meditation** — its picture and its Display columns, and no name, because the name is already the screen's title. Where it holds the meditation the top strip **stands down**, so no fact is drawn twice. The round's own notes below are left as they were written, which is why item 61 also appears in the still-open table with its closure beside it. |
+| 12 | *"Re-name the \"Advance\" back to \"Auto-Advance\""* | **Done** (`3db748e`). §9 had taken the short name. |
+| 13 | *"The top of the session page only displays the 1st point of the group. It should display all the points constituted in the group"* | **Done** (`3db748e`). The header names every point — "Eyes · Temples · Ears". |
+| 14 | *"Intentions can be categorized based on the point they belong to … So, a column on the left where each cell tells which point these set of intentions are for. You can remove the symbol side-panel for points. Symbols for points … can be displayed directly at the symbol stage. The symbol and focus stage for points should be similar to the chakras (Intention stage should be similar as well, except the table needs to show which point the intentions are for, and the symbol side-panel can go)."* | **Done** (`08cda99`, `3db748e`). `CompiledBlock.pointLines` groups the block's lines by the point they were written for, and the table's left column names it. A points block draws **no** rail on any of its stages, its symbol and focus stages are the chakras' — and a sentence written about a symbol **alone** belongs to no point, so it follows the points under the symbol's own name rather than being dropped. |
+
+Round notes:
+
+- **A defect the Declaration would have shipped.** Round 20's repair read its own stage list by
+  **position** (`affirmations`'s first stage), and a Declaration is now the first affirmations-kind
+  stage — so a device opening v36 would have been handed a Declaration's seconds as its Thanks
+  Giving template. It reads by key now, and the case is asserted rather than reasoned about.
+- **The replacement for the boxes was built twice.** The first attempt kept boxes at the bottom in
+  a bold variant of round 22's shape, and the owner's answer was blunt: *"it looks like absolutely
+  horse-shit. Don't you dare cite my earlier improvement rounds when you half-assed your work."*
+  They were right on both counts — the boxes were my reading of a round-22 sentence, not their
+  request, and citing it back was an excuse. The second attempt is the two shapes they described.
+- **Two stage-bullets in `UI_DESIGN.md` were rewritten, not appended to**, because §2.3 had come to
+  describe the honeycomb in detail and the screen no longer has one. `ROADMAP.md`'s *do not rebuild*
+  list said "do not put a panel behind the symbols **gallery**", which would have protected a
+  deleted layout; it is corrected to the pictures sitting on the screen itself.
+- **The rail's rules are one list** in `session-regions.ts`, with the reason each case skips
+  asserted: never on a points block, not on a focus stage, otherwise when the block has symbols.
+  The defect in note 1 is why this is one function and not four conditions spread over a component.
+- **Teeth, proved by disabling each fix.** `skip: many`/`isFocus` forced to draw, `pointLines`
+  emptied, and the alarm's default flipped back: **seven cases fail across four files**
+  (`default-workspace`, `upgrade-path`, `compile-plan` ×3, `session-regions` ×2).
+- **The e2e suite was rebuilt against the round, not patched around it.** A Declaration leads every
+  meditation, so four planner specs and three run specs that seeked by stage index now land on the
+  stage by name, and the alarm expectations flipped. Read green against a production build of this
+  tree: **101 passed**. The count did **not** move — nineteen cases in `run.spec.ts` and twenty-one
+  in `plans.spec.ts` before the round and after it — because this round rewrote forty cases rather
+  than adding any; a figure of 103 in this round's working notes during the rewrite was an
+  intermediate state of those two files, and the gate's own reading of the committed tree is the
+  101 above.
+- **Gate:** `check` green — **91 files / 684 unit tests**, then the whole e2e suite, then the hosted
+  live database after `cloud --yes` (17 passed, 2 skipped) and a local `up` that applied the new
+  migration.
+
+**Still owed:** the symbol artwork (item 59 — the owner's vector files). Ask 11, which the round
+reported as not landed, **closed the same day in `3615b11`** (register item 61), and the
+Affirmations table's `Tag` column **closed in `f3a2b64`** (register item 60) — which is also where
+a defect this round's saving wrote was found: the grid's line write is the whole row, and the draft
+did not carry `tag`, so editing the seeded declaration's words would have unwritten the tag its
+stage reads.
+
+**The round's own definition of done is read.** `check:full` on `a542574` — `prepare 3 · check 37 ·
+live databases 21 · build 90 · e2e 273s (total 424s)` — is green end to end: the edit loop, both
+live databases, `next build` (which is the only thing that validates `app/**/route.ts`), and the
+e2e suite at **101 passed in 3.0m at three workers**.
+
+## 2026-09-25 — the owner's own brush art, and the two symbols it lands (commit `857aa57`)
+
+Round 26's ask 9 (*"The symbol artwork"*) left the owner owing the vector source, and the round
+above recorded the answer it got: *"I have no means or ways to do this right now. I will get back
+to you on how this can be done"*. The owner found the means the same day — an iPad, Linearity
+Curve, and a brush — and handed over two SVGs in `incoming_svgs/`. Both are the app's art now,
+and both replace the line drawings this repo had invented for them.
+
+| # | What the owner handed over | What happened |
+| --- | --- | --- |
+| 1 | `Dai Kyo Mo.svg` and its PNG — the master symbol, in the owner's own hand | **Done** (`857aa57`). The code-drawn `DaiKyoMo` is gone: one string per brush stroke in `symbol-art.ts`, painted as a fill in `currentColor`. |
+| 2 | `HSZSN.svg` and its PNG — the distance symbol (the file is named for the initials, the symbol for the name) | **Done** (`857aa57`). The same, replacing the code-drawn `HonShaZeShoNen`. A hyphenated, spaced or shouted spelling all reach it — the art is keyed through `keyOf` like every other name. |
+
+**The handover taught the register's own premise a lesson.** Item 59 said a raster would not do,
+because *"animated to drawing the symbol line by line"* is `stroke-dasharray`/`stroke-dashoffset`
+off each path's length. The art is vector — but a brush stroke exports as the **outline of the
+width it swept**, so there is no stroke width in either file and nothing for a dash offset to walk.
+These two symbols are *filled*. The drawing-that-draws-itself is still owed, and it now owes a walk
+that works on fills; the strokes are stored in the order the owner drew them for exactly that.
+
+**And it settled what the colour rule means in practice.** The export is black, which on a session
+screen is no picture at all. `fill="currentColor"` is what ships and the hex is stripped in the
+same change, so the region's accent is still the ink whichever way a glyph was drawn — and
+`focus-glyphs.test.ts` fails if a hex comes back, proved by restoring `fill="#000000"` and
+watching it fail.
+
+**And the run spec found something that was not the art.** `run.spec.ts` measures the symbols line
+and asserts one size for it — while `breathe` scales every box on a stagger, so the measurement was
+reading the animation's phase rather than the layout. It came back with two distinct widths, and it
+went green the moment the geometry was measured with the animation frozen, which is what the ring's
+own geometry already does. The reading: **21 passed in 1.6m, then 21 passed in 1.9m** — two
+consecutive clean runs, which is the bar for a change a reader can see.
+
+Files: `apps/web/src/features/runner/symbol-art.ts` (new),
+`apps/web/src/features/runner/focus-glyphs.tsx`, `tests/unit/web/focus-glyphs.test.ts`,
+`tests/e2e/run.spec.ts`, [UI_DESIGN.md](./UI_DESIGN.md) §2.3,
+[IMPLEMENTATION.md](./IMPLEMENTATION.md) and [ROADMAP.md](./ROADMAP.md) item 59.
+`./scripts/meditaur check` green: 91 files / 695 unit tests.
+
+## 2026-10-01 — the Supabase pause warning, and the keep-alive that answers it (commit `eab5fd5`)
+
+The ask arrived as an email rather than as a screen: *"I got an email that my supabase
+project is going to be paused for less activity in the last 7 days"* — with a plan for a
+keep-alive that had come from a chat with another model. Not a review of the app, but a
+request about the one thing the app does not own: the hosted project that sign-in, cloud
+preferences, sync and both live suites run against. Recorded here because it is the
+owner's request, and because the last step of it is still theirs.
+
+| # | The ask | What was done |
+| --- | --- | --- |
+| 1 | *"Can you help?"*, over the three mechanisms offered — a scheduled GitHub Actions job, Vercel cron, an external monitor | **Put to the owner before anything was built, then built.** Supabase's own page is the constraint: a Free project pauses after a week without enough **user database activity**, and *"a few user requests to the database each day over the previous week is enough"*. Measured against the live project first: `GET /rest/v1/plans?select=id&limit=1` with the publishable key answers `200 []` — RLS filters a session-less request to nothing, but the query still runs, which is the activity the rule counts. The owner chose the Actions route and **`P1`**; Vercel cron was rejected because it needs app code, a public unauthenticated endpoint that does a database read, and Hobby's once-a-day limit, against no app surface at all here |
+| 2 | what the keep-alive is | **`scripts/keep-alive.sh`, run daily by `.github/workflows/keep-alive.yml` at 05:23 UTC.** Two read-only probes — a PostgREST table read and `/auth/v1/health` — and a non-2xx, or a transport failure, exits non-zero, so **a red run is the alarm** rather than a log nobody reads. Nothing writes, and `tests/unit/architecture/keep-alive.test.ts` proves that rather than trusting the sentence: it runs the real script under `sh` against a fake `curl` and pins the two requests, the four verdicts, the host in the log line, and the `.env` fallback. Teeth proved by breaking three guards at once — exactly the three expected cases failed |
+| 3 | the two things the first draft got wrong | **Both found by running it against the live project, not by reading it.** The host printed as `https:`, because BSD sed does not read `\?` in a BRE the way GNU sed does; and `/auth/v1/health` sits behind the project's gateway and answers **401** without the key, so the health probe had to carry the key too. Both are guarded now — the log line's host is asserted, and the second call is asserted to carry `apikey` |
+
+**The public mirror is why the workflow looks the way it does.** This repo is private
+and `meditaur-v1` is public, built from `git archive HEAD`, so this file lands there with
+no secrets in reach. Its two steps are guarded on the pair's presence — a quiet skip
+rather than a failure every morning, which is the shape `deploy.yml` already uses for its
+own missing `VERCEL_TOKEN`. The key itself is the dashboard's **publishable** pair, no
+more exposed than the copy the browser bundle already carries, and it is held in the
+repository's Actions secrets rather than written into a file.
+
+**And one repo rule shaped the design more than the request did.** The integrity test
+requires a pinned `uses:` in *every* workflow, from a fixed allowlist of five actions — so
+a keep-alive that was nothing but `curl` could not exist here. The file uses the
+`checkout` pin the other three already carry, which is also what lets the ping live in
+`scripts/` where a unit test can run it under `sh` instead of it being prose in YAML.
+
+Files: `scripts/keep-alive.sh` (new), `.github/workflows/keep-alive.yml` (new),
+`tests/unit/architecture/keep-alive.test.ts` (new), [ROADMAP.md](./ROADMAP.md) item 62,
+[DEPENDENCIES.md](./DEPENDENCIES.md). `./scripts/meditaur check` green: 93 files / 716
+unit tests.
+
+**And the full gate's e2e stage was red, for a reason that is not this change.**
+`check:full` read `prepare 6 · check 53 · live databases 27 · build 10 · e2e 346s
+(total 442s)` with **1 failed / 103 passed** — `database.spec.ts:132`, a dragged row
+being visible again after a save and a reload. It is the class the register already
+carries: the host sat at a load average of **17.3 on 12 cores**, and the gate's own
+warning starts above six. Read the way this repo says to read a red stage: that test
+alone, run three times, passed **3/3 in 41.5s**; the whole `database.spec.ts` alone then
+read **2 failed / 21 passed**, both at the same `getByText("Saved.")` assertion and
+neither of them the test that failed in the full run. So the file's two drag tests and
+its two save waits swap places depending on what the machine is doing — which is what a
+15-second `expect` does at that load, and what item 17 records. Nothing here touches app
+code, a migration or a build input, so the app cannot be the variable. The quiet-host
+run is owed, and it is owed to item 17 as much as to this item.
+
 ## Still open from the reviews
 
 Named here so a later round does not have to remember them. Nothing here is on a
@@ -1747,6 +1902,7 @@ owner rather than an agent.
 
 | From | Item | Where it goes |
 | --- | --- | --- |
+| 2026-10-01, the pause warning | **The keep-alive is built, and does nothing until two secrets exist.** `scripts/keep-alive.sh` is run daily by `.github/workflows/keep-alive.yml`, but the step that runs it is skipped while `SUPABASE_URL` and `SUPABASE_ANON_KEY` are absent — which is what keeps the public mirror quiet, and is also what the private repo does today. Until they are added, every run takes the skip branch and the project pauses anyway. | Owner's action: Settings → Secrets and variables → Actions → two new **repository secrets**, carrying the dashboard's publishable pair (the same values as `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env`). `P1 · 62`; the fallback is the Pro plan, which cannot be paused. |
 | Round 16, item 10 | **The admin panel, the flags' real home, and what `usui_reiki` / `reiki_master` gate.** Both are `true` today by the owner's answer — *"it should default to true until the admin-panel is ready"* — so the enabled set is a domain constant and a preference with no writer was deliberately not added. The four new symbols also came with empty Description and Usage, which the owner said they would fill in the Database. | The owner's, entirely: the panel is *"more on that later"*, and it decides whether the flags are owner-scoped or account-scoped. Plan §6 and §14. **UNPARKED 2026-09-22** — answered: per account, with the panel as the only writer (`P0 · 23`, `P0 · 35`; [DECISIONS.md](./DECISIONS.md) §11, [HISTORY.md](./HISTORY.md)). **Delivered 2026-09-23:** the flags, their table, the read path and the panel are in, and every surface they name hides (`HISTORY.md`). The Karuna gate this row asked for landed as item 35's `35c`, and the four symbols' empty Description and Usage stay the owner's to fill in the Database. |
 | Round 16, item 10 | **Karuna's selector, as built, is the general rule**: every live meditation with at least one symbol-carrying row, so Protection (whose seeded Zonar sentence is one) has a table instead of no home. The owner's words were *"chakra … with points-scoped as well"*. | Owner's confirmation. Narrowing it to chakras and points would leave Protection's sentence visible only in the Affirmations tab. Plan §13.5. |
 | Round 16, item 9 | **A symbol with no meditation is a heading no selector can name.** Those sentences draw under `No meditation` at the foot of Karuna's stack, and the heading is deliberately not an option (it has no id, and `null` already means "no filter"). | Owner's call: if they want that heading selectable, it needs an id of its own rather than a shared `null`. Plan §13.6. |
@@ -1776,3 +1932,6 @@ owner rather than an agent.
 | Round 21, Seed 4 | **"Thirteen" or twelve?** The owner's list of body parts holds **fourteen** items and said *"thirteen"*; `Liver` and `Kidneys` were already seeded as points, so twelve rows are new. The arithmetic only reaches thirteen if `Thyroid and thymus` was meant as **two** points (whose and thymus are different places), and it is one row today because `FOCUS_ORDER` has listed it as one since round 14. | **CLOSED — and twice over.** Round 22 split `Thyroid and thymus` (Dexie **v32**) and round 25 split `Pancreas and spleen` (**v34**): the seed writes fourteen body points beside the two organs, and every one of them carries its own row, its own sentences and its four reiki bindings. This row had gone stale the moment round 22 landed and nothing noticed, which is why it is closed here rather than left to read as an open question. |
 | Round 22, item 1 | **A point block's `Display` facts are its lead point's.** With several points in one block, the top strip draws the **first** point's columns, because a block runs one set of stages and one sound and every block-level fact follows them. Showing each point's would need a labelled band per point, which is a different shape rather than a fix. | Owner's call. |
 | Round 22, found while wiring v33 | **The upgrade path below the newest version has no test at all.** Every suite starts from an empty database, so no Dexie upgrade callback runs in CI — and a defect this round found in the shipped v30 lived exactly there: a plan row is not a plan, the rule read `plan.blocks`, and the throw **aborted the open** on any real device at v29. The guard is a spec that fabricates an older store (a Dexie version below the newest, one row of each shape the upgrade reads) and then loads a screen, which is what 2026-09-21's outage also asked for and never got. `fake-indexeddb` is already an allowlisted devDependency, so the harness exists. | **HALF DELIVERED 2026-09-24 (round 25).** `tests/unit/db/upgrade-path.test.ts` fabricates a v33 store from the schema the class declares, opens the real database and asserts the open completes with the repaired catalogue behind it — the first test in the repo that runs an upgrade body at all, and it immediately found a **shipped defect** (v32's merge helper left `Thymus` without its four symbols; `withChanges` is the fix). What it still does not reach is the path below v33 — a device at v19, which is the 2026-09-21 outage's own class — and a *screen* load, since it opens the store rather than a page. The register keeps the row open for that remainder (`P2 · 43`). |
+| Round 26, ask 9 | **The symbol artwork.** Four symbols are drawn as line art; the other eight are a rosette until their own designs arrive. The owner owes the vector source — asked in the round, answered *"I am looking for a way to supply high quality svg files to you … I have no means or ways to do this right now. I will get back to you on how this can be done (unless, if you have a way to get them properly formed and converted if i gave you images?)"* — and a raster cannot be used: *"hopefully animated to drawing the symbol line by line"* is `stroke-dasharray` off each path's own length, which an image does not have. | **Partly answered 2026-09-25 (`857aa57`).** The owner found the means — an iPad and Linearity Curve — and handed over `Dai Kyo Mo` and `Hon Sha Ze Sho Nen`, which are the app's art now: `symbol-art.ts`, filled outlines painted in `currentColor`, with `focus-glyphs.test.ts` failing if the export's black comes back. Still owed: a drawing for every other symbol, and the line-drawing reveal — which the handover sharpened rather than closed, because a brush exports as **filled outlines** and a dash offset has no stroke to walk. `P3 · 59` carries both. |
+| Round 26, ask 11 | **A chakra-only intentions stage has no rail.** The rail is driven by the block's **symbol** groups, so where the owner asked for *"if it is a chakra-only intention, the side-panel should display the details of the chakra"*, a block whose lines are the meditation's own draws no rail and says "this meditation has no symbols". The symbol-only half is already right, and the Karuna pair case is unchanged. | **CLOSED 2026-09-25 (`3615b11`).** One rule, `railSubject`, decides the panel's subject — the symbol in play, or the meditation — and the region list asks it too, so the panel and the decision to draw it cannot disagree. Where the rail holds the meditation the top strip stands down, because it carries the same columns. |
+| Round 26, follow-up | **A sentence's tag is not editable from the app.** The Declaration's pool is real, seeded and read — but nothing writes a tag, so a reader can edit the one seeded declaration and cannot add a second, retag a row, or label the Protection sentence on a device that seeded before this round. | **CLOSED 2026-09-25 (`f3a2b64`).** The Affirmations table has a `Tag` column over the three values `SENTENCE_TAGS` holds, drawn as the chip its Association neighbour is; and the finding that came with it: a grid write is the **whole row**, so the draft could not omit the tag — editing the seeded declaration's words was unwriting it. The draft carries it, `sameLine` compares it, and the reader-visible guard edits the declaration and reads the stage afterwards. |

@@ -1,8 +1,15 @@
 import "fake-indexeddb/auto";
 import Dexie from "dexie";
 import { describe, expect, it } from "vitest";
-import { copyStages, INTENTION_STAGES, POINT_TYPE_ID } from "@meditaur/domain";
-import { buildDefaultWorkspace } from "../../../packages/db/src/default-workspace.ts";
+import {
+  DEFAULT_THEME,
+  copyStages,
+  INTENTION_STAGES,
+  POINT_TYPE_ID,
+  type PlanBlockStage,
+} from "@meditaur/domain";
+import { DEFAULT_PLAN_ID, buildDefaultWorkspace } from "../../../packages/db/src/default-workspace.ts";
+import { planRowForStore } from "../../../packages/db/src/plan-mapper.ts";
 import { db } from "../../../packages/db/src/schema.ts";
 import { nid } from "../../../packages/db/src/seeded-ids.ts";
 import { GROUP_PRESET_SLOTS, POINTS_PLAN_ID } from "../../../packages/db/src/seeded-plans.ts";
@@ -38,6 +45,11 @@ function storeMap(of: Dexie): Record<string, string> {
   );
 }
 
+/** The stages a device seeded before round 26 holds: the Declaration had not been written yet. */
+function withoutDeclaration(stages: PlanBlockStage[] | null): PlanBlockStage[] | null {
+  return stages?.filter((stage) => stage.key !== "declaration") ?? null;
+}
+
 /** The catalogue of a device that has run v33: no `Spleen`, and the pair written as one row. */
 function asRound24() {
   const ws = buildDefaultWorkspace("ws-test");
@@ -48,11 +60,15 @@ function asRound24() {
   const spleenEntryId = nid(0x500 + (spleenSlot - 0x50));
   const meditations = ws.meditations
     .filter((row) => row.id !== spleenId)
-    .map((row) =>
-      row.id === nid(pancreasSlot)
-        ? { ...row, name: "Pancreas and spleen", locationText: "The upper abdomen" }
-        : row,
-    );
+    .map((row) => {
+      // No Declaration: a v33 row carries that build's own copy of its template, and this is
+      // what makes the fixture a model of a real store rather than of today's seed.
+      const stages = withoutDeclaration(row.stages);
+      const base = { ...row, stages };
+      return row.id === nid(pancreasSlot)
+        ? { ...base, name: "Pancreas and spleen", locationText: "The upper abdomen" }
+        : base;
+    });
   const entries = ws.entries.filter(
     (row) =>
       row.meditationId !== spleenId &&
@@ -76,7 +92,7 @@ function asRound24() {
         {
           id: nid(0x220 + index),
           sortOrder: index,
-          stages: copyStages(lead.stages ?? INTENTION_STAGES),
+          stages: withoutDeclaration(copyStages(lead.stages ?? INTENTION_STAGES)) ?? [],
           meditationIds: mine.map((row) => row.id),
           symbolId: null,
           symbolScope: "all" as const,
@@ -107,7 +123,37 @@ function asRound24() {
     deletedAt: null,
   };
 
-  return { ws, meditations, entries, intentions, planRow };
+  /**
+   * The chakra circuit as the app itself wrote it, through the app's own mapper.
+   *
+   * Both of the things round 26 repairs are here: no Declaration in the blocks, and the alarm
+   * the old default left on the plan — `false`, which is exactly the value v25 wrote into the
+   * one row the app owns.
+   */
+  const chakra = ws.plans.find((row) => row.id === DEFAULT_PLAN_ID)!;
+  const chakraRow = {
+    ...planRowForStore({ ...chakra, alarmEnabled: false }),
+    blocksJson: JSON.stringify(
+      chakra.blocks.map((block) => ({ ...block, stages: withoutDeclaration(block.stages) ?? [] })),
+    ),
+  };
+  /** The preference row a device seeded before round 26 holds, with the alarm's old default. */
+  const preference = {
+    userId: "local-dev",
+    stopBinauralOnAlarm: true,
+    autoAdvance: true,
+    alarmEnabled: false,
+    masterVolume: 0.7,
+    alarmVolume: 0.6,
+    ttsEnabled: false,
+    textSize: "md" as const,
+    theme: DEFAULT_THEME,
+    lastPlanId: DEFAULT_PLAN_ID,
+    revision: 0,
+    updatedAt: 0,
+  };
+
+  return { ws, meditations, entries, intentions, planRow, chakraRow, preference };
 }
 
 /** A store at Dexie v33, holding round 24's catalogue, then the real open that upgrades it. */
@@ -125,17 +171,19 @@ async function fabricateThenOpen(): Promise<void> {
   const old = new Dexie("meditaur");
   old.version(33).stores(stores);
   await old.open();
-  const { ws, meditations, entries, intentions, planRow } = asRound24();
+  const { ws, meditations, entries, intentions, planRow, chakraRow, preference } = asRound24();
   await old.table("meditations").bulkPut(meditations);
   await old.table("symbols").bulkPut(ws.symbols);
   await old.table("entries").bulkPut(entries);
   await old.table("intentions").bulkPut(intentions);
-  await old.table("plans").put(planRow);
+  await old.table("plans").bulkPut([planRow, chakraRow]);
+  await old.table("preferences").put(preference);
   await old.table("presets").bulkPut(ws.presets);
   old.close();
 
-  // v34 splits `Pancreas and spleen`, v35 regroups the circuit. If either threw, this rejects
-  // and the open is aborted — exactly what a real device would meet.
+  // v34 splits `Pancreas and spleen`, v35 regroups the circuit, v36 is the Declaration and the
+  // alarm's default. If any threw, this rejects and the open is aborted — exactly what a real
+  // device would meet.
   await db.open();
 }
 
@@ -182,25 +230,65 @@ describe("the Dexie upgrade path, from the previous version", () => {
       expect(bound, `${name}'s four symbols`).toEqual([nid(0x38), nid(0x39), nid(0x3a), nid(0x3b)]);
     }
 
-    // The regroup: the owner's five groups, with the circuit's own timers and one tone each.
+    // The regroup: the owner's five groups, with the circuit's own timers and one tone each —
+    // behind the Thanks Giving blocks that open and close it (round 26).
     const row = (await db.plans.toArray()).find((plan) => plan.id === POINTS_PLAN_ID)!;
     const blocks = JSON.parse(row.blocksJson) as {
       meditationIds: string[];
-      stages: { durationMs: number }[];
+      stages: { key: string; durationMs: number }[];
       binauralPresetId: string | null;
+      alarmEnabled: boolean | null;
     }[];
-    expect(blocks.map((block) => block.meditationIds.length)).toEqual([3, 4, 4, 3, 2]);
+    expect(blocks.map((block) => block.meditationIds.length)).toEqual([1, 3, 4, 4, 3, 2, 1]);
     expect(
       blocks.map(
-        (block) => block.stages.reduce((total, stage) => total + stage.durationMs, 0) / 60_000,
+        (block) => block.stages.reduce((total, stage) => total + stage.durationMs, 0) / 1000,
       ),
-    ).toEqual([5, 6, 6, 5, 5]);
-    expect(blocks.map((block) => block.binauralPresetId)).toEqual(
-      GROUP_PRESET_SLOTS.map((slot) => (slot == null ? null : nid(slot))),
-    );
+    ).toEqual([70, 310, 370, 370, 310, 310, 70]);
+    expect(blocks.map((block) => block.binauralPresetId)).toEqual([
+      null,
+      ...GROUP_PRESET_SLOTS.map((slot) => (slot == null ? null : nid(slot))),
+      null,
+    ]);
     // The plan's own row is untouched by the regroup.
     expect(row.name).toBe("Points circuit");
     expect(row.revision).toBe(0);
+
+    db.close();
+  });
+
+  it("gives every stage list a Declaration, and turns the alarm's default back on", async () => {
+    await fabricateThenOpen();
+
+    // The Declaration leads every row that carries stages of its own: the meditations, and the
+    // blocks of **both** plans — a block carries the template materialised rather than a
+    // reference to it, so repairing a type or a meditation does not reach a plan.
+    const meditations = await db.meditations.toArray();
+    const staged = meditations.filter((row) => (row.stages?.length ?? 0) > 0);
+    expect(staged.length).toBeGreaterThan(0);
+    for (const row of staged) {
+      expect(row.stages?.[0]?.key, `${row.name} leads with the Declaration`).toBe("declaration");
+      expect(row.stages?.[0]?.durationMs).toBe(10_000);
+      expect(row.stages?.filter((stage) => stage.key === "declaration")).toHaveLength(1);
+    }
+    const planRows = await db.plans.toArray();
+    const json = (id: string) =>
+      JSON.parse(
+        planRows.find((plan) => plan.id === id)!.blocksJson,
+      ) as { stages: { key: string }[]; alarmEnabled: boolean | null }[];
+    // The chakra circuit's blocks were repaired too, and it is the one the reader's own plans
+    // resemble most closely: a plan is not a reference to its type.
+    const chakra = json(DEFAULT_PLAN_ID);
+    expect(chakra.map((block) => block.stages[0]?.key)).toEqual(
+      chakra.map(() => "declaration"),
+    );
+    // The alarm's default is on again — and only on the two rows the app itself writes. The
+    // circuit's Thanks Giving blocks keep the `false` the seed gives them.
+    expect(planRows.find((plan) => plan.id === DEFAULT_PLAN_ID)?.alarmEnabled).toBe(true);
+    expect((await db.preferences.toArray())[0]?.alarmEnabled).toBe(true);
+    const circuit = json(POINTS_PLAN_ID);
+    expect(circuit[0]?.alarmEnabled).toBe(false);
+    expect(circuit.at(-1)?.alarmEnabled).toBe(false);
 
     db.close();
   });

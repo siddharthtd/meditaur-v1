@@ -2,7 +2,9 @@ import Dexie, { type EntityTable, type Table } from "dexie";
 import { assetsWithOrder } from "./asset-order.ts";
 import { FOCUS_ORDER, SYMBOL_ORDER, rankOf } from "./catalog-order.ts";
 import { DEFAULT_PLAN_ID } from "./default-workspace.ts";
+import { withDeclarationStage } from "./declaration-stage.ts";
 import { scopedSeededTypes } from "./meditation-type-scope.ts";
+import { withSeededSentences } from "./seeded-sentences.ts";
 import { thanksGivingMinute, withoutSeededCrown } from "./seeded-circuit.ts";
 import { planFromRow, planRowForStore } from "./plan-mapper.ts";
 import { regroupSeededPointsCircuit, withSeededPointsCircuit } from "./seeded-plans.ts";
@@ -1419,6 +1421,71 @@ export class MeditaurDB extends Dexie {
           presetIds: presets.map((row) => row.id as string),
         });
         for (const plan of regrouped) await tx.table("plans").put(planRowForStore(plan));
+      });
+
+    /**
+     * The Declaration stage, and the alarm's default back on (the owner's round 26).
+     *
+     * Three parts, in this order, because each reads what the one before it wrote:
+     *
+     * 1. **The points circuit is regrouped again**, for v35's reason — the owner's *"regroup
+     *    always"* — and because the circuit now opens and closes with Thanks Giving.
+     *    `pointsCircuit` is the one place that knows that shape, and it also writes the
+     *    Declaration into each of those blocks' stages.
+     * 2. **Every stage list that is a list gains the Declaration in front of it**: the types,
+     *    the meditations, and the blocks of every plan — the chakra circuit's included, since a
+     *    block carries the template *materialised* rather than a reference to it.
+     * 3. **The alarm's default is reversed back to on.** v25 wrote `false` into the two rows the
+     *    app itself writes — the seeded plan and the preference — and only those are corrected,
+     *    gated on the stored value being exactly the `false` it wrote. A plan the reader saved
+     *    with `alarmEnabled: false` on purpose is a plan rather than a default, and is left
+     *    alone; a Thanks Giving block's own `false` is a block's answer and is left alone too.
+     * 4. **The two sentences the app writes gain their tags**: the Protection sentence's own, and
+     *    the single declaration a Declaration stage reads, substituted with the block's
+     *    meditations at compile time.
+     */
+    this.version(36)
+      .stores({})
+      .upgrade(async (tx) => {
+        const [types, meditations, planRows, presets, intentions] = await Promise.all([
+          tx.table("meditationTypes").toArray(),
+          tx.table("meditations").toArray(),
+          tx.table("plans").toArray(),
+          tx.table("presets").toArray(),
+          tx.table("intentions").toArray(),
+        ]);
+        // A marked plan is not resurrected: only live rows are handed in, exactly as v35 does.
+        const livePlans = planRows.filter((row) => row.deletedAt == null).map(planFromRow);
+        const regrouped = regroupSeededPointsCircuit({
+          meditations,
+          plans: livePlans,
+          presetIds: presets.map((row) => row.id as string),
+        });
+        const plans = withChanges(livePlans, regrouped);
+        for (const plan of plans) await tx.table("plans").put(planRowForStore(plan));
+
+        const repaired = withDeclarationStage({ types, meditations, plans });
+        for (const row of repaired.types) await tx.table("meditationTypes").put(row);
+        for (const row of repaired.meditations) await tx.table("meditations").put(row);
+        for (const plan of repaired.plans) await tx.table("plans").put(planRowForStore(plan));
+
+        // The two sentences the app writes and the tag on one of them: the Protection
+        // sentence's own tag, and the single declaration, planted on a store that holds the
+        // app's catalogue and none yet (the owner's round 26).
+        for (const row of withSeededSentences({ meditations, intentions })) {
+          await tx.table("intentions").put(row);
+        }
+
+        const stored = await tx.table("plans").toArray();
+        for (const row of stored) {
+          if (row.id !== DEFAULT_PLAN_ID || row.alarmEnabled !== false) continue;
+          await tx.table("plans").put({ ...row, alarmEnabled: DEFAULT_ALARM_ENABLED });
+        }
+        const preferences = await tx.table("preferences").toArray();
+        for (const row of preferences) {
+          if (row.alarmEnabled !== false) continue;
+          await tx.table("preferences").put({ ...row, alarmEnabled: DEFAULT_ALARM_ENABLED });
+        }
       });
   }
 }

@@ -29,6 +29,7 @@ import {
   seededMeditationSlotFor,
 } from "./seeded-bindings.ts";
 import { nid, stagesForType } from "./seeded-ids.ts";
+import { SEEDED_PROTECTION_TEXT, seededDeclaration } from "./seeded-sentences.ts";
 import { pointsCircuit } from "./seeded-plans.ts";
 import {
   ORGAN_DURATION_MS,
@@ -436,9 +437,6 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
     "this is a high vibrational symbol that brings in peace and harmony, also helps healing the past. Use shanti to send peace to the traumatic past situations, fears and nightmares and free yourself from those attachments, also can be used for manifesting harmonious and peaceful future.",
   );
 
-  const protectionText =
-    "I am wholly and completely protected physically, emotionally, mentally and spiritually from lower and negative energies, from manipulation and negative influence, from thoughts, words, deeds, consequences and actions that create pain and suffering.";
-
   const pairs: Array<{ point: Meditation; glyph: Symbol; texts: string[] }> = [
     {
       point: solar,
@@ -471,7 +469,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
         "Success, prosparity, happiness and abundance come to me effortlessly, easily, and naturally",
       ],
     },
-    { point: protection, glyph: zonar, texts: [protectionText] },
+    { point: protection, glyph: zonar, texts: [SEEDED_PROTECTION_TEXT] },
     {
       point: heart,
       glyph: halu,
@@ -672,7 +670,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
         "All the Shock and fear has been healed whole and complete",
       ],
     },
-    { point: protection, glyph: rama, texts: [protectionText] },
+    { point: protection, glyph: rama, texts: [SEEDED_PROTECTION_TEXT] },
     { point: crown, glyph: kriya, texts: [] },
     {
       point: thirdEye,
@@ -778,6 +776,11 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
           entryId: entry.id,
           sortOrder: index,
           text,
+          // Protection is the one meditation whose sentences carry a tag of the app's own: its
+          // affirmation stage reads by meditation either way, so the tag is the reader's word
+          // for the pool rather than a second way of finding it (the owner's round 26). Thanks
+          // Giving has no seeded sentence to tag, so nothing here carries its tag yet.
+          tag: row.point.typeId === PROTECTION_TYPE_ID ? "protection" : null,
           archivedAt: null,
           revision: 0,
           updatedAt: 0,
@@ -785,6 +788,13 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
       });
     }
   }
+
+  // The one **declaration** the app ships (the owner's round 26), pushed after the walk rather
+  // than inside it: its id names its own slot (`seeded-sentences.ts`), because the repair that
+  // carries it to a device which already has a catalogue cannot reproduce a running counter. It
+  // is the whole of what a Declaration stage reads, with the meditation's name substituted for
+  // the placeholder at compile time.
+  intentions.push(seededDeclaration(workspaceId));
 
   // The owner's round 21 additions, walked in the **same** order as the pairs above so a
   // meditation's rows always read together: a body point's own row — the symbol-less one its
@@ -814,8 +824,19 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
   }
 
   const blocks: PlanBlock[] = [];
+  /**
+   * A block for a meditation, and the one place a seeded block answers for itself.
+   *
+   * Thanks Giving is the exception the owner's round 26 asks for — *"Alarm should be ON by
+   * default, only OFF for thanks giving"* — so the blocks that run it carry their own
+   * `false` while every other block leaves the answer to the plan. The open and the close
+   * are one row run twice, so both are caught here rather than at the two call sites.
+   */
   const pushMeditation = (point: Meditation) => {
-    blocks.push(meditationBlock(nid(0x200 + blocks.length), blocks.length, point));
+    const block = meditationBlock(nid(0x200 + blocks.length), blocks.length, point);
+    blocks.push(
+      point.typeId === THANKS_GIVING_TYPE_ID ? { ...block, alarmEnabled: false } : block,
+    );
   };  // **No cool-off.** The owner's round 15 deleted the kind, so nothing sits between
   // the meditations; each one ends with its own last stage.
   //
@@ -950,6 +971,7 @@ export function buildDefaultWorkspace(workspaceId: string): DefaultWorkspace {
       pointsCircuit(
         workspaceId,
         pointsForCircuit,
+        thanksGiving,
         presetRows.map((row) => row.id),
       ),
     ],

@@ -3,8 +3,8 @@
 import { useSession } from "@/features/auth/SessionProvider";
 import { Button, KeyHints } from "@meditaur/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { BinauralPreset, Meditation, Symbol } from "@meditaur/domain";
-import type { LibraryView, MeditaurApp } from "@meditaur/application";
+import type { BinauralPreset, MediaAsset, Meditation, Symbol } from "@meditaur/domain";
+import { oneRowChangeSet, type CatalogChangeSet, type LibraryView, type MeditaurApp } from "@meditaur/application";
 import { errorText } from "@/lib/error-text";
 import {
   databaseTables,
@@ -22,6 +22,7 @@ import {
   addRecord,
   commitDatabaseDraft,
   draftFromLibrary,
+  dropColumn,
   dropRecord,
   emptyRecord,
   mergeRecords,
@@ -78,7 +79,8 @@ export function DatabaseTab({
   workspaceId,
   view,
   imageUrls,
-  onReload,
+  onChanges,
+  onAsset,
   onOpenRecord,
   onNewRecord,
   onOpenBinaural,
@@ -92,7 +94,16 @@ export function DatabaseTab({
   workspaceId: string;
   view: LibraryView;
   imageUrls: Record<string, string>;
-  onReload: () => Promise<void>;
+  /**
+   * The answer a write gives, applied to the screen's view (`P2 · 4`).
+   *
+   * The grid owns a **draft**, not the view: a change-set moves the view, and the
+   * effect below then rebuilds the baseline from it — which is what the refetch used to
+   * do, without the nine storage scans.
+   */
+  onChanges: (changes: CatalogChangeSet) => void;
+  /** A file this screen just wrote, whose row no change-set carries. */
+  onAsset: (asset: MediaAsset) => void;
   onOpenRecord: (table: RecordTable, id: string) => void;
   onNewRecord: (table: RecordTable) => void;
   /** The binaural config is a whole screen, so a column of the grid opens it. */
@@ -353,12 +364,13 @@ export function DatabaseTab({
     setArmed(null);
     setNotice(null);
     try {
-      await app.archiveRecord(workspaceId, recordKind(table), id);
+      const changes = await app.archiveRecord(workspaceId, recordKind(table), id);
       // The grid is a draft over the store, so hiding the row is this screen's job
-      // as well: an archived record stops being drawn here at once.
+      // as well: an archived record stops being drawn here at once, rather than when
+      // the patched view lands.
       setDraft((current) => dropRecord(current, table, id));
       setBaseline((current) => dropRecord(current, table, id));
-      await onReload();
+      onChanges(changes);
     } catch (err) {
       setError(errorText(err, "Could not archive it"));
     }
@@ -376,11 +388,10 @@ export function DatabaseTab({
     }
     try {
       const page = recordTableOf(table);
-      if (page === "meditation") await app.deleteMeditation(workspaceId, id);
-      else if (page === "symbols") await app.deleteSymbol(workspaceId, id);
-      else if (page === "presets") await app.deletePreset(workspaceId, id);
-      else await app.deleteMeditationType(workspaceId, id);
-      await onReload();
+      if (page === "meditation") onChanges(await app.deleteMeditation(workspaceId, id));
+      else if (page === "symbols") onChanges(await app.deleteSymbol(workspaceId, id));
+      else if (page === "presets") onChanges(await app.deletePreset(workspaceId, id));
+      else onChanges(await app.deleteMeditationType(workspaceId, id));
     } catch (err) {
       setError(errorText(err, "Could not remove it"));
     }
@@ -402,12 +413,9 @@ export function DatabaseTab({
   const writes: DatabaseWrites = useMemo(
     () => ({
       saveEntry: (entry) => app.saveEntry(entry),
-      deleteEntry: (ws, id) => app.deleteEntry(ws, id),
       saveLine: (line) => app.saveLine(line),
       saveFieldDef: (def) => app.saveFieldDef(def),
-      deleteFieldDef: (ws, id) => app.deleteFieldDef(ws, id),
       saveFieldOption: (option) => app.saveFieldOption(option),
-      deleteFieldOption: (ws, id) => app.deleteFieldOption(ws, id),
       saveFieldValue: (value) => app.saveFieldValue(value),
       saveMeditation: (focus) => app.saveMeditation(focus),
       saveSymbol: (symbol) => app.saveSymbol(symbol),
@@ -435,11 +443,11 @@ export function DatabaseTab({
         before: baseline,
         draft: patch ? patch(draft) : draft,
       });
-      // What is on screen *is* what is stored from here on, so the reload that
-      // follows should take the draft whole (`justSaved`) rather than treat it as
-      // a set of unsaved edits.
+      // What is on screen *is* what is stored from here on, so the view the change-set
+      // moves should take the draft whole (`justSaved`) rather than treat it as a set of
+      // unsaved edits.
       justSaved.current = true;
-      await onReload();
+      onChanges(swept.changes);
       setReport(sweepSentence(swept.names, swept.total));
       setNotice(null);
       setArmed(null);
@@ -497,8 +505,7 @@ export function DatabaseTab({
       return;
     }
     try {
-      await app.archiveEntry(workspaceId, row.id);
-      await onReload();
+      onChanges(await app.archiveEntry(workspaceId, row.id));
     } catch (err) {
       setError(errorText(err, "Could not archive the row"));
     }
@@ -512,8 +519,10 @@ export function DatabaseTab({
       return;
     }
     try {
-      await app.deleteEntry(workspaceId, row.id);
-      await onReload();
+      // The row **and** the sentences written inside it are named: a screen that dropped
+      // only the row would keep drawing lines whose row is gone (`P2 · 4`).
+      onChanges(await app.deleteEntry(workspaceId, row.id));
+      dropDraftEntry(row.id);
     } catch (err) {
       setError(errorText(err, "Could not remove the row"));
     }
@@ -525,10 +534,9 @@ export function DatabaseTab({
    * it.
    *
    * This is the rule a record row already follows (`archiveRecordRow`), and a
-   * sentence needs it for the same reason: waiting for the reload does not work
-   * while the draft holds unsaved edits, because that reload **merges** — a merge
-   * brings records in and leaves lines alone, so an archived or removed sentence
-   * would sit in the grid until the next clean load.
+   * sentence needs it for the same reason: a patched view **merges** into a draft that
+   * has edits in it — it brings records in and leaves lines alone — so an archived or
+   * removed sentence would sit in the grid until the next clean load.
    */
   const forgetLine = (id: string) => {
     const drop = (current: DraftState): DraftState => ({
@@ -543,9 +551,9 @@ export function DatabaseTab({
     setArmed(null);
     setNotice(null);
     try {
-      await app.archiveLine(workspaceId, line.id);
+      const changes = await app.archiveLine(workspaceId, line.id);
       forgetLine(line.id);
-      await onReload();
+      onChanges(changes);
     } catch (err) {
       setError(errorText(err, "Could not archive the line"));
     }
@@ -555,8 +563,8 @@ export function DatabaseTab({
     setArmed(null);
     setNotice(null);
     // A sentence the store has never seen is removed by dropping it from the draft
-    // and nothing else — the same rule a draft row follows. `deleteLine` looks the
-    // line up and answers a missing one by returning, so the press otherwise closed
+    // and nothing else — the same rule a draft row follows. `deleteLine` answers a
+    // missing one with its own id and nothing else, so the press otherwise closed
     // its box and changed nothing (the owner's round 14, which is why the row case
     // already has `dropDraftEntry`).
     if (line.isNew) {
@@ -564,9 +572,9 @@ export function DatabaseTab({
       return;
     }
     try {
-      await app.deleteLine(workspaceId, line.id);
+      const changes = await app.deleteLine(workspaceId, line.id);
       forgetLine(line.id);
-      await onReload();
+      onChanges(changes);
     } catch (err) {
       setError(errorText(err, "Could not remove the line"));
     }
@@ -591,8 +599,14 @@ export function DatabaseTab({
       return;
     }
     try {
-      await app.deleteFieldDef(workspaceId, column.id);
-      await onReload();
+      const changes = await app.deleteFieldDef(workspaceId, column.id);
+      // The column and its options go from the **draft** as well, and from the baseline
+      // with them: a patched view merges into a draft that has edits in it the same way
+      // a refetch did, and a column left in the draft would be written back by the next
+      // Save — a column the store no longer has (`P2 · 4`).
+      setDraft((current) => dropColumn(current, column.id));
+      setBaseline((current) => dropColumn(current, column.id));
+      onChanges(changes);
     } catch (err) {
       setError(errorText(err, "Could not remove the column"));
     }
@@ -618,16 +632,16 @@ export function DatabaseTab({
       const empty = emptyRecord(kind, workspaceId, view.meditationTypes, drawnIn);
       if (kind === "meditation") {
         const saved = await app.saveMeditation({ ...(empty.source as Meditation), name });
-        await onReload();
+        onChanges(oneRowChangeSet({ meditations: [saved] }));
         return saved.id;
       }
       if (kind === "symbols") {
         const saved = await app.saveSymbol({ ...(empty.source as Symbol), name });
-        await onReload();
+        onChanges(oneRowChangeSet({ symbols: [saved] }));
         return saved.id;
       }
       const saved = await app.savePreset({ ...(empty.source as BinauralPreset), name });
-      await onReload();
+      onChanges(oneRowChangeSet({ presets: [saved] }));
       return saved.id;
     } catch (err) {
       setError(errorText(err, `Could not add the ${kind === "meditation" ? "meditation" : "record"}`));
@@ -777,6 +791,9 @@ export function DatabaseTab({
           const job = (async (): Promise<((current: DraftState) => DraftState) | null> => {
             try {
               const asset = await savePictureAsset(file);
+              // The row itself, not a refetch: the screen decodes every asset its view
+              // holds, so this is what puts the new picture on screen (`P2 · 4`).
+              onAsset(asset);
               return (current) => ({
                 ...current,
                 values: { ...current.values, [`${entityId}:${column.id}`]: asset.id },
@@ -789,7 +806,6 @@ export function DatabaseTab({
           pendingPicture.current = job;
           const patch = await job;
           if (patch) setDraft(patch);
-          await onReload();
         }}
         onUploadPicture={async (file, entityId) => {
           // A record's own picture is an asset the record points at, not a cell
@@ -797,6 +813,7 @@ export function DatabaseTab({
           const job = (async (): Promise<((current: DraftState) => DraftState) | null> => {
             try {
               const asset = await savePictureAsset(file);
+              onAsset(asset);
               return (current) => ({
                 ...current,
                 meditations: current.meditations.map((row) =>
@@ -814,7 +831,6 @@ export function DatabaseTab({
           pendingPicture.current = job;
           const patch = await job;
           if (patch) setDraft(patch);
-          await onReload();
         }}
         onOpenBinaural={async (focus) => {
           // The config is another screen and this one is holding the draft, so the

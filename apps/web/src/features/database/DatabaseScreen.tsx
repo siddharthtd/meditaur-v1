@@ -4,12 +4,13 @@ import { app } from "@/composition";
 import { useSession } from "@/features/auth/SessionProvider";
 import { errorText } from "@/lib/error-text";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import type { LibraryView } from "@meditaur/application";
-import { visibleSymbols, visibleTypes, type Meditation } from "@meditaur/domain";
+import { oneRowChangeSet, type CatalogChangeSet, type LibraryView } from "@meditaur/application";
+import { visibleSymbols, visibleTypes, type MediaAsset, type Meditation } from "@meditaur/domain";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BinauralConfigScreen } from "../library/BinauralConfig";
 import { GoneScreen } from "../library/GoneScreen";
+import { patchView, withRow } from "../library/library-patch";
 import { pruneBinauralDrafts } from "../library/library-model";
 import { recordHref } from "../record/record-route";
 import { confirmLeaveDatabase, setDatabaseDirty } from "./database-guard";
@@ -96,13 +97,34 @@ export function DatabaseScreen() {
     recordSave.current = save;
   }, []);
 
-  const reload = useCallback(async (ws: string) => {
-    const library = await app.getLibrary(ws);
-    // The binaural config is a *draft* keyed by meditation id, and it is reached
-    // from here — a `Tune` cell or the record view. A draft whose meditation is
-    // gone is swept on every load, which is the same rule the library used.
-    pruneBinauralDrafts(library.meditations.map((fp) => fp.id));
-    setView(library);
+  /**
+   * The screen's own storage read, and the **only** one (`P2 · 4`).
+   *
+   * Every mutation here used to run this again to keep the grid's lists honest. The
+   * writes answer instead — a stamped row, or a `CatalogChangeSet` naming what they
+   * wrote and what went — and `patchView` turns that answer into the view this screen
+   * is already holding.
+   */
+  const load = useCallback(async (ws: string) => {
+    setView(await app.getLibrary(ws));
+  }, []);
+
+  /** A write's answer, applied to the view the grid, the record and the Archive share. */
+  const applyChanges = useCallback((changes: CatalogChangeSet) => {
+    setView((current) => (current ? patchView(current, changes) : current));
+  }, []);
+
+  /**
+   * A file that was just written, in its place.
+   *
+   * `mediaAssets` is the one list a change-set does not carry: an upload answers with
+   * the asset row itself, and the screen decodes every asset the view holds, so this is
+   * what puts the new picture on screen without a storage read.
+   */
+  const addAsset = useCallback((asset: MediaAsset) => {
+    setView((current) =>
+      current ? { ...current, mediaAssets: withRow(current.mediaAssets, asset) } : current,
+    );
   }, []);
 
   useEffect(() => {
@@ -110,12 +132,23 @@ export function DatabaseScreen() {
     setWorkspaceId(sessionWorkspaceId);
     void (async () => {
       try {
-        await reload(sessionWorkspaceId);
+        await load(sessionWorkspaceId);
       } catch (err) {
         setError(errorText(err, "Could not load the Database"));
       }
     })();
-  }, [sessionReady, sessionWorkspaceId, reload]);
+  }, [sessionReady, sessionWorkspaceId, load]);
+
+  /**
+   * The binaural config is a *draft* keyed by meditation id, and it is reached from here
+   * — a `Tune` cell or the record view. A draft whose meditation is gone is swept every
+   * time the view moves, which is the library's own rule. It is an effect rather than a
+   * step of the load because the load is no longer the only thing that moves the view
+   * (`P2 · 4`).
+   */
+  useEffect(() => {
+    if (view) pruneBinauralDrafts(view.meditations.map((fp) => fp.id));
+  }, [view]);
 
   useScreenScroll(
     recordScreen
@@ -261,13 +294,16 @@ export function DatabaseScreen() {
         onBack={() => setBinauralMeditationId(null)}
         onError={setError}
         onSavePreset={async (preset) => {
-          await app.savePreset(preset);
-          await app.saveMeditation({ ...focus, defaultBinauralPresetId: preset.id });
-          await reload(workspaceId);
+          const stored = await app.savePreset(preset);
+          const meditation = await app.saveMeditation({
+            ...focus,
+            defaultBinauralPresetId: stored.id,
+          });
+          applyChanges(oneRowChangeSet({ presets: [stored], meditations: [meditation] }));
         }}
         onToggleBinaural={async (enabled) => {
-          await app.saveMeditation({ ...focus, binauralEnabled: enabled });
-          await reload(workspaceId);
+          const stored = await app.saveMeditation({ ...focus, binauralEnabled: enabled });
+          applyChanges(oneRowChangeSet({ meditations: [stored] }));
         }}
       />
     );
@@ -284,7 +320,8 @@ export function DatabaseScreen() {
           screen={recordScreen}
           imageUrls={imageUrls}
           onBack={backToGrid}
-          onReload={() => reload(workspaceId)}
+          onChanges={applyChanges}
+          onAsset={addAsset}
           onAddColumn={backToGrid}
           onOpenBinaural={(focus) => void openBinaural(focus)}
           registerSave={registerRecordSave}
@@ -309,7 +346,8 @@ export function DatabaseScreen() {
           setRequest(null);
           router.replace(DATABASE_HREF);
         }}
-        onReload={() => reload(workspaceId)}
+        onChanges={applyChanges}
+        onAsset={addAsset}
         onOpenRecord={(which, id) => {
           // **One** address per record now (the owner's round 22): a row press is a
           // navigation to the record's own page, where it reads first and `Edit` turns it

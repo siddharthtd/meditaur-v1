@@ -4,6 +4,7 @@ import type {
   BinauralPreset,
   CompiledBlock,
   CompiledFact,
+  CompiledPointLines,
   CompiledSymbolGroup,
   Entry,
   FieldDef,
@@ -30,7 +31,7 @@ import {
 } from "./plan-display.ts";
 import { entryIsVisible, isLive, lineIsVisible, livenessOf } from "./visibility.ts";
 
-export const SNAPSHOT_SCHEMA_VERSION = 8;
+export const SNAPSHOT_SCHEMA_VERSION = 10;
 export const SNAPSHOT_KEEP_PER_PLAN = 5;
 export const SESSION_LOG_LIST_LIMIT = 50;
 
@@ -67,6 +68,44 @@ export function sentencesForMeditation(
     }
   }
   return sentences;
+}
+
+/**
+ * The placeholder a **declaration** is written with, replaced by the meditation's name.
+ *
+ * The owner's round 26: *"during decleration, I just say 'i declare this as the front and back
+ * of my <>' where <> is that chakra where I am meditating, or the point I am meditating on. So,
+ * we can have a single decleration and substitute the points (in a group when meditated
+ * together on) or chakras for the ongoing one."* The token is theirs, verbatim.
+ */
+export const DECLARATION_PLACEHOLDER = "<>";
+
+/**
+ * The workspace's **declaration** sentences, with the block's meditations substituted in.
+ *
+ * One line per meditation, in the block's own order: a three-point group declares each of its
+ * points in turn inside the one ten-second stage, and a chakra declares once. A declaration
+ * that carries no placeholder is read as it is for every meditation, which is what a reader who
+ * writes a plain sentence gets.
+ *
+ * Read **by tag** rather than through an entry, which is the whole point of the tag: a
+ * declaration is not written about a pair, it is written about whatever the session is running.
+ * A blank line is left out, the way `sentencesForMeditation` leaves one out.
+ */
+export function declarationLines(
+  intentions: readonly Intention[],
+  meditationNames: readonly string[],
+): string[] {
+  const byOrder = (a: { sortOrder: number; id: string }, b: { sortOrder: number; id: string }) =>
+    a.sortOrder - b.sortOrder || a.id.localeCompare(b.id);
+  const out: string[] = [];
+  for (const row of intentions.filter((line) => isLive(line) && line.tag === "declaration").sort(byOrder)) {
+    if (row.text.trim().length === 0) continue;
+    for (const name of meditationNames) {
+      out.push(row.text.split(DECLARATION_PLACEHOLDER).join(name));
+    }
+  }
+  return out;
 }
 
 export type CompileLibrary = {
@@ -539,6 +578,34 @@ export function compilePlan(
       ...focusIntentions,
       ...symbolGroups.flatMap((group) => group.intentions),
     ];
+    // The same lines, grouped by **point** as well as by symbol (the owner's round 26). Only a
+    // block of several points has anything to group, and a block that **draws** a subset is left
+    // out on purpose: the draw is defined per symbol box (`Intentions under a symbol`), so
+    // re-attributing a drawn subset per point would show the reader a set the draw did not
+    // choose. Such a block keeps its symbol groups in the table and says so with an empty list.
+    const symbolIdsInPlay = showAll
+      ? distinctSymbolsFor(meditationIds, symbolsByMeditation).map((row) => row.id)
+      : symbol
+        ? [symbol.id]
+        : [];
+    const pointLines: CompiledPointLines[] =
+      meditationIds.length > 1 && draw === null
+        ? [
+            ...meditationIds.map((meditationId, index) => ({
+              name: foci[index]?.name ?? "",
+              lines: [
+                ...(intentByPair.get(pairKey(meditationId, null)) ?? []),
+                ...symbolIdsInPlay.flatMap(
+                  (symbolId) => intentByPair.get(pairKey(meditationId, symbolId)) ?? [],
+                ),
+              ],
+            })),
+            ...symbolIdsInPlay.map((symbolId) => ({
+              name: symbolById.get(symbolId)?.name ?? "",
+              lines: intentByPair.get(pairKey(null, symbolId)) ?? [],
+            })),
+          ].filter((group) => group.name !== "" && group.lines.length > 0)
+        : [];
     const binauralAllowed =
       !options.binauralSilent &&
       plan.binauralEnabled !== false &&
@@ -558,9 +625,19 @@ export function compilePlan(
       // The stages' lengths added up, computed once here rather than on every tick.
       durationMs: stagesDurationMs(timedStages),
       stages: timedStages,
-      affirmations: timedStages.some((row) => row.kind === "affirmations")
+      affirmations: timedStages.some(
+        (row) => row.kind === "affirmations" && row.pool !== "declaration",
+      )
         ? sentencesForMeditation(meditationIds, liveEntries, liveLines)
         : [],
+      // The Declaration stage's own pool (the owner's round 26), substituted with the block's
+      // meditations — the one list a session reads by tag rather than by association.
+      declarations: timedStages.some(
+        (row) => row.kind === "affirmations" && row.pool === "declaration",
+      )
+        ? declarationLines(liveLines, foci.map((row) => row.name))
+        : [],
+      pointLines,
       meditationName: focus.name,
       meditationNames: foci.map((row) => row.name),
       // A Focus stage draws the meditation's picture in its colour (the owner's round 20,

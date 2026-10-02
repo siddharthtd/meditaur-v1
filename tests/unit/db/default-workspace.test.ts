@@ -1,4 +1,4 @@
-import { AFFIRMATION_STAGES, compilePlan, copyStages, INTENTION_STAGES, stagesDurationMs } from "@meditaur/domain";
+import { AFFIRMATION_STAGES, compilePlan, copyStages, DEFAULT_ALARM_ENABLED, INTENTION_STAGES, stagesDurationMs } from "@meditaur/domain";
 import { describe, expect, it } from "vitest";
 import {
   buildDefaultWorkspace,
@@ -90,11 +90,13 @@ describe("default workspace catalog", () => {
       "Root Chakra",
       "Thanks Giving",
     ]);
-    // A block's length is its stages added up (§4.1): nine minutes for a chakra, and
-    // Thanks Giving's one affirmations stage — a minute since round 20.
+    // A block's length is its stages added up (§4.1): a chakra's nine minutes behind its
+    // ten-second Declaration, and Thanks Giving's Declaration plus its one affirmation — a minute
+    // since round 20, with the Declaration in front of it since round 26.
     const chakraBlockMs = stagesDurationMs(INTENTION_STAGES);
     const givingBlockMs = stagesDurationMs(AFFIRMATION_STAGES);
-    expect(givingBlockMs).toBe(60_000);
+    expect(AFFIRMATION_STAGES.map((row) => row.durationMs)).toEqual([10_000, 60_000]);
+    expect(givingBlockMs).toBe(70_000);
     expect(snapshot.blocks.map((block) => block.durationMs)).toEqual([
       givingBlockMs,
       chakraBlockMs,
@@ -118,6 +120,15 @@ describe("default workspace catalog", () => {
     // Thanks Giving is silent: one affirmations stage, no preset and no location.
     expect(named(ws, "Thanks Giving").defaultBinauralPresetId).toBeNull();
     expect(named(ws, "Thanks Giving").stages).toEqual(AFFIRMATION_STAGES);
+    // The alarm's default is **on** again (the owner's round 26: *"Alarm should be ON by default,
+    // only OFF for thanks giving"*), and a seeded Thanks Giving block is the one place a block
+    // answers the question for itself rather than leaving it to the plan.
+    expect(DEFAULT_ALARM_ENABLED).toBe(true);
+    expect(circuit(ws).alarmEnabled).toBe(true);
+    expect(
+      snapshot.blocks.map((block) => block.alarmEnabled),
+      "the two Thanks Giving blocks silent, every chakra ringing",
+    ).toEqual([false, true, true, true, true, true, true, false]);
   });
 
   it("uses solfeggio carriers and organ beats on the circuit", () => {

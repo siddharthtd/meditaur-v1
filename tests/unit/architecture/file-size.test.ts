@@ -25,8 +25,14 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /** One row per capped file: the file, and the ceiling it stands at. */
 const CEILINGS: [string, number][] = [
-  ["apps/web/src/features/database/DatabaseTable.tsx", 2275],
-  ["packages/application/src/create-app.ts", 1797],
+  // 2275 until the grid's column vocabulary moved into `database-columns.ts` (`P4 · 60`), which
+  // is what the ratchet is for: the cap falls with the split rather than following it up.
+  ["apps/web/src/features/database/DatabaseTable.tsx", 2213],
+  // 1797 → 1823 (`P2 · 4`): the four `void` deletes answer change-sets, and the two
+  // reorders plus the orphan sweep answer the rows they stored — which is what the
+  // Database screen patches from instead of re-reading nine tables. The lines the
+  // change bought are the answers themselves and the comments that shape them.
+  ["packages/application/src/create-app.ts", 1823],
   ["apps/web/src/features/planner/Planner.tsx", 1779],
   ["apps/web/src/features/runner/Runner.tsx", 1123],
 ];

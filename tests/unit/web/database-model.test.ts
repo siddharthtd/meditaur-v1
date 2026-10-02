@@ -40,6 +40,7 @@ import {
   sentenceRows,
   setEntriesOrder,
   visibleRows,
+  withLineTag,
   type DatabaseWrites,
   type DraftState,
 } from "../../../apps/web/src/features/database/database-model.ts";
@@ -76,34 +77,46 @@ function viewOf(overrides: Partial<LibraryView> = {}): LibraryView {
 }
 
 /** A write log, so the tests can say what Save did and in what order. */
-function writes(): DatabaseWrites & { log: string[] } {
+function writes(): DatabaseWrites & {
+  log: string[];
+  savedLines: Intention[];
+  /**
+   * What the store answers for the three writes a draft cannot derive an answer for.
+   *
+   * This fake has no store to move a row in or to archive one out of, so the test
+   * says which rows came back — and the `commitDatabaseDraft` half under test is what
+   * has to hand them on. **Which** rows the real calls answer with is
+   * `create-app.test.ts`'s, where the port is a store.
+   */
+  answers: { entries: Entry[]; lines: Intention[]; swept: Entry[] };
+} {
   const log: string[] = [];
+  const savedLines: Intention[] = [];
+  const answers: { entries: Entry[]; lines: Intention[]; swept: Entry[] } = {
+    entries: [],
+    lines: [],
+    swept: [],
+  };
   return {
     log,
+    savedLines,
+    answers,
     async saveEntry(entry: Entry) {
       log.push(`entry:${entry.id}:${entry.meditationId ?? "-"}:${entry.symbolId ?? "-"}`);
       return entry;
     },
-    async deleteEntry(_workspaceId, entryId) {
-      log.push(`delete-entry:${entryId}`);
-    },
     async saveLine(line: Intention) {
       log.push(`line:${line.id}:${line.text}`);
+      savedLines.push(line);
       return line;
     },
     async saveFieldDef(def: FieldDef) {
       log.push(`column:${def.id}:${def.label}`);
       return def;
     },
-    async deleteFieldDef(_workspaceId, fieldDefId) {
-      log.push(`delete-column:${fieldDefId}`);
-    },
     async saveFieldOption(option: FieldOption) {
       log.push(`option:${option.id}:${option.label}`);
       return option;
-    },
-    async deleteFieldOption(_workspaceId, optionId) {
-      log.push(`delete-option:${optionId}`);
     },
     async saveFieldValue(value: FieldValue) {
       log.push(`value:${value.entityId}:${value.fieldDefId}:${value.text}`);
@@ -127,15 +140,18 @@ function writes(): DatabaseWrites & { log: string[] } {
     },
     async reorderEntries(_workspaceId, entryIds) {
       log.push(`order:${entryIds.join(",")}`);
+      return answers.entries;
     },
     async reorderLines(_workspaceId, entryId, lineIds) {
       log.push(`line-order:${entryId}:${lineIds.join(",")}`);
+      return answers.lines;
     },
     async sweepOrphanedEntries(_workspaceId, entryIds) {
       log.push(`sweep:${entryIds.join(",")}`);
       return {
         swept: entryIds.map((id) => ({ id, label: `Root × ${id}` })),
         total: entryIds.length,
+        rows: answers.swept,
       };
     },
   };
@@ -712,6 +728,56 @@ describe("the Database's affirmations table", () => {
     expect(port.log).toContain("line:e-fp1-s1-a0:A");
   });
 
+  it("reads a sentence's tag out of the store, and writes a retag", async () => {
+    // Round 26 gave a sentence a **tag**, and a declaration stage reads the workspace's
+    // declarations (`P4 · 60`). The grid is the only writer of one: `TagCell` calls `withLineTag`,
+    // and the row travels whole, so a retag is a change like any other.
+    const fromStore = viewOf();
+    const before = draftFromLibrary({
+      ...fromStore,
+      intentions: fromStore.intentions.map((row, index) =>
+        index === 0 ? { ...row, tag: "declaration" as const } : row,
+      ),
+    });
+    expect(before.lines[0]?.tag, "read out of the store").toBe("declaration");
+
+    const port = writes();
+    await commitDatabaseDraft({
+      writes: port,
+      workspaceId: "ws1",
+      before,
+      draft: withLineTag(before, before.lines[0]!.id, "protection"),
+    });
+    expect(port.savedLines.map((line) => [line.id, line.tag])).toEqual([
+      [before.lines[0]!.id, "protection"],
+    ]);
+  });
+
+  it("carries a sentence's tag when only its text changed, so an edit cannot unwrite it", async () => {
+    // The defect this half is about: the write is the **whole row**, so a draft that did not carry
+    // the tag told the store the sentence had none. Editing the seeded declaration's own words
+    // would then have quietly emptied the pool its stage reads — the app unwriting what it seeded,
+    // from a screen that shows no tag at all.
+    const fromStore = viewOf();
+    const before = draftFromLibrary({
+      ...fromStore,
+      intentions: fromStore.intentions.map((row, index) =>
+        index === 0 ? { ...row, tag: "declaration" as const } : row,
+      ),
+    });
+    const edited = {
+      ...before,
+      lines: before.lines.map((row) =>
+        row.id === before.lines[0]!.id ? { ...row, text: "A, said again" } : row,
+      ),
+    };
+    const port = writes();
+    await commitDatabaseDraft({ writes: port, workspaceId: "ws1", before, draft: edited });
+    expect(port.savedLines.map((line) => [line.text, line.tag])).toEqual([
+      ["A, said again", "declaration"],
+    ]);
+  });
+
   it("writes a new sentence after the row it names", async () => {
     const before = draftFromLibrary(viewOf());
     const { draft: withSentence, id } = addSentence(before);
@@ -734,6 +800,59 @@ describe("the Database's affirmations table", () => {
     // here rather than found again by re-reading the store.
     expect(report.changes.updated.entries.map((row) => row.id)).toEqual([made.id]);
     expect(report.changes.updated.intentions.map((row) => row.id)).toEqual([id]);
+  });
+
+  it("hands the screen the row a drag moved, not the order it was told to write", async () => {
+    const before = draftFromLibrary(viewOf());
+    const moved: Entry = {
+      id: "e-fp1-s1",
+      workspaceId: "ws1",
+      meditationId: "fp1",
+      symbolId: "s1",
+      sortOrder: 1,
+      archivedAt: null,
+      revision: 4,
+      updatedAt: 0,
+    };
+    const port = writes();
+    port.answers.entries = [moved];
+    const draft = { ...before, entries: [...before.entries].reverse() };
+    const report = await commitDatabaseDraft({ writes: port, workspaceId: "ws1", before, draft });
+    // A place is only readable from the row that holds it, so the answer carries the
+    // row rather than a count (`P2 · 4`) — and the last word on an id is the moved one,
+    // because the patch merges in order.
+    const patched = report.changes.updated.entries.filter((row) => row.id === moved.id);
+    expect(patched).toEqual([moved]);
+  });
+
+  it("hands the screen the row the orphan sweep archived", async () => {
+    const before = draftFromLibrary(viewOf());
+    const emptied = { ...before.entries[0]!, meditationId: null, symbolId: null };
+    const archived: Entry = {
+      id: before.entries[0]!.id,
+      workspaceId: "ws1",
+      meditationId: null,
+      symbolId: null,
+      sortOrder: 0,
+      archivedAt: 7,
+      revision: 3,
+      updatedAt: 0,
+    };
+    const port = writes();
+    port.answers.swept = [archived];
+    const report = await commitDatabaseDraft({
+      writes: port,
+      workspaceId: "ws1",
+      before,
+      draft: {
+        ...before,
+        entries: before.entries.map((row) => (row.id === emptied.id ? emptied : row)),
+      },
+    });
+    expect(report.names).toHaveLength(1);
+    // **Archived** is not a fact an id can carry: a screen handed the id alone would
+    // keep drawing the row as live (`P2 · 4`).
+    expect(report.changes.updated.entries.find((row) => row.id === archived.id)?.archivedAt).toBe(7);
   });
 
   it("refuses a blank sentence before it writes anything, so a half-saved draft is impossible", async () => {

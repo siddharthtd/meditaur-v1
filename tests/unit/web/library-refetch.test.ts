@@ -45,7 +45,7 @@ describe("the library's mutations", () => {
 
     const remove = bodyOf("cardDelete", "columns");
     expect(remove, "a delete patches from its change-set").not.toContain("reload(");
-    expect(remove).toContain("patchLibrary(");
+    expect(remove).toContain("patchView(");
   });
 
   it("turn the delete's change-set into the lists, rather than one id into one list", () => {
@@ -54,6 +54,15 @@ describe("the library's mutations", () => {
     // that only dropped the deleted id would leave those two stale in this view.
     const remove = bodyOf("cardDelete", "columns");
     expect(remove).toContain("setView(");
-    expect(remove).toMatch(/patchLibrary\(current, changes\)/);
+    expect(remove).toMatch(/patchView\(current, changes\)/);
+  });
+
+  it("hands the Archive it renders the same patch, not a reload", () => {
+    // The Archive is a screen of the **Library** (`ArchiveList` in `features/database`),
+    // so its restore and its delete reach this screen's view: an entry, a line, a symbol
+    // and a record are four different lists, and the change-set is what keeps all four
+    // honest without a catalogue read (`P2 · 4`).
+    expect(source).toContain("onChanges={(changes) =>");
+    expect(source).not.toContain("onReload");
   });
 });

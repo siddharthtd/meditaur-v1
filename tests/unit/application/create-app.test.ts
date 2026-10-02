@@ -8,6 +8,8 @@ import {
   IMAGE_MAX_BYTES,
   MEDIA_ERRORS,
   MEDIA_MAX_BYTES,
+  noRemovals,
+  noUpdatedRows,
   PLAN_ERRORS,
   PREFERENCES_ERRORS,
   PRESET_ERRORS,
@@ -1129,10 +1131,17 @@ describe("createMeditaurApp", () => {
     expect((await api.getLibrary("ws1")).intentions).toHaveLength(1);
     const impact = await api.getDeletionImpact("ws1", "entry", "e-fp1-s1");
     expect(impact).toBe("Removes this row and 1 line.");
-    await api.deleteEntry("ws1", "e-fp1-s1");
+    const linesBefore = (await api.getLibrary("ws1")).intentions.map((row) => row.id);
+    const changes = await api.deleteEntry("ws1", "e-fp1-s1");
     const after = await api.getLibrary("ws1");
     expect(after.entries).toEqual([]);
     expect(after.intentions).toEqual([]);
+    // The answer, read against the refetch above (`P2 · 4`): the row and the lines
+    // that went with it, and nothing rewritten. A screen that dropped the id alone
+    // would keep drawing the sentences written inside the row.
+    expect(changes.removed.entries).toEqual(["e-fp1-s1"]);
+    expect(changes.removed.intentions).toEqual(linesBefore);
+    expect(changes.updated).toEqual(noUpdatedRows());
   });
 
 
@@ -1196,10 +1205,14 @@ describe("createMeditaurApp", () => {
     expect(await api.getDeletionImpact("ws1", "line", "or5")).toBe(
       "Removes this line with 1 field value.",
     );
-    await api.deleteLine("ws1", "or5");
+    const lineChanges = await api.deleteLine("ws1", "or5");
     expect((await api.getLibrary("ws1")).fieldValues.map((row) => row.entityId)).not.toContain(
       "or5",
     );
+    // A sentence's delete answers with the sentence, and the values that hung on its
+    // own id go with it — the half an id cannot name (`P2 · 4`).
+    expect(lineChanges.removed.intentions).toEqual(["or5"]);
+    expect(lineChanges.updated).toEqual(noUpdatedRows());
     // The same verb inside a row: the sentence goes and the row it was written
     // about stays, because the row is the association and not the sentence.
     await api.deleteLine("ws1", "e-fp1-s1-a0");
@@ -1454,15 +1467,7 @@ describe("createMeditaurApp", () => {
     });
 
     const archived = await api.archiveRecord("ws1", "meditation", "fp1");
-    expect(archived.removed).toEqual({
-      presets: [],
-      mediaAssets: [],
-      symbols: [],
-      entries: [],
-      intentions: [],
-      meditations: [],
-      meditationTypes: [],
-    });
+    expect(archived.removed).toEqual(noRemovals());
     expect(archived.updated.meditations.map((row) => row.id)).toEqual(["fp1"]);
     expect(archived.updated.meditations[0]!.archivedAt).not.toBeNull();
     // A row the write did not touch is absent, or a screen would rewrite it from a
@@ -1629,16 +1634,34 @@ describe("createMeditaurApp", () => {
       presets: library.presets,
       prefs: null,
     });
-    await api.reorderEntries("ws1", ["e-fp1-s2", "e-fp1-s1"]);
-    expect((await api.getLibrary("ws1")).entries.map((row) => row.id)).toEqual([
-      "e-fp1-s2",
-      "e-fp1-s1",
-    ]);
-    await api.reorderLines("ws1", "e-fp1-s1", ["e-fp1-s1-a2", "e-fp1-s1-a0", "e-fp1-s1-a1"]);
+    const moved = await api.reorderEntries("ws1", ["e-fp1-s2", "e-fp1-s1"]);
+    const storedEntries = (await api.getLibrary("ws1")).entries;
+    expect(storedEntries.map((row) => row.id)).toEqual(["e-fp1-s2", "e-fp1-s1"]);
+    // Both halves of the answer, read against a refetch (`P2 · 4`): a place is only
+    // readable from the row that holds it, so each moved row **is** the stored row.
+    expect(moved.map((row) => row.id).sort()).toEqual(["e-fp1-s1", "e-fp1-s2"]);
+    for (const row of moved) {
+      expect(row).toEqual(storedEntries.find((stored) => stored.id === row.id));
+    }
+    // The same order again is a no-op, and answers nothing: nothing moved.
+    expect(await api.reorderEntries("ws1", ["e-fp1-s2", "e-fp1-s1"])).toEqual([]);
     const lines = (await api.getLibrary("ws1")).intentions
       .filter((row) => row.entryId === "e-fp1-s1")
       .map((row) => row.text);
-    expect(lines).toEqual(["C", "A", "B"]);
+    expect(lines).toEqual(["A", "B", "C"]);
+    const movedLines = await api.reorderLines("ws1", "e-fp1-s1", [
+      "e-fp1-s1-a2",
+      "e-fp1-s1-a0",
+      "e-fp1-s1-a1",
+    ]);
+    const storedLines = (await api.getLibrary("ws1")).intentions.filter(
+      (row) => row.entryId === "e-fp1-s1",
+    );
+    expect(storedLines.map((row) => row.text)).toEqual(["C", "A", "B"]);
+    expect(movedLines).toHaveLength(3);
+    for (const row of movedLines) {
+      expect(row).toEqual(storedLines.find((stored) => stored.id === row.id));
+    }
   });
 
   it("sweeps a row the reader emptied, names it, and caps the report at five", async () => {
@@ -1650,7 +1673,14 @@ describe("createMeditaurApp", () => {
       prefs: null,
     });
     const report = await api.sweepOrphanedEntries("ws1", ["e-fp1-s1"]);
-    expect(report).toEqual({ swept: [{ id: "e-fp1-s1", label: "Root × Lam" }], total: 1 });
+    expect({ swept: report.swept, total: report.total }).toEqual({
+      swept: [{ id: "e-fp1-s1", label: "Root × Lam" }],
+      total: 1,
+    });
+    // The stored rows as well as the report (`P2 · 4`): **archived** is not a fact an
+    // id can carry, so a screen that patched the draft would keep drawing the row.
+    expect(report.rows.map((row) => row.id)).toEqual(["e-fp1-s1"]);
+    expect(report.rows[0]?.archivedAt).not.toBeNull();
     const after = await api.getLibrary("ws1");
     expect(after.entries[0]?.archivedAt).not.toBeNull();
     // The lines are untouched: the row stepped aside, it was not dismantled.
@@ -1659,6 +1689,7 @@ describe("createMeditaurApp", () => {
     expect(await api.sweepOrphanedEntries("ws1", ["e-fp1-s1"])).toEqual({
       swept: [],
       total: 0,
+      rows: [],
     });
 
     const many = appFromMemory({
@@ -1791,10 +1822,14 @@ describe("createMeditaurApp", () => {
     // Empty the cells and the column goes, options included: nothing points at it
     // any more, so there is nothing left to protect.
     await api.saveFieldValue({ ...chosen, text: "  " });
-    await api.deleteFieldDef("ws1", typed.id);
+    const removed = await api.deleteFieldDef("ws1", typed.id);
     const after = await api.getLibrary("ws1");
     expect(after.fieldDefs.map((d) => d.id)).not.toContain(typed.id);
     expect(after.fieldOptions).toEqual([]);
+    // The answer names both halves, read against the refetch above (`P2 · 4`): a screen
+    // that dropped only the column id would keep drawing the option.
+    expect(removed.removed.fieldDefs).toEqual([typed.id]);
+    expect(removed.removed.fieldOptions).toEqual(["opt1"]);
 
     const value = await api.saveFieldValue({
       ...NEW_ROW_VERSION,

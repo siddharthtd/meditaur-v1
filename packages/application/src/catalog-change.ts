@@ -81,6 +81,17 @@ export type CatalogChangeSet = {
      */
     meditations: string[];
     meditationTypes: string[];
+    /**
+     * A column the reader removed, and the options that belonged to it.
+     *
+     * A column holding a value in any cell cannot be removed, and an option a cell
+     * chose cannot be removed either, so a column leaves only when it is empty —
+     * but its options go with it in the same transaction whether or not anything
+     * chose them, and the grid draws both. Ids are all a list needs to drop them
+     * (`P2 · 4`).
+     */
+    fieldDefs: string[];
+    fieldOptions: string[];
   };
   /** The rows the write also saved on the way, with the values they now hold. */
   updated: {
@@ -138,6 +149,8 @@ export function noRemovals(): CatalogChangeSet["removed"] {
     intentions: [],
     meditations: [],
     meditationTypes: [],
+    fieldDefs: [],
+    fieldOptions: [],
   };
 }
 

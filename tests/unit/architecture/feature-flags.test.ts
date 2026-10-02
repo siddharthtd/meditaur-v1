@@ -219,7 +219,9 @@ const GATES: readonly { file: string; must: RegExp; what: string }[] = [
     what: "the Database's Presets table",
   },
   {
-    file: "apps/web/src/features/database/DatabaseTable.tsx",
+    // The one gate on the grid's columns, in the module the column vocabulary lives in since
+    // the file-size split (`P3 · 50`).
+    file: "apps/web/src/features/database/database-columns.ts",
     must: /!BINAURAL_COLUMNS\.includes\(row\.key\) \|\| flagIsOn\(flags, "binaural"\)/,
     what: "the grid's two binaural columns, which is also the toolbar's list",
   },

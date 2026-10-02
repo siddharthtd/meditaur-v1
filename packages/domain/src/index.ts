@@ -1,5 +1,6 @@
 export { createId } from "./ids.ts";
 export { AppError, fail } from "./app-error.ts";
+export { SENTENCE_TAGS, sentenceTagLabel } from "./sentence-tags.ts";
 export {
   GRAPHIC_BANDS_HZ,
   EQ_Q,
@@ -52,12 +53,14 @@ export type { FeatureFlag, FeatureFlagInfo, FeatureFlags, ReikiFlag } from "./fe
   STAGE_KINDS,
   STAGE_KIND_LABELS,
   STAGE_KIND_DEFAULT_MS,
+  DECLARATION_STAGE_MS,
   INTENTION_STAGES,
   PROTECTION_STAGES,
   AFFIRMATION_STAGES,
   autoScrollForKind,
   binauralForKind,
   copyStages,
+  declarationStage,
   defaultStage,
   stage,
   stageByKey,
@@ -73,6 +76,8 @@ export type {
   CellType,
   FieldScope,
   RefKind,
+  SentenceTag,
+  CompiledPointLines,
   MediaKind,
   ReikiSystem,
   Versioned,

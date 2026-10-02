@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { noDatabaseRows, type CatalogChangeSet, type LibraryView } from "@meditaur/application";
+import { noDatabaseRows, noRemovals, type CatalogChangeSet, type LibraryView } from "@meditaur/application";
 import type { MediaAsset } from "@meditaur/domain";
-import { patchLibrary, withRow } from "../../../apps/web/src/features/library/library-patch.ts";
+import { patchView, withRow } from "../../../apps/web/src/features/library/library-patch.ts";
 import {
   NEW_ROW_VERSION,
+  makeEntries,
+  makeFieldDef,
+  makeFieldOption,
   makeMeditation,
   makePlan,
   makeBlock,
@@ -12,12 +15,13 @@ import {
 } from "../../fixtures/library.ts";
 
 /**
- * The Library's lists, patched from the answer a write gives (`P2 · 4`).
+ * The view, patched from the answer a write gives (`P2 · 4`).
  *
  * The screens have no rendering tests, so what is proved here is the merge itself:
  * that a delete drops exactly the row that went, that the rows a cascade rewrote
- * arrive with their new values, that a row the cascade left alone is passed through
- * untouched, and that a new row lands at its own order rather than at the end.
+ * arrive with their new values, that a row the answer left alone is passed through
+ * **by identity**, that a new row lands at its own order rather than at the end, and
+ * that the lists only the Database holds follow the same rules.
  */
 function emptyView(extra: Partial<LibraryView> = {}): LibraryView {
   return {
@@ -40,15 +44,7 @@ function emptyView(extra: Partial<LibraryView> = {}): LibraryView {
 
 function noChange(): CatalogChangeSet {
   return {
-    removed: {
-      presets: [],
-      mediaAssets: [],
-      symbols: [],
-      entries: [],
-      intentions: [],
-      meditations: [],
-      meditationTypes: [],
-    },
+    removed: noRemovals(),
     updated: { meditations: [], symbols: [], plans: [], presets: [], ...noDatabaseRows() },
   };
 }
@@ -66,14 +62,14 @@ function asset(id: string, name: string, sortOrder: number): MediaAsset {
   };
 }
 
-describe("patchLibrary", () => {
+describe("patchView", () => {
   it("drops the row that went and leaves the rest of the list alone", () => {
     const presets = [
       makePreset({ id: "p1", sortOrder: 0 }),
       makePreset({ id: "p2", sortOrder: 1 }),
       makePreset({ id: "p3", sortOrder: 2 }),
     ];
-    const patched = patchLibrary(emptyView({ presets }), {
+    const patched = patchView(emptyView({ presets }), {
       ...noChange(),
       // Spread rather than spelled out, so a bucket this test does not care about
       // can grow without turning every case into a compile error.
@@ -97,7 +93,7 @@ describe("patchLibrary", () => {
       symbols: [untouchedSymbol],
     });
 
-    const patched = patchLibrary(view, {
+    const patched = patchView(view, {
       ...noChange(),
       updated: { meditations: [cleared], symbols: [], plans: [], presets: [], ...noDatabaseRows() },
     });
@@ -112,7 +108,7 @@ describe("patchLibrary", () => {
     // reference and changes neither, so the whole plan the change-set carries is
     // for the planner rather than for here.
     const plans = [{ id: "plan1", name: "Morning" }];
-    const patched = patchLibrary(emptyView({ plans }), {
+    const patched = patchView(emptyView({ plans }), {
       ...noChange(),
       updated: {
         meditations: [],
@@ -123,6 +119,75 @@ describe("patchLibrary", () => {
       },
     });
     expect(patched.plans).toBe(plans);
+  });
+
+  it("drops a row and the values that hung on it, and keeps another entity's", () => {
+    const { entries, intentions } = makeEntries([
+      { meditationId: "m1", symbolId: null, texts: ["A"] },
+      { meditationId: "m2", symbolId: null, texts: ["B"] },
+    ]);
+    const went = entries[0]!;
+    const view = emptyView({
+      entries,
+      intentions,
+      // A value belongs to the entity it hangs on rather than to an id of its own, so
+      // the change-set cannot name one: the entity's own removal is what takes it.
+      fieldValues: [
+        { ...NEW_ROW_VERSION, entityId: went.id, fieldDefId: "fd1", text: "one" },
+        { ...NEW_ROW_VERSION, entityId: entries[1]!.id, fieldDefId: "fd1", text: "two" },
+      ],
+    });
+    const patched = patchView(view, {
+      ...noChange(),
+      removed: { ...noChange().removed, entries: [went.id], intentions: [intentions[0]!.id] },
+    });
+    expect(patched.entries.map((row) => row.id)).toEqual([entries[1]!.id]);
+    // The line inside the row went with it, and the other row's line stayed: a line is
+    // named because a screen holding the Affirmations table would otherwise keep drawing
+    // a sentence whose row no longer exists.
+    expect(patched.intentions.map((row) => row.id)).toEqual([intentions[1]!.id]);
+    expect(patched.fieldValues.map((row) => row.text)).toEqual(["two"]);
+  });
+
+  it("drops a column, its options, and the values typed in it", () => {
+    const view = emptyView({
+      fieldDefs: [makeFieldDef({ id: "fd-x", label: "Mantra" }), makeFieldDef({ id: "fd-keep" })],
+      fieldOptions: [makeFieldOption({ id: "opt-x", fieldDefId: "fd-x" })],
+      fieldValues: [
+        { ...NEW_ROW_VERSION, entityId: "m1", fieldDefId: "fd-x", text: "om" },
+        { ...NEW_ROW_VERSION, entityId: "m1", fieldDefId: "fd-keep", text: "kept" },
+      ],
+    });
+    const patched = patchView(view, {
+      ...noChange(),
+      removed: { ...noChange().removed, fieldDefs: ["fd-x"], fieldOptions: ["opt-x"] },
+    });
+    expect(patched.fieldDefs.map((row) => row.id)).toEqual(["fd-keep"]);
+    expect(patched.fieldOptions).toEqual([]);
+    // The cell's value goes with the column it was typed in, because a value is keyed
+    // by that pair: a screen that kept it would draw a cell nothing can show.
+    expect(patched.fieldValues.map((row) => row.text)).toEqual(["kept"]);
+  });
+
+  it("treats a cleared cell as no row at all, which is what the store holds", () => {
+    const view = emptyView({
+      fieldValues: [{ ...NEW_ROW_VERSION, entityId: "m1", fieldDefId: "fd1", text: "old" }],
+    });
+    const patched = patchView(view, {
+      ...noChange(),
+      // `saveFieldValue` answers a cleared cell with an empty text and deletes the
+      // stored row, so a patch that kept this one would leave the draft reading a value
+      // the store does not have.
+      updated: {
+        meditations: [],
+        symbols: [],
+        plans: [],
+        presets: [],
+        ...noDatabaseRows(),
+        fieldValues: [{ ...NEW_ROW_VERSION, entityId: "m1", fieldDefId: "fd1", text: "" }],
+      },
+    });
+    expect(patched.fieldValues).toEqual([]);
   });
 });
 

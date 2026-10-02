@@ -4,8 +4,8 @@ import { app } from "@/composition";
 import { useSession } from "@/features/auth/SessionProvider";
 import { errorText } from "@/lib/error-text";
 import { useScreenScroll } from "@/lib/screen-scroll";
-import type { LibraryView } from "@meditaur/application";
-import { visibleSymbols, visibleTypes, type Meditation } from "@meditaur/domain";
+import { oneRowChangeSet, type CatalogChangeSet, type LibraryView } from "@meditaur/application";
+import { visibleSymbols, visibleTypes, type MediaAsset, type Meditation } from "@meditaur/domain";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { confirmLeaveDatabase, setDatabaseDirty } from "../database/database-guard";
@@ -13,6 +13,7 @@ import { DatabaseRecord } from "../database/DatabaseRecord";
 import { DATABASE_HREF } from "../database/database-route";
 import { BinauralConfigScreen } from "../library/BinauralConfig";
 import { GoneScreen } from "../library/GoneScreen";
+import { patchView, withRow } from "../library/library-patch";
 import { pruneBinauralDrafts } from "../library/library-model";
 import { LIBRARY_HREF } from "../library/library-route";
 import { MeditationSheet } from "../library/MeditationSheet";
@@ -93,22 +94,46 @@ export function RecordScreen() {
     [view, flags],
   );
 
-  const reload = useCallback(async (ws: string) => {
-    const library = await app.getLibrary(ws);
-    // A binaural draft is keyed by meditation id and is reached from here; one whose
-    // meditation is gone is swept on every load, which is the same rule the library
-    // used before the config moved behind this screen.
-    pruneBinauralDrafts(library.meditations.map((fp) => fp.id));
-    setView(library);
+  /**
+   * The record's own storage read, and the **only** one (`P2 · 4`).
+   *
+   * A save, a field's delete and a picture used to run this again to keep the sheet and
+   * the editor honest. The writes answer instead — a row, or a `CatalogChangeSet` — and
+   * `patchView` turns that answer into the view this screen is already holding.
+   */
+  const load = useCallback(async (ws: string) => {
+    setView(await app.getLibrary(ws));
+  }, []);
+
+  /** A write's answer, applied to the view the sheets and the editor share. */
+  const applyChanges = useCallback((changes: CatalogChangeSet) => {
+    setView((current) => (current ? patchView(current, changes) : current));
+  }, []);
+
+  /** A picture this screen just wrote: `mediaAssets` is the list no change-set carries. */
+  const addAsset = useCallback((asset: MediaAsset) => {
+    setView((current) =>
+      current ? { ...current, mediaAssets: withRow(current.mediaAssets, asset) } : current,
+    );
   }, []);
 
   useEffect(() => {
     if (!sessionReady || !sessionWorkspaceId) return;
     setWorkspaceId(sessionWorkspaceId);
-    void reload(sessionWorkspaceId).catch((err) =>
+    void load(sessionWorkspaceId).catch((err) =>
       setError(errorText(err, "Could not load the record")),
     );
-  }, [sessionReady, sessionWorkspaceId, reload]);
+  }, [sessionReady, sessionWorkspaceId, load]);
+
+  /**
+   * A binaural draft is keyed by meditation id and is reached from here; one whose
+   * meditation is gone is swept every time the view moves, which is the library's own
+   * rule. An effect rather than a step of the load, because the load is no longer the
+   * only thing that moves the view (`P2 · 4`).
+   */
+  useEffect(() => {
+    if (view) pruneBinauralDrafts(view.meditations.map((fp) => fp.id));
+  }, [view]);
 
   /** The blob URL for one asset, fetched once and kept for the screen's life. */
   const urlForAsset = useCallback(async (id: string): Promise<string | null> => {
@@ -217,13 +242,16 @@ export function RecordScreen() {
           onBack={() => setBinauralMeditationId(null)}
           onError={setError}
           onSavePreset={async (preset) => {
-            await app.savePreset(preset);
-            await app.saveMeditation({ ...focus, defaultBinauralPresetId: preset.id });
-            await reload(workspaceId);
+            const stored = await app.savePreset(preset);
+            const meditation = await app.saveMeditation({
+              ...focus,
+              defaultBinauralPresetId: stored.id,
+            });
+            applyChanges(oneRowChangeSet({ presets: [stored], meditations: [meditation] }));
           }}
           onToggleBinaural={async (enabled) => {
-            await app.saveMeditation({ ...focus, binauralEnabled: enabled });
-            await reload(workspaceId);
+            const stored = await app.saveMeditation({ ...focus, binauralEnabled: enabled });
+            applyChanges(oneRowChangeSet({ meditations: [stored] }));
           }}
         />
       </main>
@@ -289,7 +317,8 @@ export function RecordScreen() {
         screen={{ kind: "record", table: request.kind, id: request.id }}
         imageUrls={imageUrls}
         onBack={leave}
-        onReload={() => reload(workspaceId)}
+        onChanges={applyChanges}
+        onAsset={addAsset}
         onAddColumn={() => router.push(DATABASE_HREF)}
         onOpenBinaural={(focus: Meditation) => {
           // The binaural config is another screen and this one may hold an unsaved draft, so

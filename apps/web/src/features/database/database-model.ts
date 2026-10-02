@@ -13,6 +13,7 @@ import {
   DEFAULT_FOCUS_DURATION_MS,
   defaultEarEq,
   INTENTION_STAGES,
+  isLive,
   POINT_TYPE_ID,
   type BinauralPreset,
   type CellType,
@@ -25,6 +26,7 @@ import {
   type Intention,
   type MeditationType,
   type RefKind,
+  type SentenceTag,
   type Symbol,
 } from "@meditaur/domain";
 import type { DatabaseTable } from "./database-tables";
@@ -63,6 +65,16 @@ export type DraftLine = {
    */
   entryId: string | null;
   text: string;
+  /**
+   * What kind of sentence this is, or `null` for an ordinary one.
+   *
+   * Round 26 seeds one `declaration` and reads the workspace's declarations where a block has a
+   * declaration stage; item 60 is the other half, and the grid's `Tag` column is its only writer.
+   * It is carried in the draft like every other field of the row, and **written on every save**
+   * even when the reader changed only the text: leaving it out told the store the sentence had no
+   * tag, which silently unwrote the one the app itself seeded.
+   */
+  tag: SentenceTag | null;
   sortOrder: number;
   archivedAt: number | null;
   isNew: boolean;
@@ -232,7 +244,22 @@ export function recordMeditationTypeId(record: DraftRecord): string | null {
   return typeof source.typeId === "string" ? source.typeId : null;
 }
 
-/** The draft the reader starts from: what the store holds, in the reader's order. */
+/**
+ * The draft the reader starts from: the store's **live** records, in the reader's
+ * order.
+ *
+ * A record that has stepped aside is not a row of its table. The view holds the
+ * archived rows too — the Archive page reads them from there — so mapping the lists
+ * whole put an archived record straight back into the grid the moment a refetch
+ * rebuilt the draft, which is the defect found on 2026-09-25 (`P2 · 4`): the grid
+ * only looked right because the drop that follows an archive beat the refetch that
+ * followed it. Every Library list already keeps this rule (`Library.tsx`,
+ * `library-model.ts`); this is the same one, at the draft.
+ *
+ * A row or a sentence is different on purpose: they keep their `archivedAt` in the
+ * draft and are filtered where they are drawn (`visibleRows`, `sentenceRows`),
+ * because the draft is what archives and restores them.
+ */
 export function draftFromLibrary(view: LibraryView): DraftState {
   const values: DraftValues = {};
   for (const row of view.fieldValues) {
@@ -251,14 +278,15 @@ export function draftFromLibrary(view: LibraryView): DraftState {
       id: row.id,
       entryId: row.entryId,
       text: row.text,
+      tag: row.tag ?? null,
       sortOrder: row.sortOrder,
       archivedAt: row.archivedAt,
       isNew: false,
     })),
-    meditations: view.meditations.map(meditationRecord),
-    symbols: view.symbols.map(symbolRecord),
-    presets: view.presets.map(presetRecord),
-    types: view.meditationTypes.map(typeRecord),
+    meditations: view.meditations.filter(isLive).map(meditationRecord),
+    symbols: view.symbols.filter(isLive).map(symbolRecord),
+    presets: view.presets.filter(isLive).map(presetRecord),
+    types: view.meditationTypes.filter(isLive).map(typeRecord),
     columns: view.fieldDefs.map((row) => ({
       id: row.id,
       scope: row.scope,
@@ -416,6 +444,7 @@ export function addSentence(draft: DraftState): { draft: DraftState; id: string 
     id,
     entryId: null,
     text: "",
+    tag: null,
     sortOrder:
       draft.lines
         .filter((line) => line.entryId === null)
@@ -783,11 +812,31 @@ export function addLine(draft: DraftState, entryId: string, text = ""): DraftSta
     id: createId(),
     entryId,
     text,
+    tag: null,
     sortOrder: linesOf(draft, entryId).reduce((max, item) => Math.max(max, item.sortOrder), -1) + 1,
     archivedAt: null,
     isNew: true,
   };
   return { ...draft, lines: [...draft.lines, row] };
+}
+
+/**
+ * What kind of sentence a line is (`P4 · 60`), or `null` for an ordinary one.
+ *
+ * One helper rather than a `map` at the call site because the grid's `Tag` column is the only
+ * writer, and the rule it must not break is the pair: the tag travels with the row on every save
+ * (`sameLine` compares it, `commitDatabaseDraft` writes it), or editing a sentence's text would
+ * unwrite the tag the sentence was stored with.
+ */
+export function withLineTag(
+  draft: DraftState,
+  lineId: string,
+  tag: SentenceTag | null,
+): DraftState {
+  return {
+    ...draft,
+    lines: draft.lines.map((line) => (line.id === lineId ? { ...line, tag } : line)),
+  };
 }
 
 /** Rows are keyed by id and placed at once: the order is written before the drop lands (§6.1). */
@@ -839,6 +888,23 @@ export function dropRecord(draft: DraftState, table: DatabaseTable, id: string):
   // A meditation lives in one list whatever table it is drawn in, so dropping it
   // is the same act wherever it was drawn from.
   return meditationTableTypeId(table) ? { ...draft, meditations: without(draft.meditations) } : draft;
+}
+
+/**
+ * A column that was removed, and the options that belonged to it.
+ *
+ * The draft has to be told in its own right: a patched view merges into a draft that has
+ * edits in it exactly the way a reload did (`mergeRecords` brings records in and leaves
+ * columns alone), so a column left behind would be written back by the next Save — a
+ * column the store no longer has. No value is dropped, because the rule that lets a
+ * column go is that no cell holds one (`P2 · 4`).
+ */
+export function dropColumn(draft: DraftState, columnId: string): DraftState {
+  return {
+    ...draft,
+    columns: draft.columns.filter((row) => row.id !== columnId),
+    options: draft.options.filter((row) => row.fieldDefId !== columnId),
+  };
 }
 
 /**
@@ -972,23 +1038,20 @@ export function addRecord(
 
 export type DatabaseWrites = {
   saveEntry(entry: Entry): Promise<Entry>;
-  deleteEntry(workspaceId: string, entryId: string): Promise<void>;
   saveLine(line: Intention): Promise<Intention>;
   saveFieldDef(def: FieldDef): Promise<FieldDef>;
-  deleteFieldDef(workspaceId: string, fieldDefId: string): Promise<void>;
   saveFieldOption(option: FieldOption): Promise<FieldOption>;
-  deleteFieldOption(workspaceId: string, optionId: string): Promise<void>;
   saveFieldValue(value: FieldValue): Promise<FieldValue>;
   saveMeditation(focus: Meditation): Promise<Meditation>;
   saveSymbol(symbol: Symbol): Promise<Symbol>;
   savePreset(preset: BinauralPreset): Promise<BinauralPreset>;
   saveMeditationType(row: MeditationType): Promise<MeditationType>;
-  reorderEntries(workspaceId: string, entryIds: string[]): Promise<void>;
-  reorderLines(workspaceId: string, entryId: string, lineIds: string[]): Promise<void>;
+  reorderEntries(workspaceId: string, entryIds: string[]): Promise<Entry[]>;
+  reorderLines(workspaceId: string, entryId: string, lineIds: string[]): Promise<Intention[]>;
   sweepOrphanedEntries(
     workspaceId: string,
     entryIds: string[],
-  ): Promise<{ swept: { id: string; label: string }[]; total: number }>;
+  ): Promise<{ swept: { id: string; label: string }[]; total: number; rows: Entry[] }>;
 };
 
 export type SweepReport = { names: string[]; total: number };
@@ -1017,10 +1080,12 @@ function sameEntry(a: DraftEntry, b: DraftEntry): boolean {
 
 function sameLine(a: DraftLine, b: DraftLine): boolean {
   // `entryId` is part of it: re-associating a sentence is a write like any other,
-  // and a line whose row changed is a line whose stored row is now wrong.
+  // and a line whose row changed is a line whose stored row is now wrong. `tag` is part of it for
+  // the same reason, and it is the newer half: the grid's Tag column writes it.
   return (
     a.text === b.text &&
     a.entryId === b.entryId &&
+    a.tag === b.tag &&
     a.sortOrder === b.sortOrder &&
     a.archivedAt === b.archivedAt
   );
@@ -1094,6 +1159,7 @@ export async function commitDatabaseDraft(input: {
         entryId: line.entryId,
         sortOrder: line.sortOrder,
         text: line.text,
+        tag: line.tag,
         archivedAt: line.archivedAt,
         ...newRowVersion(),
       }),
@@ -1101,12 +1167,14 @@ export async function commitDatabaseDraft(input: {
   }
 
   // Order last, and only for rows that survived: a swept row has no place to keep.
+  // Both halves are named in the answer: a drag writes the row's `sortOrder`, and a
+  // place is only readable from the row that holds it (`P2 · 4`).
   const order = draft.entries
     .filter((row) => row.meditationId || row.symbolId)
     .map((row) => row.id);
-  await writes.reorderEntries(workspaceId, order);
+  writtenEntries.push(...(await writes.reorderEntries(workspaceId, order)));
   for (const [entryId, ids] of lineOrderByEntry(draft)) {
-    await writes.reorderLines(workspaceId, entryId, ids);
+    writtenLines.push(...(await writes.reorderLines(workspaceId, entryId, ids)));
   }
 
   const beforeColumns = new Map(before.columns.map((row) => [row.id, row]));
@@ -1200,7 +1268,11 @@ export async function commitDatabaseDraft(input: {
         plans: [],
         presets: [],
         meditationTypes: records.types,
-        entries: writtenEntries,
+        // A row can be named twice — written and then moved — and the last word on an
+        // id is the one the screen keeps, so the moved row (the one with the place
+        // the reader sees) comes second. A **swept** row is named too: it is archived
+        // now, which is not a fact its id could carry (`P2 · 4`).
+        entries: [...writtenEntries, ...swept.rows],
         intentions: writtenLines,
         fieldDefs: writtenColumns,
         fieldOptions: writtenOptions,

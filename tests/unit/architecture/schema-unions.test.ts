@@ -77,6 +77,10 @@ describe("schema unions", () => {
     // is nullable on purpose: a symbol the reader adds names none, which is what
     // keeps it out of the flag's reach (`isSymbolSystemEnabled`).
     expectConstrained("reiki_system", unionValues(models, "ReikiSystem"));
+    // The owner's round 26 gave a sentence the pools it can belong to — Protection, Thanks
+    // Giving and Declaration — and a nullable column, because `null` is the ordinary case: a
+    // sentence with no tag is read the way every sentence has always been read.
+    expectConstrained("tag", unionValues(models, "SentenceTag"));
     // The owner's round 24 added the eight colour schemes (`P2 · 46`), and this column is
     // `not null default 'warm'` where `reiki_system` is nullable: a preference is a value
     // the app always has, so a row that predates the field is a reader on the app's own
@@ -96,6 +100,11 @@ describe("schema unions", () => {
       "affirmation",
     ]);
     expect(unionValues(models, "RefKind")).toEqual(["meditation", "symbol", "preset"]);
+    expect(unionValues(models, "SentenceTag")).toEqual([
+      "protection",
+      "thanks_giving",
+      "declaration",
+    ]);
     expect(unionValues(models, "ReikiSystem")).toEqual([
       "karuna_reiki",
       "usui_reiki",

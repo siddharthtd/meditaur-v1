@@ -22,7 +22,7 @@ import type { DatabaseRequest } from "../database/DatabaseTab";
 import { AudioList } from "./AudioTable";
 import { CatalogBackupPanel } from "./CatalogBackupPanel";
 import { LibraryColumnPicker } from "./CatalogDataTable";
-import { patchLibrary, withRow } from "./library-patch";
+import { patchView, withRow } from "./library-patch";
 import { MeditationList, SymbolsList } from "./MeditationTable";
 import { HistoryList } from "./HistoryTable";
 import {
@@ -343,7 +343,7 @@ export function Library() {
       // The delete answers with every row its cascade rewrote, and that is what
       // makes a patch exact: dropping the id alone would leave the meditations and
       // the symbols that pointed at it stale in this very view.
-      setView((current) => (current ? patchLibrary(current, changes) : current));
+      setView((current) => (current ? patchView(current, changes) : current));
     } catch (err) {
       setError(errorText(err, "Delete failed"));
     }
@@ -400,7 +400,9 @@ export function Library() {
           app={app}
           workspaceId={workspaceId}
           view={view}
-          onReload={() => reload(workspaceId)}
+          onChanges={(changes) =>
+            setView((current) => (current ? patchView(current, changes) : current))
+          }
           onError={setError}
         />
       ) : null}

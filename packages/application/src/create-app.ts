@@ -63,7 +63,7 @@ import {
   parseCatalogBackup,
   type CatalogBackup,
 } from "./catalog-backup.ts";
-import { noUpdatedRows, oneRowChangeSet, type CatalogChangeSet } from "./catalog-change.ts";
+import { noRemovals, noUpdatedRows, oneRowChangeSet, type CatalogChangeSet } from "./catalog-change.ts";
 import {
   assertFieldDefSavable,
   catalogFail,
@@ -441,10 +441,18 @@ export type MeditaurApp = {
    * Archive page.
    */
   saveEntry(entry: Entry): Promise<Entry>;
-  deleteEntry(workspaceId: string, entryId: string): Promise<void>;
+  /**
+   * Destroy a row, and the lines written inside it.
+   *
+   * The answer is a `CatalogChangeSet` because those lines are the half an id cannot
+   * name: a line belongs to its row, so they are read **before** the row goes
+   * (`P2 · 4`).
+   */
+  deleteEntry(workspaceId: string, entryId: string): Promise<CatalogChangeSet>;
   archiveEntry(workspaceId: string, entryId: string): Promise<CatalogChangeSet>;
   restoreEntry(workspaceId: string, entryId: string): Promise<CatalogChangeSet>;
-  reorderEntries(workspaceId: string, entryIds: string[]): Promise<void>;
+  /** The rows it moved, in their new order — what a screen patches from (`P2 · 4`). */
+  reorderEntries(workspaceId: string, entryIds: string[]): Promise<Entry[]>;
   /**
    * A line is the row the spec calls it: one sentence inside a row's Intentions
    * cell. These write `Intention` rows, and the name is the reader's word for it.
@@ -454,10 +462,12 @@ export type MeditaurApp = {
    * the merge made possible and what `saveLine` therefore allows.
    */
   saveLine(line: Intention): Promise<Intention>;
-  deleteLine(workspaceId: string, lineId: string): Promise<void>;
+  /** The sentence, and the values that hung on its own id, gone for good (`P2 · 4`). */
+  deleteLine(workspaceId: string, lineId: string): Promise<CatalogChangeSet>;
   archiveLine(workspaceId: string, lineId: string): Promise<CatalogChangeSet>;
   restoreLine(workspaceId: string, lineId: string): Promise<CatalogChangeSet>;
-  reorderLines(workspaceId: string, entryId: string, lineIds: string[]): Promise<void>;
+  /** The lines it moved, in their new order — what a screen patches from (`P2 · 4`). */
+  reorderLines(workspaceId: string, entryId: string, lineIds: string[]): Promise<Intention[]>;
   /** A record steps aside, or comes back. Nothing that depends on it is touched. */
   archiveRecord(workspaceId: string, kind: RecordKind, id: string): Promise<CatalogChangeSet>;
   restoreRecord(workspaceId: string, kind: RecordKind, id: string): Promise<CatalogChangeSet>;
@@ -473,10 +483,18 @@ export type MeditaurApp = {
   sweepOrphanedEntries(
     workspaceId: string,
     entryIds: string[],
-  ): Promise<{ swept: { id: string; label: string }[]; total: number }>;
+  ): Promise<{ swept: { id: string; label: string }[]; total: number; rows: Entry[] }>;
 
   saveFieldDef(def: FieldDef): Promise<FieldDef>;
-  deleteFieldDef(workspaceId: string, fieldDefId: string): Promise<void>;
+  /**
+   * Remove a column, and the options that belonged to it.
+   *
+   * A column holding a value in any cell cannot be removed, and an option a cell
+   * chose cannot be removed either (§4), so the column leaves only when it is empty
+   * — but the options go in the same transaction, and the grid draws them. The
+   * answer names both (`P2 · 4`).
+   */
+  deleteFieldDef(workspaceId: string, fieldDefId: string): Promise<CatalogChangeSet>;
   saveFieldOption(option: FieldOption): Promise<FieldOption>;
   deleteFieldOption(workspaceId: string, optionId: string): Promise<void>;
   saveFieldValue(value: FieldValue): Promise<FieldValue>;
@@ -1355,15 +1373,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         );
         await ports.presets.delete(presetId);
         return {
-          removed: {
-            presets: [presetId],
-            mediaAssets: [],
-            symbols: [],
-            entries: [],
-            intentions: [],
-            meditations: [],
-            meditationTypes: [],
-          },
+          removed: { ...noRemovals(), presets: [presetId] },
           updated: { ...noUpdatedRows(), meditations: clearedMeditations, plans },
         };
       }),
@@ -1402,13 +1412,10 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         await ports.catalog.deleteMeditation(meditationId);
         return {
           removed: {
-            presets: [],
-            mediaAssets: [],
-            symbols: [],
+            ...noRemovals(),
             entries: entryIds,
             intentions: lines,
             meditations: [meditationId],
-            meditationTypes: [],
           },
           updated: { ...noUpdatedRows(), plans },
         };
@@ -1439,9 +1446,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         await ports.catalog.deleteMeditationType(typeId);
         return {
           removed: {
-            presets: [],
-            mediaAssets: [],
-            symbols: [],
+            ...noRemovals(),
             entries: entryIds,
             intentions: lines,
             meditations: [...ids],
@@ -1478,15 +1483,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         );
         await ports.catalog.deleteSymbol(symbolId);
         return {
-          removed: {
-            presets: [],
-            mediaAssets: [],
-            symbols: [symbolId],
-            entries: entryIds,
-            intentions: lines,
-            meditations: [],
-            meditationTypes: [],
-          },
+          removed: { ...noRemovals(), symbols: [symbolId], entries: entryIds, intentions: lines },
           updated: { ...noUpdatedRows(), plans },
         };
       }),
@@ -1513,9 +1510,17 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
     deleteEntry: async (workspaceId, entryId) =>
       ports.runInTransaction(async () => {
         const entry = await findEntry(workspaceId, entryId);
-        if (!entry) return;
+        // The lines are read even when the row is already gone: the answer is what a
+        // screen drops, and a sentence written about a row nobody has is a sentence
+        // the Affirmations table would keep drawing. They are read **before** the
+        // row goes, because once it is gone there is nothing left to ask (`P2 · 4`).
+        const lines = await lineIdsInside(workspaceId, [entryId]);
         // The row and its lines, for good. Only the Archive page offers this.
-        await deleteRows([entryId]);
+        if (entry) await deleteRows([entryId]);
+        return {
+          removed: { ...noRemovals(), entries: [entryId], intentions: lines },
+          updated: noUpdatedRows(),
+        };
       }),
     archiveEntry: async (workspaceId, entryId) =>
       ports.runInTransaction(async () => {
@@ -1539,11 +1544,18 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
       ports.runInTransaction(async () => {
         const listed = await ports.catalog.listEntries(workspaceId);
         const position = new Map(entryIds.map((id, index) => [id, index]));
+        const written: Entry[] = [];
         for (const row of listed) {
           const next = position.get(row.id);
           if (next === undefined || next === row.sortOrder) continue;
-          await ports.catalog.saveEntry(stamped({ ...row, sortOrder: next }));
+          const stored = stamped({ ...row, sortOrder: next });
+          await ports.catalog.saveEntry(stored);
+          written.push(stored);
         }
+        // The rows themselves rather than a count: a place is only readable from the
+        // row that now holds it, and the screen that dragged it patches from these
+        // (`P2 · 4`).
+        return written;
       }),
     saveLine: async (line) =>
       ports.runInTransaction(async () => {
@@ -1567,13 +1579,18 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
     deleteLine: async (workspaceId, lineId) =>
       ports.runInTransaction(async () => {
         const line = await findLine(workspaceId, lineId);
-        if (!line) return;
-        // A sentence in the Affirmations table has columns of its own (the
-        // `affirmation` pool), and they hang on its id, so they go with it — the
-        // same sweep every other row's delete does. A line inside an entry's cell
-        // has none, and this is a no-op there.
-        await deleteValues([lineId]);
-        await ports.catalog.deleteIntention(lineId);
+        if (line) {
+          // A sentence in the Affirmations table has columns of its own (the
+          // `affirmation` pool), and they hang on its id, so they go with it — the
+          // same sweep every other row's delete does. A line inside an entry's cell
+          // has none, and this is a no-op there.
+          await deleteValues([lineId]);
+          await ports.catalog.deleteIntention(lineId);
+        }
+        return {
+          removed: { ...noRemovals(), intentions: [lineId] },
+          updated: noUpdatedRows(),
+        };
       }),
     archiveLine: async (workspaceId, lineId) =>
       ports.runInTransaction(async () => {
@@ -1597,12 +1614,16 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
       ports.runInTransaction(async () => {
         const lines = await ports.catalog.listIntentions(workspaceId);
         const position = new Map(lineIds.map((id, index) => [id, index]));
+        const written: Intention[] = [];
         for (const row of lines) {
           if (row.entryId !== entryId) continue;
           const next = position.get(row.id);
           if (next === undefined || next === row.sortOrder) continue;
-          await ports.catalog.saveIntention(stamped({ ...row, sortOrder: next }));
+          const stored = stamped({ ...row, sortOrder: next });
+          await ports.catalog.saveIntention(stored);
+          written.push(stored);
         }
+        return written;
       }),
     archiveRecord: (workspaceId, kind, id) =>
       ports.runInTransaction(() =>
@@ -1617,7 +1638,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         // again before Save must survive. This archives what it is handed — the
         // stored row still carries the pair, which is what the report names.
         const wanted = new Set(entryIds);
-        if (wanted.size === 0) return { swept: [], total: 0 };
+        if (wanted.size === 0) return { swept: [], total: 0, rows: [] };
         const [entries, meditations, symbols] = await Promise.all([
           ports.catalog.listEntries(workspaceId),
           ports.catalog.listMeditations(workspaceId),
@@ -1626,6 +1647,10 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         const focusById = new Map(meditations.map((row) => [row.id, row.name]));
         const symbolById = new Map(symbols.map((row) => [row.id, row.name]));
         const swept: { id: string; label: string }[] = [];
+        // The stored rows as well as the report: a swept row is *archived*, which is
+        // not a fact its id could carry, and the screen that patched the draft draws
+        // it as gone (`P2 · 4`).
+        const rows: Entry[] = [];
         for (const entry of entries) {
           if (!wanted.has(entry.id) || entry.archivedAt != null) continue;
           const focus = entry.meditationId ? focusById.get(entry.meditationId) : undefined;
@@ -1634,9 +1659,11 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
             id: entry.id,
             label: [focus, symbol].filter(Boolean).join(" × ") || "A row",
           });
-          await ports.catalog.saveEntry(stamped({ ...entry, archivedAt: ports.clock.nowMs() }));
+          const stored = stamped({ ...entry, archivedAt: ports.clock.nowMs() });
+          await ports.catalog.saveEntry(stored);
+          rows.push(stored);
         }
-        return { swept: swept.slice(0, SWEEP_REPORT_LIMIT), total: swept.length };
+        return { swept: swept.slice(0, SWEEP_REPORT_LIMIT), total: swept.length, rows };
       }),
     saveFieldDef: async (def) =>
       ports.runInTransaction(async () => {
@@ -1681,13 +1708,20 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
           catalogFail("fieldHoldsValues");
         }
         // Its options go with it. A cell that had chosen one is impossible by the
-        // check above, so nothing is left pointing at an option that is gone.
+        // check above, so nothing is left pointing at an option that is gone. The ids
+        // are collected as the options are asked to go: this is the one place that
+        // knows which ones a column owned (`P2 · 4`).
+        const options: string[] = [];
         for (const option of library.fieldOptions) {
-          if (option.fieldDefId === fieldDefId) {
-            await ports.catalog.deleteFieldOption(option.id);
-          }
+          if (option.fieldDefId !== fieldDefId) continue;
+          await ports.catalog.deleteFieldOption(option.id);
+          options.push(option.id);
         }
         await ports.catalog.deleteFieldDef(fieldDefId);
+        return {
+          removed: { ...noRemovals(), fieldDefs: [fieldDefId], fieldOptions: options },
+          updated: noUpdatedRows(),
+        };
       }),
     saveFieldOption: async (option) =>
       ports.runInTransaction(async () => {
@@ -1780,15 +1814,7 @@ export function createMeditaurApp(ports: AppPorts): MeditaurApp {
         await ports.catalog.deleteMediaAsset(assetId);
         await ports.blobs.delete(assetId);
         return {
-          removed: {
-            presets: [],
-            mediaAssets: [assetId],
-            symbols: [],
-            entries: [],
-            intentions: [],
-            meditations: [],
-            meditationTypes: [],
-          },
+          removed: { ...noRemovals(), mediaAssets: [assetId] },
           updated: { ...noUpdatedRows(), meditations: clearedMeditations, symbols: clearedSymbols, plans },
         };
       }),

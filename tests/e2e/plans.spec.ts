@@ -114,11 +114,12 @@ test("the two wheels line up, with no colon between them", async ({ page }) => {
   const seconds = page.getByRole("spinbutton", { name: "Seconds" }).first();
   const min = (await minutes.boundingBox())!;
   const sec = (await seconds.boundingBox())!;
-  // The seeded plan's first block is a whole number of minutes, so the seconds
-  // column is at its minimum — the case that used to lose the line above it and
-  // hang ~24px higher than the minutes (owner's round 7, "seconds is dangling
-  // above"). Fixed rows mean the two columns cannot disagree at any value.
-  expect(await seconds.getAttribute("aria-valuenow")).toBe("0");
+  // The block's first stage is the ten-second **Declaration** (round 26), whose seconds column
+  // is the one carrying a value and whose minutes read zero — the pair that used to disagree
+  // when a column lost its neighbour line (owner's round 7, "seconds is dangling above"). Fixed
+  // rows mean the two columns cannot disagree at any value.
+  expect(await seconds.getAttribute("aria-valuenow")).toBe("10");
+  expect(await minutes.getAttribute("aria-valuenow")).toBe("0");
   expect(Math.abs(min.y - sec.y), "the columns start at the same height").toBeLessThan(2);
   expect(Math.abs(min.height - sec.height), "and are the same height").toBeLessThan(2);
   expect(min.y + min.height / 2, "and share one middle line").toBeCloseTo(
@@ -303,12 +304,14 @@ test("the seconds wheel counts in circles, and the minutes wheel does not", asyn
   // a second that rolled a minute over would be arithmetic nobody asked for.
   await page.goto("/plan");
   await openEditor(page, "Third-Eye Chakra");
-  const minutes = page.getByRole("spinbutton", { name: "Minutes" }).first();
-  const seconds = page.getByRole("spinbutton", { name: "Seconds" }).first();
-  // The seeded stage is 2:00, so the minutes column has a value to watch.
+  // The block's **second** stage is `Intentions` at 2:00 — a ten-second Declaration leads every
+  // meditation since round 26 — so the minutes column has a value to watch, and the wheels of
+  // that card are the second pair in the strip.
+  const minutes = page.getByRole("spinbutton", { name: "Minutes" }).nth(1);
+  const seconds = page.getByRole("spinbutton", { name: "Seconds" }).nth(1);
   await expect(minutes).toHaveAttribute("aria-valuenow", "2");
   const type = async (name: string, value: string) => {
-    await page.getByRole("spinbutton", { name }).first().click();
+    await page.getByRole("spinbutton", { name }).nth(1).click();
     await page.getByRole("textbox", { name: `${name} value` }).fill(value);
     await page.keyboard.press("Enter");
   };
@@ -566,8 +569,13 @@ test("the session is a region list, and the screen does not scroll", async ({ pa
   const stop = page.getByRole("button", { name: "Stop", exact: true });
   await expect(stop).toBeVisible();
   // Thanks Giving opens the circuit and has no symbols of its own (§12.13); the
-  // block after it is the first chakra, which is what this test is about.
+  // block after it is the first chakra, which is what this test is about — and its
+  // **intentions** stage rather than the ten-second Declaration that now leads it.
   await page.getByRole("button", { name: "Skip", exact: true }).click();
+  await page.getByRole("button", { name: "Intentions stage" }).click();
+  // Started again, because a seek holds the session where it landed — and the rate
+  // this test measures is the clock's.
+  await page.getByRole("button", { name: "Start", exact: true }).click();
 
   // The regions the block's own data needs (round 16, items 4 and 8). The screen no
   // longer carries a box that repeats the meditation's name over its type — the owner
@@ -716,8 +724,8 @@ test("the stages carry their own switches, and they survive a save", async ({ pa
   // changed the screen would be the same bug as a wheel that sprang back.
   await page.goto("/plan");
   await page.getByRole("button", { name: "Edit Third-Eye Chakra" }).click();
-  // The seeded chakra's first stage is `Intentions`, which is one of the two kinds
-  // that can scroll; every stage row has a binaural switch.
+  // Every stage row has a binaural switch, and the **first** stage — the ten-second Declaration
+  // since round 26 — is an affirmations-kind stage, which is one of the two kinds that scroll.
   await expect(page.getByRole("button", { name: "Binaural", exact: true }).first())
     .toBeVisible();
   const autoScroll = page.getByRole("button", { name: "Auto-scroll", exact: true }).first();
@@ -725,12 +733,12 @@ test("the stages carry their own switches, and they survive a save", async ({ pa
   await autoScroll.click();
   await expect(autoScroll).toHaveAttribute("aria-pressed", "false");
 
-  // The meditation's own alarm, which takes the plan's answer until it is asked
-  // (item 13). The plan's answer is **off** (item 8: "noone asked for an alarm-on on
-  // this screen"), so the block's latch is off and its label says where that came
-  // from; a press is what gives this meditation an answer of its own.
+  // The meditation's own alarm, which takes the plan's answer until it is asked (item 13).
+  // Round 26 put the plan's answer **on** — *"Alarm should be ON by default, only OFF for
+  // thanks giving"* — so the block's latch is on and its label says where that came from; a press
+  // is what gives this meditation an answer of its own.
   const blockAlarm = page.getByRole("button", { name: /^Alarm \(/ });
-  await expect(blockAlarm).toHaveAttribute("aria-pressed", "false");
+  await expect(blockAlarm).toHaveAttribute("aria-pressed", "true");
   // The compact latch (round 19) adds no `On`/`Off` word to its name, but it still
   // says which answer it is showing, so the label is read as the whole name.
   await expect(blockAlarm).toHaveAccessibleName(/^Alarm \(the plan's answer\)$/);
@@ -739,16 +747,16 @@ test("the stages carry their own switches, and they survive a save", async ({ pa
   // The plan's own switch, in the plan settings strip. It is a compact latch too, so
   // its name is the one word on it; `aria-pressed` is where the state is read.
   const planAlarm = page.locator("main").getByRole("button", { name: "Alarm", exact: true });
-  await expect(planAlarm).toHaveAttribute("aria-pressed", "false");
-  await planAlarm.click();
   await expect(planAlarm).toHaveAttribute("aria-pressed", "true");
+  await planAlarm.click();
+  await expect(planAlarm).toHaveAttribute("aria-pressed", "false");
 
   await page.getByRole("button", { name: /^Save/ }).click();
   // Nothing left to write: the button drops its `· unsaved` half.
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeVisible();
   await page.reload();
   await expect(page.locator("main").getByRole("button", { name: "Alarm", exact: true }))
-    .toHaveAttribute("aria-pressed", "true");
+    .toHaveAttribute("aria-pressed", "false");
   await page.getByRole("button", { name: "Edit Third-Eye Chakra" }).click();
   await expect(page.getByRole("button", { name: "Auto-scroll", exact: true }).first())
     .toHaveAttribute("aria-pressed", "false");

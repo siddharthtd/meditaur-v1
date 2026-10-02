@@ -95,11 +95,12 @@ test("the run screen carries the alarm latch and the switches", async ({ page })
   await alarmLatch.click();
   await expect(alarmLatch).toHaveAttribute("aria-pressed", "true");
 
-  // The stages are one row (item 3). The plan opens with Thanks Giving, which has
-  // one stage, and `Scroll` is drawn for it — affirmations is one of the two
-  // kinds that are read, which is the whole point of a Thanks Giving stage.
+  // The stages are one row (item 3). The plan opens with Thanks Giving, which has **two**
+  // stages since round 26 — its ten-second Declaration and the minute of affirmations it reads
+  // — and `Scroll` is drawn for them, because affirmations is one of the two kinds that are
+  // read.
   const strip = page.locator("[data-stage-strip]");
-  await expect(strip.locator("li")).toHaveCount(1);
+  await expect(strip.locator("li")).toHaveCount(2);
   await expect(strip.locator("li").first()).toHaveAttribute("data-active", "true");
   // The scroll latch is a footer latch like the alarm's — the compact `sm` switch,
   // so its name is the word on it — and it is drawn here because an
@@ -108,15 +109,15 @@ test("the run screen carries the alarm latch and the switches", async ({ page })
   await expect(scrollLatch).toHaveAttribute("aria-pressed", "true");
   // Binaural is the mark in the stage's name, and an affirmations stage is silent
   // (§12.12), so the mark is drawn as information and there is no control to press.
-  await expect(strip.locator('span[title="Binaural is off for this stage"]')).toHaveCount(1);
+  await expect(strip.locator('span[title="Binaural is off for this stage"]')).toHaveCount(2);
   await expect(page.getByRole("button", { name: /^Binaural for / })).toHaveCount(0);
 
-  // A chakra's strip is three stages, and the two that can carry tones carry the
-  // mark as a switch.
+  // A chakra's strip is **four** stages since round 26 — the Declaration, the intentions, the
+  // symbols and the focus — and the two that can carry tones carry the mark as a switch.
   const start = page.getByRole("button", { name: "Start", exact: true });
   await start.click();
   await page.getByRole("button", { name: "Skip", exact: true }).click();
-  await expect(strip.locator("li")).toHaveCount(3);
+  await expect(strip.locator("li")).toHaveCount(4);
   await expect(page.getByRole("button", { name: "Binaural for Symbols" })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -141,8 +142,11 @@ test("a Protection block reads its own sentence, not an empty stage", async ({ p
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeEnabled({
     timeout: 60_000,
   });
-  // A Protection block opens on its first affirmations stage.
-  await expect(page.locator("#run-intentions")).toHaveText("Affirmations");
+  // A Protection block opens on the **Declaration** that leads every meditation since round 26;
+  // its own sentence is read on the affirmation stage after it.
+  await expect(page.locator("#run-intentions")).toHaveText("Declaration");
+  await page.getByRole("button", { name: "Affirmation stage" }).click();
+  await expect(page.locator("#run-intentions")).toHaveText("Affirmation");
   const column = page.locator("[data-intentions-scroll]");
   await expect(column).toBeVisible();
   // The seeded sentence is written on **two** of Protection's rows — Zonar's and
@@ -155,13 +159,16 @@ test("a Protection block reads its own sentence, not an empty stage", async ({ p
   ).toBeVisible();
 });
 
-test("a block with no symbols has no symbol region, and the intentions take its room", async ({
+test("a block with nothing to show draws no rail, and the intentions take its room", async ({
   page,
 }) => {
-  // The owner's round 16, items 2 and 8: Thanks Giving never has symbols, and the
-  // rule is the general one — a region with nothing to show is not drawn *and its
-  // room goes to the intentions*. The plan opens on Thanks Giving, so this is the
-  // screen a reader meets first: no rail, no gap where one was.
+  // The owner's round 16, items 2 and 8: a region with nothing to show is not drawn *and its room
+  // goes to the intentions*. The plan opens on Thanks Giving, whose own `Location` is blank in the
+  // seed and whose block has no symbols of its own — so this screen draws no rail at all: no panel
+  // and no gap where one was. **Round 26 added the other case**, and it is the rail's: a block
+  // with no symbols whose meditation *does* have a column with a value gets a rail holding the
+  // meditation (see "a block with no symbols holds the meditation itself in its rail" below). So
+  // this test is about "nothing to show", not about "no symbols".
   await page.addInitScript(() => {
     sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
   });
@@ -226,8 +233,10 @@ test("reduced motion holds the intentions column still until the reader asks", a
   await expect(start).toBeEnabled({ timeout: 60_000 });
   await start.click();
   // Thanks Giving opens the plan with nothing to read, so the block this is about
-  // is the first chakra's.
+  // is the first chakra's — and its **Intentions** stage, because a ten-second Declaration now
+  // leads every meditation and one line has nowhere to scroll.
   await page.getByRole("button", { name: "Skip", exact: true }).click();
+  await page.getByRole("button", { name: "Intentions stage" }).click();
   const column = page.locator("[data-intentions-scroll]");
   await expect(column).toBeVisible();
   const overflow = await column.evaluate((node) => node.scrollHeight - node.clientHeight);
@@ -266,7 +275,11 @@ test("the reader's own Auto-scroll press overrules reduced motion", async ({ pag
   const start = page.getByRole("button", { name: "Start", exact: true });
   await expect(start).toBeEnabled({ timeout: 60_000 });
   await start.click();
+  // The first chakra's **Intentions** stage again: the Declaration it opens on has one line and
+  // nothing to scroll, and a seek holds the session until it is started once more.
   await page.getByRole("button", { name: "Skip", exact: true }).click();
+  await page.getByRole("button", { name: "Intentions stage" }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
   const column = page.locator("[data-intentions-scroll]");
   await expect(column).toBeVisible();
   await page.waitForTimeout(2000);
@@ -502,18 +515,27 @@ test("a block set to 0:00 rings at once and closes the session", async ({ page }
   await expect(minutes.first()).toBeVisible({ timeout: 60_000 });
   const rows = await minutes.count();
   expect(rows, "the block's stages, each with its own wheels").toBeGreaterThan(1);
-  // The seeded chakra's first stage is `Intentions`
-  await expect(minutes.first()).toHaveAttribute("aria-valuenow", "2");
+  // The seeded chakra opens with its ten-second **Declaration**, and `Intentions` is the stage
+  // after it at 2:00 (the owner's round 26).
+  await expect(minutes.first()).toHaveAttribute("aria-valuenow", "0");
+  await expect(seconds.first()).toHaveAttribute("aria-valuenow", "10");
+  await expect(minutes.nth(1)).toHaveAttribute("aria-valuenow", "2");
 
+  // Every stage down to nothing — **both** columns, because the Declaration's ten seconds are
+  // the seconds column's.
   for (let index = 0; index < rows; index += 1) {
-    await minutes.nth(index).click();
-    const box = page.getByRole("textbox", { name: "Minutes value" });
-    await box.fill("0");
-    await box.press("Enter");
-    await expect(box).toHaveCount(0);
-    await expect(minutes.nth(index)).toHaveAttribute("aria-valuenow", "0");
+    for (const [wheel, name] of [
+      [minutes, "Minutes value"],
+      [seconds, "Seconds value"],
+    ] as const) {
+      await wheel.nth(index).click();
+      const box = page.getByRole("textbox", { name });
+      await box.fill("0");
+      await box.press("Enter");
+      await expect(box).toHaveCount(0);
+      await expect(wheel.nth(index)).toHaveAttribute("aria-valuenow", "0");
+    }
   }
-  await expect(seconds.first()).toHaveAttribute("aria-valuenow", "0");
 
   await page.getByRole("button", { name: "Start", exact: true }).click();
   // Nothing to wait for: every stage ends as it begins, so the block is over and the
@@ -533,7 +555,7 @@ test("a stage's wheels are the clock, and stop taking edits once the session run
   await page.addInitScript(() => {
     sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
   });
-  // A focus tile, so the screen opens on a **one-block** session with three stages
+  // A focus tile, so the screen opens on a **one-block** session with four stages
   // and nothing has started yet — which is the state this test is about.
   await page.goto("/plan");
   await page.getByRole("button", { name: "Root Chakra", exact: true }).click();
@@ -544,39 +566,40 @@ test("a stage's wheels are the clock, and stop taking edits once the session run
   // is what makes a whole session runnable in a test — the point here is that the
   // strip shows the stage's *own* length rather than a total.
   const minutes = page.getByRole("spinbutton", { name: "Minutes" });
-  await expect(minutes).toHaveCount(3, { timeout: 60_000 });
-  for (const index of [0, 1, 2]) {
+  await expect(minutes).toHaveCount(4, { timeout: 60_000 });
+  for (const index of [0, 1, 2, 3]) {
     await expect(minutes.nth(index)).toHaveAttribute("aria-valuenow", "1");
   }
   // And they still take an edit, which is the half of item 1 the editor does not
   // cover: a reader who is already on the run screen can set the length there.
-  await minutes.nth(2).click();
+  await minutes.nth(3).click();
   const box = page.getByRole("textbox", { name: "Minutes value" });
   await box.fill("7");
   await box.press("Enter");
-  await expect(minutes.nth(2)).toHaveAttribute("aria-valuenow", "7");
+  await expect(minutes.nth(3)).toHaveAttribute("aria-valuenow", "7");
 
   // A stage is pickable before Start (the extra ask that arrived after the round's
   // questions): the press highlights it and holds the session there.
   await page.getByRole("button", { name: "Focus stage" }).click();
   const active = page.locator("[data-stage-strip] li[data-active='true']");
-  await expect(active).toHaveAttribute("data-stage", "2");
+  await expect(active).toHaveAttribute("data-stage", "3");
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeEnabled();
 
   await page.getByRole("button", { name: "Start", exact: true }).click();
-  // Once it runs there is no spinbutton left anywhere: the same three pairs are
+  // Once it runs there is no spinbutton left anywhere: the same four pairs are
   // **readings**, in the same place, and the one on screen decrements. The stages
   // already walked read nothing, which is the strip telling the reader where they are.
   await expect(page.getByRole("spinbutton")).toHaveCount(0);
   const timers = page.locator("[data-stage-strip] [role='timer']");
-  await expect(timers).toHaveCount(3);
+  await expect(timers).toHaveCount(4);
   // The stages the reader has already walked read nothing, which is the strip
   // telling them where they are — and the one in play is still counting, so it is
   // not the zero the others read.
   await expect(timers.nth(0)).toContainText("0");
   await expect(timers.nth(1)).toContainText("0");
-  await expect(timers.nth(2)).not.toContainText("0Minutes0Seconds");
-  await expect(active).toHaveAttribute("data-stage", "2");
+  await expect(timers.nth(2)).toContainText("0");
+  await expect(timers.nth(3)).not.toContainText("0Minutes0Seconds");
+  await expect(active).toHaveAttribute("data-stage", "3");
 });
 
 test("the whole stage card goes to its stage, and both switches share a side", async ({
@@ -594,7 +617,7 @@ test("the whole stage card goes to its stage, and both switches share a side", a
   await page.goto("/plan");
   await page.getByRole("button", { name: "Root Chakra", exact: true }).click();
   await expect(page).toHaveURL(/\/run\//);
-  await expect(page.getByRole("spinbutton", { name: "Minutes" })).toHaveCount(3, {
+  await expect(page.getByRole("spinbutton", { name: "Minutes" })).toHaveCount(4, {
     timeout: 60_000,
   });
 
@@ -602,8 +625,8 @@ test("the whole stage card goes to its stage, and both switches share a side", a
   // that — while the name and its clock keep the reading order they had. The card
   // measured is `Symbols`, because it is one of the two kinds that carry the tones and
   // so draws the mark as a switch rather than as the quiet description a silent stage
-  // gets.
-  const card = page.locator("[data-stage-strip] li").nth(1);
+  // gets. It is the **third** card since round 26: a Declaration leads every meditation.
+  const card = page.locator("[data-stage-strip] li").nth(2);
   const name = (await card.getByRole("button", { name: "Symbols stage" }).boundingBox())!;
   const clock = (await card.getByRole("spinbutton", { name: "Seconds" }).boundingBox())!;
   const mark = (await card.getByRole("button", { name: "Binaural for Symbols" }).boundingBox())!;
@@ -621,10 +644,10 @@ test("the whole stage card goes to its stage, and both switches share a side", a
   // stage, which is the extra ask that arrived with round 20. The point is the
   // bottom padding at the card's middle: clear of every control, and clear of the
   // rounded corner, where the card's own surface is all there is to press.
-  const third = page.locator("[data-stage-strip] li").nth(2);
+  const third = page.locator("[data-stage-strip] li").nth(3);
   const box = (await third.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height - 2);
-  await expect(active).toHaveAttribute("data-stage", "2");
+  await expect(active).toHaveAttribute("data-stage", "3");
 
   // A press on a control stays that control's press. The wheels are still editable
   // before Start, so a press on one must not *also* jump the session — the wheel's
@@ -633,7 +656,7 @@ test("the whole stage card goes to its stage, and both switches share a side", a
   await page.keyboard.press("Escape");
   await expect(active, "the card's own press did not steal the wheel's").toHaveAttribute(
     "data-stage",
-    "2",
+    "3",
   );
 
   // And once the session has started the card is a clock again, not a target: the
@@ -662,8 +685,8 @@ test("the arrow keys step a stage and a meditation, and never start the session"
   const start = page.getByRole("button", { name: "Start", exact: true });
   await expect(start).toBeEnabled({ timeout: 60_000 });
   const active = page.locator("[data-stage-strip] li[data-active='true']");
-  // Thanks Giving opens the circuit with one stage, so it is also the block that
-  // proves `→` alone goes nowhere: there is no next stage to step to.
+  // Thanks Giving opens the circuit with two stages (its Declaration and its affirmation), so
+  // it is also the block that proves `→→` reaches the next meditation rather than a stage.
   await expect(page.getByRole("heading", { name: "Thanks Giving" })).toBeVisible();
   await expect(active).toHaveAttribute("data-stage", "0");
 
@@ -725,12 +748,12 @@ test("the arrow keys step a stage and a meditation, and never start the session"
   await expect(start).toBeEnabled();
 });
 
-test("a symbols stage shows the symbols, not the intentions", async ({ page }) => {
+test("a symbols stage shows the symbols in play, not the intentions", async ({ page }) => {
   // The owner's round 17, item 4: *"The symbol stage doesn't need to show me the
   // intentions, only symbols … They should be shown in the main region only instead
-  // of the intentions."* The half that says the symbol **in play** follows the clock
-  // (`stage-progress.ts`) is the unit test's subject — `progressIndex` is the
-  // arithmetic, and a stage is a minute long here.
+  // of the intentions."* Round 26 rebuilt what it draws: *"One big symbol at the top which
+  // breathes and updates as the time passes. Rest of the symbols at the bottom in a single line
+  // also breathing."*
   await page.addInitScript(() => {
     sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
   });
@@ -741,87 +764,101 @@ test("a symbols stage shows the symbols, not the intentions", async ({ page }) =
     timeout: 60_000,
   });
 
-  // Root Chakra runs Intentions, Symbols, Focus: step to the symbols stage before
-  // starting, which is the same `seek` a press on the stage's own name makes.
-  await page.keyboard.press("ArrowRight");
-  await expect(page.locator("[data-stage-strip] li[data-active='true']")).toHaveAttribute(
-    "data-stage",
-    "1",
-  );
-
-  const gallery = page.locator("[data-symbol-gallery]");
-  await expect(gallery).toBeVisible();
-  // A sheet rather than a name: this chakra has several symbols bound to it.
-  expect(
-    await gallery.locator("[data-symbol]").count(),
-    "the stage's symbols, one cell each",
-  ).toBeGreaterThan(1);
-  await expect(gallery.locator("[data-symbol='0']")).toHaveAttribute("data-current", "true");
-  // The intentions column is not drawn for this stage at all, and the main region
-  // says which one it is.
-  await expect(page.locator("[data-intentions-scroll]")).toHaveCount(0);
-  await expect(page.locator("[data-region='symbols']")).toBeVisible();
-  // The rail beside it is gone (the owner's round 20): the sheet draws every symbol,
-  // so the panel that drew the one in play was the same information twice — and it
-  // was the width the boxes needed. `exact`, because the sheet's own region is named
-  // `Symbols`.
-  await expect(page.getByRole("region", { name: "Symbol", exact: true })).toHaveCount(0);
-  // The boxes are the pictures' places: large, framed, and arranged in **balanced rows**
-  // with every other row nudged half a box across — the honeycomb the owner described
-  // (*"something like hexagonal shape for 6 intentions in Heart, or if there are 5 then 3 in
-  // first row 2 in the 2nd row in the middle"*), and no panel behind them at all.
-  const first = (await gallery.locator("[data-symbol='0']").boundingBox())!;
-  expect(first.width, "a box a picture can live in").toBeGreaterThan(140);
-  expect(Math.abs(first.width - first.height), "and it is square").toBeLessThan(4);
-  expect(
-    await gallery.evaluate((node) => getComputedStyle(node).backgroundColor),
-    "no panel behind the boxes",
-  ).toBe("rgba(0, 0, 0, 0)");
-  const boxRows = gallery.locator("[data-symbol-row]");
-  expect(
-    await boxRows.count(),
-    "more than one row, so it is a shape and not a strip",
-  ).toBeGreaterThan(1);
-  // The rows themselves, not their boxes: `data-symbol` is the block's own order,
-  // so box `0` is in the **first** row only. A row's left edge is what the nudge
-  // moves, and it does not depend on how many boxes the row holds.
-  const rowOne = (await boxRows.nth(0).boundingBox())!;
-  const rowTwo = (await boxRows.nth(1).boundingBox())!;
-  expect(rowTwo.y, "the second row is below the first").toBeGreaterThan(rowOne.y);
-  expect(
-    Math.round(rowTwo.x - rowOne.x),
-    "and nudged half a box across, which is the hexagon",
-  ).toBeGreaterThan(40);
-
-  // On to Focus: the intentions column and the symbols sheet are both gone, which is
-  // the owner's round 20 — *"During Focus, again intentions are shown, that is not
-  // needed, keep it blank for now"* — and what it draws instead is the next test's
-  // business.
-  await page.getByRole("button", { name: "Focus stage" }).click();
+  // A chakra runs Declaration, Intentions, Symbols, Focus: press the stage's own card to step
+  // to Symbols before starting, which is the same `seek` an arrow key makes.
+  await page.getByRole("button", { name: "Symbols stage" }).click();
   await expect(page.locator("[data-stage-strip] li[data-active='true']")).toHaveAttribute(
     "data-stage",
     "2",
   );
+
+  const stage = page.locator("[data-symbol-stage]");
+  await expect(stage).toBeVisible();
+  // The one in play, large and breathing, named on the region rather than as a caption.
+  const main = page.locator("[data-symbol-main]");
+  await expect(main).toBeVisible();
+  await expect(main).toHaveAttribute("role", "img");
+  // …and the block's symbols in one line beneath it, the one in play marked.
+  const line = page.locator("[data-symbol-line] [data-symbol]");
+  expect(await line.count(), "the stage's symbols, one each").toBeGreaterThan(1);
+  await expect(page.locator("[data-symbol-line] [data-symbol='0']")).toHaveAttribute(
+    "data-current",
+    "true",
+  );
+  // All of the geometry below is measured with the breathing **frozen**. `breathe` is a
+  // `transform: scale(1 → 1.045)` and the line is staggered, so a live `getBoundingClientRect`
+  // measures the animation's phase rather than the box — a rerun of this spec on 2026-09-25
+  // caught exactly that, with two distinct widths where the layout has one. The ring's own
+  // geometry freezes it for the same reason.
+  const frozen = await page.addStyleTag({
+    content: "[data-symbol-line] [data-symbol], [data-symbol-main]{animation:none !important}",
+  });
+  const big = (await main.boundingBox())!;
+  const small = (await line.first().boundingBox())!;
+  expect(big.width, "the one in play is the large one").toBeGreaterThan(small.width * 2);
+  // One size for the line, so it reads as a family rather than as a ranking.
+  const sizes = await line.evaluateAll((nodes) =>
+    nodes.map((node) => Math.round(node.getBoundingClientRect().width)),
+  );
+  await frozen.evaluate((node) => node.parentNode?.removeChild(node));
+  expect(new Set(sizes).size, "one size for the line").toBe(1);
+  // The line breathes with the big one: *"Rest of the symbols at the bottom in a single line also
+  // breathing."*
+  expect(await line.first().evaluate((node) => getComputedStyle(node).animationName)).toBe(
+    "breathe",
+  );
+
+  // The intentions column is not drawn for this stage at all, and the main region
+  // says which one it is.
+  await expect(page.locator("[data-intentions-scroll]")).toHaveCount(0);
+  await expect(page.locator("[data-region='symbols']")).toBeVisible();
+  // The rail is **kept** here since round 26 — the owner: *"the focus stage has a side-panel, so
+  // it will be retained and utilized to properly stay in step with the big symbol"* — so the
+  // stage's pictures and the panel that names the one in play are one reading.
+  await expect(page.getByRole("region", { name: "Symbol", exact: true })).toBeVisible();
+
+  // **And the rail follows the clock**, which is the half that was broken on the focus stage and
+  // is why both stages are clock-driven now: the panel's heading is the symbol the big one is
+  // showing.
+  const shown = await main.getAttribute("aria-label");
+  await expect(page.getByRole("region", { name: "Symbol", exact: true })).toContainText(
+    shown!.replace(" symbol", ""),
+  );
+
+  // On to Focus: the big symbol and the line give way to the ring, the rail goes, and the
+  // intentions column is still absent.
+  await page.getByRole("button", { name: "Focus stage" }).click();
+  await expect(page.locator("[data-stage-strip] li[data-active='true']")).toHaveAttribute(
+    "data-stage",
+    "3",
+  );
   const focus = page.locator("[data-region='focus']");
   await expect(focus).toBeVisible();
   expect((await focus.boundingBox())!.height, "the region keeps its space").toBeGreaterThan(100);
-  await expect(page.locator("[data-symbol-gallery]")).toHaveCount(0);
+  await expect(page.locator("[data-symbol-stage]")).toHaveCount(0);
   await expect(page.locator("[data-intentions-scroll]")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Symbol", exact: true })).toHaveCount(0);
 });
 
 /**
- * Focus draws the meditation's picture and its symbols, in one colour, breathing.
+ * Focus is a ring: every symbol the same size, in a circle, around the meditation (round 26).
  *
- * The owner's round 20, item 5, verbatim: *"During focus, we would want to show beautiful
- * visuals of the chakra's picture in its colour, as well as all the symbols in the same colour
- * breathing etc. occupying the entire space that was earlier occupied by the intentions
- * table."* The stage drew nothing while that artwork did not exist; this is it, and the
- * assertions are the four things the sentence asks for: the picture, the colour, the symbols,
- * and the space.
+ * Round 20 asked for the artwork — *"beautiful visuals of the chakra's picture in its colour, as
+ * well as all the symbols in the same colour breathing etc. occupying the entire space that was
+ * earlier occupied by the intentions table"* — and round 26 gave the stage its own shape: *"all
+ * the symbols in a circle (without any boxes like they are today), all of the same size, all of
+ * them breathing"*, with the meditation *"at the centre of the circle"*. The assertions are those
+ * four things: the ring, one size, the breathing, and the space.
  */
-test("a focus stage draws the meditation's picture and its symbols breathing, in one colour", async ({
+test("a focus stage draws every symbol as an equal ring around the meditation", async ({
   page,
 }) => {
+  test.slow();
+  // A minute a stage, so the clock's hold on the ring is observable inside a test rather than
+  // forty-five seconds a symbol.
+  await page.addInitScript(() => {
+    sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
+  });
   await page.goto("/plan");
   await page.getByRole("button", { name: "Root Chakra", exact: true }).click();
   await expect(page).toHaveURL(/\/run\//);
@@ -830,12 +867,12 @@ test("a focus stage draws the meditation's picture and its symbols breathing, in
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeEnabled({
     timeout: 60_000,
   });
-  // Root Chakra runs Intentions, Symbols, Focus: step to Focus before starting, which is
-  // the same `seek` a press on the stage's own card makes.
+  // Declaration, Intentions, Symbols, Focus: the fourth card is Focus, and the press is the same
+  // `seek` an arrow key makes.
   await page.getByRole("button", { name: "Focus stage" }).click();
   await expect(page.locator("[data-stage-strip] li[data-active='true']")).toHaveAttribute(
     "data-stage",
-    "2",
+    "3",
   );
 
   const visuals = page.locator("[data-focus-visuals]");
@@ -854,23 +891,79 @@ test("a focus stage draws the meditation's picture and its symbols breathing, in
   expect(accent, "in its colour").not.toBe("rgb(0, 0, 0)");
   expect(await picture.evaluate((node) => getComputedStyle(node).color)).toBe(accent);
 
-  // **And all the symbols, in the same colour**: one per group the block reads, each
-  // inheriting the accent, with the one the stage has reached drawn larger.
+  // **And every symbol, all of them the same size, in the same colour.**
   const symbols = page.locator("[data-focus-symbol]");
-  expect(await symbols.count(), "every symbol of the block, not just one").toBeGreaterThan(1);
+  const count = await symbols.count();
+  expect(count, "every symbol of the block, not just one").toBeGreaterThan(1);
   expect(
     await symbols.first().evaluate((node) => getComputedStyle(node).color),
     "in the same colour as the picture",
   ).toBe(accent);
-  await expect(symbols.first()).toHaveAttribute("data-current", "true");
+  /**
+   * The ring's geometry, measured with the breathing **frozen**.
+   *
+   * The symbols breathe on a stagger, so a live `getBoundingClientRect` measures the animation's
+   * phase rather than the box — and a stagger means the phases are never equal, so under load this
+   * assertion did fail (a 2px breath, rounded, is a second size). What it is about is the
+   * **layout** size, so the animation is taken off for the geometry and put back for the breathing
+   * assertion below, which reads the animation by name and needs it running.
+   */
+  const frozen = await page.addStyleTag({
+    content: "[data-focus-symbol]{animation:none !important}",
+  });
+  const sizes = await symbols.evaluateAll((nodes) =>
+    nodes.map((node) => Math.round(node.getBoundingClientRect().width)),
+  );
+  expect(new Set(sizes).size, "all of the same size").toBe(1);
 
-  // Breathing, unless the reader asked their machine for less motion — the same rule
-  // the intentions column follows, and the reason the state is on the DOM rather than
-  // only in a class name.
+  // The ring itself: one radius for every symbol, and a seat each. Measured from the meditation's
+  // own centre, which is what "the symbols ring the meditation" means.
+  const middle = (await picture.boundingBox())!;
+  const centre = [middle.x + middle.width / 2, middle.y + middle.height / 2];
+  const seats = await symbols.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const box = node.getBoundingClientRect();
+      return [Math.round(box.x + box.width / 2), Math.round(box.y + box.height / 2)];
+    }),
+  );
+  const radii = seats.map(([x, y]) => Math.round(Math.hypot(x! - centre[0]!, y! - centre[1]!)));
+  await frozen.evaluate((node) => node.parentNode?.removeChild(node));
+  expect(new Set(radii).size, "one radius, so it is a circle").toBe(1);
+  expect(radii[0], "and a real ring, not a pile at the centre").toBeGreaterThan(
+    middle.width / 2,
+  );
+  expect(new Set(seats.map((seat) => seat.join(","))).size, "a seat each").toBe(count);
+  // Clockwise from the top, evenly: a quarter of the ring between neighbours at four symbols.
+  const angles = seats
+    .map((seat) => (Math.atan2(seat[0]! - centre[0]!, -(seat[1]! - centre[1]!)) * 180) / Math.PI)
+    .map((angle) => (angle + 360) % 360)
+    .sort((a, b) => a - b);
+  for (let index = 1; index < angles.length; index += 1) {
+    expect(
+      Math.abs(angles[index]! - angles[index - 1]! - 360 / count),
+      "evenly spaced",
+    ).toBeLessThan(2);
+  }
+
+  // Breathing, unless the reader asked their machine for less motion.
   await expect(visuals).toHaveAttribute("data-breathe", "on");
   expect(await symbols.first().evaluate((node) => getComputedStyle(node).animationName)).toBe(
     "breathe",
   );
+
+  // **And the clock still drives it**: the symbol marked `data-current` moves on as the stage
+  // runs, which is the defect round 26 reported — *"on the current focus screen, the symbol
+  // side-panel doesn't advance with time"*. The focus stage has no rail of its own any more, so
+  // the ring's own mark is where that is visible.
+  const marked = () =>
+    page
+      .locator("[data-focus-symbol]")
+      .evaluateAll((nodes) => nodes.findIndex((node) => node.dataset.current === "true"));
+  const before = await marked();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect
+    .poll(marked, { timeout: 30_000, message: "the ring follows the clock" })
+    .not.toBe(before);
 
   // And a reader who asked their machine for less motion gets the same picture, still —
   // the rule the intentions column follows, which is why the state is on the DOM rather
@@ -901,4 +994,88 @@ test("a session link that leads nowhere says so, and does not offer a dead Start
   await page.goto("/run/3f1c2b0a-0000-4000-8000-000000000000");
   await expect(page.getByText("This session is no longer on this device.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeDisabled();
+});
+
+test("a block with no symbols holds the meditation itself in its rail", async ({ page }) => {
+  // The owner's round 26, ask 11: *"if it is a chakra-only intention, the side-panel should
+  // display the details of the chakra."* The seeded circuit's Thanks Giving block is that shape —
+  // it has no symbols of its own, so before this its stage drew the columns in a strip and no
+  // panel at all. Thanks Giving's own `Location` is blank in the seed, and a blank column is not a
+  // reason to draw anything, so the reader's own value is what this test puts there first.
+  await page.addInitScript(() => {
+    // A stage long enough that the block's first stage is still the one on screen.
+    sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
+  });
+  await page.goto("/database");
+  const gotIt = page.getByRole("button", { name: "Got it" });
+  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+  await page
+    .locator("[data-database-tables]")
+    .getByRole("button", { name: "Thanks Giving", exact: true })
+    .click();
+  const location = page.getByRole("textbox", { name: "Thanks Giving — Location" });
+  await location.fill("Wherever I am");
+  await location.press("Enter");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+
+  await page.goto("/plan");
+  await page.getByRole("button", { name: "Start session" }).click();
+  await expect(page).toHaveURL(/\/run\//);
+  await expect(page.getByRole("heading", { name: "Thanks Giving" })).toBeVisible();
+
+  // The panel holds the meditation: the column the reader set, and no heading, because the name
+  // above it is already the session's title — the round-16 reason the panel that repeated it was
+  // deleted.
+  const rail = page.locator('[data-rail="meditation"]');
+  await expect(rail).toBeVisible();
+  await expect(rail.getByText("Wherever I am")).toBeVisible();
+  await expect(rail.getByRole("heading")).toHaveCount(0);
+  // …and the strip stood down, so that column is drawn once rather than twice.
+  await expect(page.locator("[data-meditation-facts]")).toHaveCount(0);
+});
+
+test("a sentence's tag is a cell, and editing the declaration's words keeps it", async ({
+  page,
+}) => {
+  // `P4 · 60`, both halves. Round 26 gave a sentence a **tag** and made a declaration stage read
+  // the workspace's declarations, so a tag has to be writable — the seeded one was the only
+  // Declaration there could ever be. And because a grid write is the **whole row**, the write has
+  // to carry the tag: a draft that dropped it would tell the store the sentence had none, so
+  // editing the declaration's own words would quietly empty the pool its stage reads.
+  await page.addInitScript(() => {
+    sessionStorage.setItem("meditaur:e2eDurationMs", "60000");
+  });
+  await page.goto("/database");
+  const gotIt = page.getByRole("button", { name: "Got it" });
+  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
+  await page
+    .locator("[data-database-tables]")
+    .getByRole("button", { name: "Affirmations", exact: true })
+    .click();
+
+  const declaration = page.getByRole("textbox", {
+    name: /I declare this as the front and back/,
+  });
+  await expect(declaration).toBeVisible();
+  // The Tag cell says what the app seeded the sentence as, in the reader's own words. The chip's
+  // accessible name is the action it offers as well as its value ("Declaration — open or clear"),
+  // which is why this is a prefix rather than an exact word.
+  const row = declaration.locator("xpath=ancestor::tr");
+  await expect(row.getByRole("button", { name: /^Declaration/ })).toBeVisible();
+
+  await declaration.fill("I declare this as the front and back of my <> indeed");
+  await declaration.press("Enter");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+
+  // The Declaration stage still reads it — its words, with the block's own meditation substituted
+  // in — which is the half a dropped tag would have taken away.
+  await page.goto("/plan");
+  await page.getByRole("button", { name: "Start session" }).click();
+  await expect(page).toHaveURL(/\/run\//);
+  await expect(page.getByRole("heading", { name: "Thanks Giving" })).toBeVisible();
+  await expect(
+    page.getByText(/I declare this as the front and back of my Thanks Giving indeed/),
+  ).toBeVisible();
 });

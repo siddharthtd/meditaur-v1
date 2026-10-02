@@ -1,4 +1,4 @@
-import type { PlanBlock, PlanBlockStage, StageKind } from "./models.ts";
+import type { PlanBlock, PlanBlockStage, StageKind, StagePool } from "./models.ts";
 
 /**
  * Stages: the vocabulary, the seeded templates, and the one rule that says which
@@ -73,6 +73,7 @@ export function stage(
   kind: StageKind,
   durationMs: number,
   label: string = STAGE_KIND_LABELS[kind],
+  pool?: StagePool,
 ): PlanBlockStage {
   return {
     key,
@@ -81,10 +82,38 @@ export function stage(
     durationMs,
     binaural: binauralForKind(kind),
     autoScroll: autoScrollForKind(kind),
+    // Written only when it is asked for: a stage that reads the block's own meditations
+    // is the shape every stored stage already has, and adding `pool: "meditation"` to
+    // all of them would be a write nothing reads.
+    ...(pool === undefined ? {} : { pool }),
   };
 }
 
 const MINUTE = 60_000;
+
+/**
+ * The Declaration stage (the owner's round 26).
+ *
+ * The owner: *"In all the meditations (chakra, points, protection), I want to add another
+ * stage called 'Declaration' … It will last a total of 10 seconds. It should be inserted as
+ * a first stage to all the meditations before the intentions."* It is an **affirmations**
+ * stage — it reads sentences and nothing else, which is what the kind means — pointed at
+ * the shared declaration pool, so it is silent and it scrolls by its kind's own answer.
+ *
+ * Ten seconds is a seed value rather than an invariant, like every other stage length: the
+ * reader can move it on the plan card or before Start.
+ */
+export const DECLARATION_STAGE_MS = 10_000;
+
+export function declarationStage(): PlanBlockStage {
+  return stage(
+    "declaration",
+    "affirmations",
+    DECLARATION_STAGE_MS,
+    "Declaration",
+    "declaration",
+  );
+}
 
 /**
  * The three stages a chakra and a point run, and their lengths.
@@ -93,6 +122,7 @@ const MINUTE = 60_000;
  * a seed value the owner will tune.
  */
 export const INTENTION_STAGES: PlanBlockStage[] = [
+  declarationStage(),
   stage("intentions", "intentions", 2 * MINUTE),
   stage("symbols", "symbols", 1 * MINUTE),
   stage("focus", "focus", 6 * MINUTE),
@@ -107,6 +137,7 @@ export const INTENTION_STAGES: PlanBlockStage[] = [
  * moves one timer is expected to move the total.
  */
 export const PROTECTION_STAGES: PlanBlockStage[] = [
+  declarationStage(),
   stage("affirmation", "affirmations", 3 * MINUTE, "Affirmation"),
   stage("symbols", "symbols", 90_000),
   stage("affirmations", "affirmations", 401_000),
@@ -121,6 +152,7 @@ export const PROTECTION_STAGES: PlanBlockStage[] = [
  * (`thanksGivingMinute`).
  */
 export const AFFIRMATION_STAGES: PlanBlockStage[] = [
+  declarationStage(),
   stage("affirmations", "affirmations", 1 * MINUTE),
 ];
 

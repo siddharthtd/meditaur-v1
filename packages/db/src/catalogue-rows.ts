@@ -1,4 +1,4 @@
-import type { Entry, Intention, ReikiSystem, Symbol } from "@meditaur/domain";
+import type { Entry, Intention, ReikiSystem, SentenceTag, Symbol } from "@meditaur/domain";
 import { timeFromRow, timeToRow } from "./row-time.ts";
 
 /**
@@ -90,11 +90,25 @@ export function intentionRow(intention: Intention): Record<string, unknown> {
     entry_id: intention.entryId,
     sort_order: intention.sortOrder,
     text: intention.text,
+    tag: intention.tag ?? null,
     archived_at: timeToRow(intention.archivedAt),
     deleted_at: timeToRow(intention.deletedAt ?? null),
     revision: intention.revision,
     updated_at: new Date(intention.updatedAt).toISOString(),
   };
+}
+
+/**
+ * A tag read back from a row, or `null` for anything the app does not know.
+ *
+ * A cloud row is written by another build, so an unknown value is dropped rather than thrown
+ * on: a tag is a label, and losing one costs the reader nothing that an abort of the read would
+ * not cost them more of.
+ */
+function sentenceTagFromRow(value: unknown): SentenceTag | null {
+  return value === "protection" || value === "thanks_giving" || value === "declaration"
+    ? value
+    : null;
 }
 
 export function intentionFromRow(row: Record<string, unknown>): Intention {
@@ -106,6 +120,7 @@ export function intentionFromRow(row: Record<string, unknown>): Intention {
     entryId: (row.entry_id as string | null | undefined) ?? null,
     sortOrder: (row.sort_order as number | undefined) ?? 0,
     text: (row.text as string | null | undefined) ?? "",
+    tag: sentenceTagFromRow(row.tag),
     archivedAt: timeFromRow(row.archived_at),
     deletedAt: timeFromRow(row.deleted_at),
     revision: (row.revision as number | undefined) ?? 0,

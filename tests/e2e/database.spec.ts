@@ -757,6 +757,35 @@ test("archiving a chakra takes its plan block out, and Restore brings it back", 
   await expect(page.getByRole("button", { name: "Drag Third-Eye Chakra block" })).toBeVisible();
 });
 
+/**
+ * An archived record stops being drawn, and a reload of the grid does not bring it
+ * back.
+ *
+ * The grid draws a record from the draft, and the draft starts from the store's own
+ * lists — which hold archived rows too, because the Archive page reads them from
+ * there. Every list the **Library** draws filters `archivedAt == null`; this is the
+ * same rule at the Database's table, where archiving is the only way a record steps
+ * aside. Archiving drops the row from the draft at once, so without the reload half
+ * the assertion below can pass on the gap before the refetch that follows it lands.
+ */
+test("an archived record stays out of the grid across a reload", async ({ page }) => {
+  await openDatabase(page);
+  await databaseTable(page, "Chakras").click();
+  const row = page
+    .getByRole("textbox", { name: "Third-Eye Chakra — Name" })
+    .locator("xpath=ancestor::tr");
+  await expect(row).toHaveCount(1);
+  await row.getByRole("button", { name: "Archive this row, or remove it" }).click();
+  await rowBox(page).getByRole("button", { name: "Archive", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Third-Eye Chakra — Name" })).toHaveCount(0);
+
+  // A fresh mount reads the store again, so this half cannot be satisfied by the
+  // drop that follows the press.
+  await page.reload();
+  await databaseTable(page, "Chakras").click();
+  await expect(page.getByRole("textbox", { name: "Third-Eye Chakra — Name" })).toHaveCount(0);
+});
+
 test("leaving with unsaved edits is interrupted, and leaving clean is not", async ({ page }) => {
   await openDatabase(page);
   // A committed cell edit is what makes the draft dirty — `Enter` is the

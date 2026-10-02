@@ -43,8 +43,19 @@ const OLD_CLOSING_BLOCK = "01900000-0000-7000-8000-000000000208";
 /** A device seeded by the last build: Thanks Giving at 3:00, and Crown in the circuit. */
 function asTheOldSeed() {
   const ws = buildDefaultWorkspace("ws-test");
+  /**
+   * The stages that build planted, from the ones there are now.
+   *
+   * Two things have changed since, and both matter here: nothing led with a **Declaration**, and
+   * a Thanks Giving's affirmation was three minutes. Filtering on the **key** rather than on the
+   * kind is what keeps this a model of a real device — the Declaration is an affirmations-kind
+   * stage, so a kind-based reading would have moved it to 3:00 and then asked the repair to fix a
+   * stage no device ever held.
+   */
   const asOld = (stages: PlanBlockStage[] | null) =>
-    stages?.map((stage) => (stage.kind === "affirmations" ? { ...stage, durationMs: OLD_MS } : stage)) ??
+    stages
+      ?.filter((stage) => stage.key !== "declaration")
+      .map((stage) => (stage.key === "affirmations" ? { ...stage, durationMs: OLD_MS } : stage)) ??
     null;
   const crown = ws.meditations.find((row) => row.name === "Crown Chakra")!;
   const blocks = circuit(ws).blocks.map((block, index) => ({

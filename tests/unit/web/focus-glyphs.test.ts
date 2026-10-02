@@ -6,14 +6,20 @@ import {
   hasDesignedSymbol,
   petalsFor,
 } from "../../../apps/web/src/features/runner/focus-glyphs.tsx";
+import {
+  ART_VIEW_BOX,
+  SYMBOL_ART,
+} from "../../../apps/web/src/features/runner/symbol-art.ts";
 
 /**
- * The Focus stage's glyphs (the owner's round 20, item 5).
+ * The Focus stage's glyphs (the owner's round 20, item 5), and the two symbols the owner
+ * drew by hand (2026-09-25, `P3 · 59`).
  *
  * What is testable without a browser is the **choice**: which centre a name is, how many
- * petals it has, which symbols have a shape of their own, and which of them falls back. The
- * drawing itself is the e2e's business — it asserts the region paints a chakra glyph and the
- * block's symbols, in the right number.
+ * petals it has, which symbols have a shape of their own, which of them falls back — and,
+ * for the imported art, that it arrived as a shape in the region's colour rather than as the
+ * black it was exported in. The drawing itself is the e2e's business — it asserts the region
+ * paints a chakra glyph and the block's symbols, in the right number.
  *
  * The petal counts are the point of the file: they are the one thing that tells the seven
  * centres apart at a glance, so a name that loses its count is a picture that stops meaning
@@ -97,5 +103,63 @@ describe("the Focus stage's glyphs", () => {
     expect(petals(draws("Root Chakra"))).toBe(4);
     expect(petals(draws("Crown Chakra"))).toBe(24);
     expect(petals(draws("Liver")), "a place is a location mark, not a bloom").toBe(0);
+  });
+
+  it("reaches the owner's art through the same name the catalogue carries", () => {
+    // The art is keyed by the name the owner drew under, and read through `keyOf` like every
+    // other name here — so the hyphenated, spaced and shouted spellings all find it, and the
+    // handover's own file name (`HSZSN`) is not what the app has to match.
+    expect(hasDesignedSymbol("Dai Kyo Mo")).toBe(true);
+    expect(hasDesignedSymbol("hon sha ze sho nen")).toBe(true);
+    expect(hasDesignedSymbol(" hon-sha-ze-sho-nen ")).toBe(true);
+    expect(renderToStaticMarkup(SymbolGlyph({ name: "Hon-Sha-Ze-Sho-Nen", className: "h-4" }))).toContain(
+      "fill=\"currentColor\"",
+    );
+  });
+
+  it("paints the owner's art in the region's colour, never in the export's", () => {
+    // The exports carry `fill="#000000"` on every path — the brush strokes are black, which is
+    // invisible on a session screen. This is the assertion that fails the moment somebody
+    // pastes an export in verbatim, which is exactly how the art arrives next time.
+    for (const name of ["Dai Kyo Mo", "Hon Sha Ze Sho Nen"]) {
+      const svg = renderToStaticMarkup(SymbolGlyph({ name, className: "h-4" }));
+      expect(svg, name).toContain("fill=\"currentColor\"");
+      expect(svg, name).toContain("stroke=\"none\"");
+      expect(svg, name).not.toMatch(/#[0-9a-f]{6}/i);
+      expect(svg, name).not.toContain("<img");
+    }
+  });
+
+  it("draws the brush art as fills and everything else as line art", () => {
+    // Two hands, one ink. A brush stroke leaves Linearity Curve as the outline of the width it
+    // swept, so the art has no `stroke-width` in it at all — while every glyph this file draws
+    // itself is a stroke and has one. A symbol that quietly changed hand would read as a
+    // different drawing on the same screen.
+    const brush = renderToStaticMarkup(SymbolGlyph({ name: "Dai Kyo Mo", className: "h-4" }));
+    expect(brush).toContain("<path");
+    expect(brush).not.toContain("stroke-width");
+    for (const name of ["Cho Ku Rei", "Sei Hei Ki", "Halu", null]) {
+      const line = renderToStaticMarkup(SymbolGlyph({ name, className: "h-4" }));
+      expect(line, String(name)).toContain("stroke-width=\"2.5\"");
+      expect(line, String(name)).not.toContain("fill=\"currentColor\"");
+    }
+  });
+
+  it("holds a square frame, one path per stroke, in the order they were drawn", () => {
+    // The frame is square and both exports are square, so nothing is letterboxed and no art
+    // has to be re-framed to fit. One entry per brush stroke, in the drawing's own order: that
+    // order is the only thing a line-drawing reveal can walk (`P3 · 59`), so it is data here.
+    expect(ART_VIEW_BOX).toMatch(/^0 0 (\d+) \1$/);
+    expect(Object.keys(SYMBOL_ART)).toEqual(["Dai Kyo Mo", "Hon Sha Ze Sho Nen"]);
+    for (const [name, paths] of Object.entries(SYMBOL_ART)) {
+      expect(paths.length, name).toBeGreaterThan(3);
+      for (const d of paths) {
+        expect(d, name).toMatch(/^M/);
+        expect(d, name).toMatch(/Z$/);
+        // Path data only: no markup, no colour, nothing a `d` attribute cannot hold.
+        expect(d, name).not.toMatch(/[<>"]/);
+        expect(d, name).not.toMatch(/#/);
+      }
+    }
   });
 });

@@ -26,12 +26,13 @@ import { StageStrip, scrollsForStage } from "./StageStrip";
 import {
   IntentionsTable,
   MeditationStrip,
-  SymbolGallery,
-  SymbolRail,
+  SessionRail,
+  SymbolStage,
   blockLines,
 } from "./SessionRegions";
-import { drawnRegions, sessionLayout, sessionRegions } from "./session-regions";
+import { drawnRegions, railSubject, sessionLayout, sessionRegions } from "./session-regions";
 import { progressIndex } from "./stage-progress";
+import { useSymbolImageUrls } from "./use-symbol-images";
 
 type WakeLockSentinel = { release: () => Promise<void> };
 
@@ -118,63 +119,6 @@ const GLYPH = {
   skip: "M4.5 3.5 11 8l-6.5 4.5zM12.5 3.5v9",
   stop: "M4.5 4.5h7v7h-7z",
 };
-
-/**
- * Resolves the current block's pictures to blob URLs: its symbols', and the
- * meditation's own — the picture a Focus stage draws in the meditation's colour
- * (the owner's round 20, item 5). The cache lives for the whole session, because a
- * circuit revisits the same symbols, and the URLs are revoked once, when the run
- * screen unmounts.
- *
- * A picture that will not load is dropped rather than raised: the run screen is
- * mid-session, and a missing glyph must not end the session.
- */
-function useSymbolImageUrls(block: CompiledBlock | null): Record<string, string> {
-  const [urls, setUrls] = useState<Record<string, string>>({});
-  const urlsRef = useRef<Record<string, string>>({});
-  const wantedKey = [
-    ...new Set(
-      [
-        ...(block?.symbolGroups ?? []).map((group) => group.imageAssetId),
-        block?.representationAssetId ?? null,
-      ].filter((id): id is string => Boolean(id)),
-    ),
-  ].join("|");
-
-  useEffect(() => {
-    let cancelled = false;
-    for (const id of wantedKey ? wantedKey.split("|") : []) {
-      if (urlsRef.current[id]) continue;
-      void (async () => {
-        try {
-          const bytes = await app.getMediaBytes(id);
-          if (!bytes || cancelled || urlsRef.current[id]) return;
-          urlsRef.current = {
-            ...urlsRef.current,
-            [id]: URL.createObjectURL(new Blob([bytes])),
-          };
-          setUrls(urlsRef.current);
-        } catch {
-          /* an unreadable picture is not worth failing a session for */
-        }
-      })();
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [wantedKey]);
-
-  useEffect(
-    () => () => {
-      for (const url of Object.values(urlsRef.current)) URL.revokeObjectURL(url);
-      urlsRef.current = {};
-    },
-    [],
-  );
-
-  return urls;
-}
-
 
 /**
  * Whether the reader's system asks for less motion.
@@ -654,7 +598,11 @@ export function Runner({ instanceId }: { instanceId: string }) {
    * that loop over again.
    */
   const stageKind = state.stage?.kind ?? null;
-  const lines = useMemo(() => (block ? blockLines(block, stageKind) : []), [block, stageKind]);
+  const stagePool = state.stage?.pool ?? null;
+  const lines = useMemo(
+    () => (block ? blockLines(block, { kind: stageKind ?? "", pool: stagePool ?? undefined }) : []),
+    [block, stageKind, stagePool],
+  );
   /**
    * The screen's regions, and the grid the drawn ones need.
    *
@@ -667,6 +615,14 @@ export function Runner({ instanceId }: { instanceId: string }) {
     meditationFacts: block?.meditationFacts,
     symbolGroups: block?.symbolGroups,
     stageKind: state.stage?.kind ?? null,
+    // A block of several is a **points block**, and round 26 gave it a shape of its own: no
+    // rail on any stage, because what a reader needs beside its table is the point a line
+    // belongs to rather than the symbol it hangs off.
+    meditationCount: block?.meditationNames?.length ?? 1,
+    // The rail holds the meditation itself when the lines are its own (the owner's round 26,
+    // item 11), which is also when the strip stands down — a fact has one home here.
+    meditationName: block?.meditationName,
+    representationAssetId: block?.representationAssetId,
   });
   const drawn = drawnRegions(regions);
   const layout = sessionLayout(drawn);
@@ -747,18 +703,42 @@ export function Runner({ instanceId }: { instanceId: string }) {
    * React throws on it — a screen that typechecks, lints and passes every unit test
    * and then fails as "Rendered more hooks than during the previous render".
    */
+  const focusRegion = draws("focus");
   const currentGroupIndex = useMemo(() => {
     const groups = block?.symbolGroups ?? [];
     if (groups.length === 0) return 0;
-    if (showsSymbols || topGroup.atEnd) {
-      const count = showsSymbols ? groups.length : lines.length;
+    // Round 26 moved the artwork to the symbols stage and gave the focus stage a ring of its
+    // own, so the focus stage joins the symbols stage in being **clock-driven**: neither has a
+    // column of lines to follow. Before this a focus stage fell through to `topGroup`, which the
+    // intentions column never wrote (it is not drawn on that stage), so the rail froze on the
+    // first symbol for the whole six minutes — the owner's *"the symbol side-panel doesn't
+    // advance with time"*.
+    const fromClock = showsSymbols || focusRegion;
+    if (fromClock || topGroup.atEnd) {
+      const count = fromClock ? groups.length : lines.length;
       const at = progressIndex(count, state.remainingMs, shownStage?.durationMs ?? 0);
       // Past the end of a list is not a thing, and a line of the meditation's own
       // belongs to no symbol: both answer with the block's first symbol.
-      return showsSymbols ? at : (lines[at]?.groupIndex ?? 0);
+      return fromClock ? at : (lines[at]?.groupIndex ?? 0);
     }
     return topGroup.index ?? 0;
-  }, [block, lines, showsSymbols, shownStage, state.remainingMs, topGroup]);
+  }, [block, lines, showsSymbols, focusRegion, shownStage, state.remainingMs, topGroup]);
+
+  /**
+   * What the rail holds: the symbol in play, or the meditation where the block's lines are its
+   * own.
+   *
+   * Above the `!ready` return with the rest, and computed once rather than inside the JSX, so
+   * one function decides the subject and the region that decides whether the rail is drawn asks
+   * the same question (the owner's round 26, item 11).
+   */
+  const rail = railSubject({
+    symbolGroups: block?.symbolGroups,
+    groupIndex: currentGroupIndex,
+    meditationName: block?.meditationName,
+    representationAssetId: block?.representationAssetId,
+    meditationFacts: block?.meditationFacts,
+  });
 
   if (!ready) {
     return loadError ? (
@@ -864,8 +844,14 @@ export function Runner({ instanceId }: { instanceId: string }) {
               which is the ask round 15 recorded. */}
           {block ? (
             <div className="flex min-w-0 flex-col">
+              {/* Every point the block runs, not only its lead: the owner's round 26, *"The top
+                  of the session page only displays the 1st point of the group. It should display
+                  all the points constituted in the group."* The block's own order is the reading
+                  order, and a one-point block reads exactly as it always did. */}
               <h1 className="truncate text-lg leading-tight">
-                {block.meditationName ?? "This block"}
+                {block.meditationNames.length > 0
+                  ? block.meditationNames.join(" · ")
+                  : (block.meditationName ?? "This block")}
               </h1>
               {block.meditationTypeName || cycleLabel ? (
                 <p className={`${EYEBROW_CLASS} truncate text-xs`}>
@@ -921,15 +907,10 @@ export function Runner({ instanceId }: { instanceId: string }) {
           ) : null}
           {draws("symbol") ? (
             <div data-region="symbol" style={{ gridArea: "rail" }} className="flex min-h-0">
-              <SymbolRail
-                group={block.symbolGroups?.[currentGroupIndex] ?? block.symbolGroups?.[0] ?? null}
-                imageUrl={
-                  symbolImages[
-                    (block.symbolGroups?.[currentGroupIndex] ?? block.symbolGroups?.[0])
-                      ?.imageAssetId ?? ""
-                  ] ?? null
-                }
-              />
+              {/* The rail holds **what the block is about** — the symbol in play, or the
+                  meditation itself where the lines are its own (the owner's round 26, item 11).
+                  `railSubject` decides, so the panel and the region can never disagree. */}
+              <SessionRail subject={rail} imageUrl={symbolImages[rail?.imageAssetId ?? ""] ?? null} />
             </div>
           ) : null}
           {/* The main region is the stage's own content (the owner's round 17, item
@@ -944,10 +925,11 @@ export function Runner({ instanceId }: { instanceId: string }) {
             className="flex min-h-0"
           >
             {showsSymbols ? (
-              <SymbolGallery
+              <SymbolStage
                 groups={block.symbolGroups ?? []}
                 currentIndex={currentGroupIndex}
                 imageUrls={symbolImages}
+                reduceMotion={reduceMotion}
               />
             ) : draws("focus") ? (
               // The owner's round 20, item 5, built now: the meditation's own
@@ -970,7 +952,10 @@ export function Runner({ instanceId }: { instanceId: string }) {
               />
             ) : (
               <IntentionsTable
-                title={stageKind === "affirmations" ? "Affirmations" : "Intentions"}
+                title={
+                  shownStage?.label ??
+                  (stageKind === "affirmations" ? "Affirmations" : "Intentions")
+                }
                 lines={lines}
                 enabled={scrollEnabled}
                 held={scrollHeld}
@@ -1090,10 +1075,11 @@ export function Runner({ instanceId }: { instanceId: string }) {
 
               They are the compact `sm` switch with the short names the owner asked
               for in round 19, item 5: *"need to be of the same size, smaller, give
-              them smaller names so that they take up less space"*. `Auto-scroll` and
-              `Auto-advance` shorten to `Scroll` and `Advance` — the switch is in the
-              session's own footer, and there is nothing else for either word to be
-              about. */}
+              them smaller names so that they take up less space"*. `Auto-scroll` shortens
+              to `Scroll` — the switch is in the session's own footer, and there is nothing
+              else for the word to be about — while `Advance` is **`Auto-Advance`** again
+              (the owner's round 26: *"Re-name the 'Advance' back to 'Auto-Advance'"*), which
+              is also what Settings calls the preference it writes. */}
           <LatchButton
             size="sm"
             label="Alarm"
@@ -1111,7 +1097,7 @@ export function Runner({ instanceId }: { instanceId: string }) {
           {sessionCanAdvance ? (
             <LatchButton
               size="sm"
-              label="Advance"
+              label="Auto-Advance"
               pressed={state.autoAdvance}
               onChange={(v) => engine.setAutoAdvance(v)}
             />

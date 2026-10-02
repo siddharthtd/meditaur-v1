@@ -2,7 +2,7 @@
 
 import { Button } from "@meditaur/ui";
 import { useState } from "react";
-import type { LibraryView, MeditaurApp } from "@meditaur/application";
+import type { CatalogChangeSet, LibraryView, MeditaurApp } from "@meditaur/application";
 import { errorText } from "@/lib/error-text";
 import { typeName } from "../library/library-model";
 
@@ -32,12 +32,20 @@ export function ArchiveList({
   app,
   workspaceId,
   view,
-  onReload,
+  onChanges,
 }: {
   app: MeditaurApp;
   workspaceId: string;
   view: LibraryView;
-  onReload: () => Promise<void>;
+  /**
+   * The answer a restore or a delete gives, applied to the screen's view (`P2 · 4`).
+   *
+   * The Archive is a *screen of the Library* rather than one of its own, so the view
+   * it patches is the Library's — which is why this is the change-set rather than a
+   * re-read: an entry, a line, a symbol and a record are four different lists, and a
+   * refetch was the only thing that kept all four honest.
+   */
+  onChanges: (changes: CatalogChangeSet) => void;
   onError: (message: string | null) => void;
 }) {
   const [armed, setArmed] = useState<string | null>(null);
@@ -121,19 +129,20 @@ export function ArchiveList({
     setNotice(null);
     setError(null);
     try {
+      let changes: CatalogChangeSet;
       if (
         item.kind === "meditation" ||
         item.kind === "meditationType" ||
         item.kind === "symbol" ||
         item.kind === "preset"
       ) {
-        await app.restoreRecord(workspaceId, item.kind, item.id);
+        changes = await app.restoreRecord(workspaceId, item.kind, item.id);
       } else if (item.kind === "entry") {
-        await app.restoreEntry(workspaceId, item.id);
+        changes = await app.restoreEntry(workspaceId, item.id);
       } else {
-        await app.restoreLine(workspaceId, item.id);
+        changes = await app.restoreLine(workspaceId, item.id);
       }
-      await onReload();
+      onChanges(changes);
     } catch (err) {
       setError(errorText(err, "Could not restore it"));
     }
@@ -144,13 +153,18 @@ export function ArchiveList({
     setNotice(null);
     setError(null);
     try {
-      if (item.kind === "meditation") await app.deleteMeditation(workspaceId, item.id);
-      else if (item.kind === "meditationType") await app.deleteMeditationType(workspaceId, item.id);
-      else if (item.kind === "symbol") await app.deleteSymbol(workspaceId, item.id);
-      else if (item.kind === "preset") await app.deletePreset(workspaceId, item.id);
-      else if (item.kind === "entry") await app.deleteEntry(workspaceId, item.id);
-      else await app.deleteLine(workspaceId, item.id);
-      await onReload();
+      if (item.kind === "meditation") onChanges(await app.deleteMeditation(workspaceId, item.id));
+      else if (item.kind === "meditationType") {
+        onChanges(await app.deleteMeditationType(workspaceId, item.id));
+      } else if (item.kind === "symbol") {
+        onChanges(await app.deleteSymbol(workspaceId, item.id));
+      } else if (item.kind === "preset") {
+        onChanges(await app.deletePreset(workspaceId, item.id));
+      } else if (item.kind === "entry") {
+        onChanges(await app.deleteEntry(workspaceId, item.id));
+      } else {
+        onChanges(await app.deleteLine(workspaceId, item.id));
+      }
     } catch (err) {
       setError(errorText(err, "Could not delete it"));
     }

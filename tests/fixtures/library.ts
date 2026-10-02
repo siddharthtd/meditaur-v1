@@ -94,6 +94,9 @@ export function makeIntention(
     entryId: null,
     sortOrder: 0,
     text,
+    // `null` is the ordinary case rather than a missing field: the mapper writes the column on
+    // every row, and a tag is a pool a sentence belongs to, not a property of being a sentence.
+    tag: null,
     archivedAt: null,
     revision: 0,
     updatedAt: 0,

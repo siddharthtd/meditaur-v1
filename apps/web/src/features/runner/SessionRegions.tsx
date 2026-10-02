@@ -4,9 +4,9 @@ import { EYEBROW_CLASS } from "@meditaur/ui";
 import type { CompiledBlock, CompiledFact, CompiledSymbolGroup } from "@meditaur/domain";
 import { useEffect, useRef } from "react";
 
-import { symbolRows } from "./session-regions";
+import { SymbolGlyph } from "./focus-glyphs";
 import { scrollTarget } from "./scroll-rate";
-
+import type { RailSubject } from "./session-regions";
 /** A column with no value says so rather than showing a blank. */
 const MISSING = "-";
 
@@ -18,45 +18,67 @@ const MISSING = "-";
  * the group it came from (`null` for the meditation's own lines, which belong to no
  * symbol) and that group's name, which is what the table's left column prints.
  */
-export type RunLine = { text: string; groupIndex: number | null; symbol: string | null };
+export type RunLine = { text: string; groupIndex: number | null; label: string | null };
 
 /**
  * The block's lines in the order the session reads them.
  *
  * A block's `intentions` is already the meditation's own lines followed by each
  * symbol's, so this rebuilds the same order and adds the group each line came from.
- * An **affirmations** stage is the other way round: what it reads out is the
- * meditation's own sentences, so a block with one shows those instead of its lines.
+ *
+ * An **affirmations** stage is the other way round: what it reads out is a list of sentences
+ * rather than the block's lines, and there are two of those lists since round 26 — the
+ * meditation's own (`affirmations`) and the workspace's shared **declaration** pool with this
+ * block's meditations substituted in (`declarations`). The stage's `pool` is what chooses
+ * between them, which is why this takes the stage rather than only its kind.
  */
-export function blockLines(block: CompiledBlock, stageKind: string | null): RunLine[] {
-  if (stageKind === "affirmations") {
-    return (block.affirmations ?? []).map((text) => ({
+export function blockLines(
+  block: CompiledBlock,
+  stage: { kind: string; pool?: string } | null,
+): RunLine[] {
+  if (stage?.kind === "affirmations") {
+    const sentences =
+      stage.pool === "declaration" ? (block.declarations ?? []) : (block.affirmations ?? []);
+    return sentences.map((text) => ({
       text,
       groupIndex: null,
-      symbol: null,
+      label: null,
     }));
+  }
+  // A block of several points reads **by point** (the owner's round 26): the same lines, grouped
+  // the other way, so the table's left column names the point a line was written for instead of
+  // the symbol it hangs off. A block that draws a subset keeps its symbol groups, which is
+  // `CompiledBlock.pointLines`' own note.
+  if ((block.pointLines ?? []).length > 0) {
+    const byPoint: RunLine[] = [];
+    for (const [index, group] of block.pointLines!.entries()) {
+      for (const text of group.lines) {
+        byPoint.push({ text, groupIndex: index, label: group.name });
+      }
+    }
+    return byPoint;
   }
   const lines: RunLine[] = [];
   for (const text of block.focusIntentions ?? []) {
-    lines.push({ text, groupIndex: null, symbol: null });
+    lines.push({ text, groupIndex: null, label: null });
   }
   (block.symbolGroups ?? []).forEach((group, index) => {
     for (const text of group.intentions ?? []) {
-      lines.push({ text, groupIndex: index, symbol: group.name });
+      lines.push({ text, groupIndex: index, label: group.name });
     }
   });
   // A snapshot compiled before symbol grouping carries one flat list and no
   // groups; the lines are still the reader's, so they are still shown.
   if (lines.length === 0) {
     for (const text of block.intentions ?? []) {
-      lines.push({ text, groupIndex: null, symbol: null });
+      lines.push({ text, groupIndex: null, label: null });
     }
   }
   return lines;
 }
 
-/** One symbol's lines, as the table draws them: one `<tbody>` per group. */
-export type RunGroup = { key: string; symbol: string | null; rows: RunLine[] };
+/** One symbol's lines — or one **point**'s — as the table draws them: one `<tbody>` per group. */
+export type RunGroup = { key: string; label: string | null; rows: RunLine[] };
 
 /**
  * The lines, grouped for the table.
@@ -73,7 +95,7 @@ export function runGroups(lines: RunLine[]): RunGroup[] {
       last.rows.push(line);
       return;
     }
-    groups.push({ key: `g${index}`, symbol: line.symbol, rows: [line] });
+    groups.push({ key: `g${index}`, label: line.label, rows: [line] });
   });
   return groups;
 }
@@ -151,180 +173,162 @@ export function MeditationStrip({ facts }: { facts: CompiledFact[] }): React.Rea
 }
 
 /**
- * The symbol in play, updating **in place** (§6.2).
+ * What the block is about, beside its lines, updating **in place** (§6.2).
  *
- * It shows the symbol whose lines the reader is looking at — the one at the top of
- * the visible intentions column — rather than stacking one box per symbol, which is
- * what made the old screen grow with the size of the block. The region is drawn only
- * when the block has symbol groups, which is the owner's round 16 item 8 read
- * generally: a meditation with no symbols gets no box and no gap where one was.
+ * It shows the subject the reader is looking at — the symbol in play (the one whose lines are at
+ * the top of the visible column) or, where the lines are the meditation's own, the meditation
+ * itself — rather than stacking one box per symbol, which is what made the old screen grow with
+ * the size of the block. The owner's round 26, item 11 is the meditation half: *"if it is a
+ * chakra-only intention, the side-panel should display the details of the chakra."*
+ *
+ * A meditation gets its picture and its columns and **no heading**, because its name is already
+ * the screen's title: that is the round-16 reason the panel which repeated it was deleted, and
+ * repeating it here would put two headings with one name on the screen. A symbol keeps its name,
+ * since the symbol is not the title.
  */
-export function SymbolRail({
-  group,
+export function SessionRail({
+  subject,
   imageUrl,
 }: {
-  group: CompiledSymbolGroup | null;
+  subject: RailSubject | null;
   imageUrl: string | null;
 }): React.ReactNode {
-  if (!group) return null;
+  if (!subject) return null;
+  const isSymbol = subject.kind === "symbol";
   return (
     <section
-      aria-label="Symbol"
+      aria-label={isSymbol ? "Symbol" : "Meditation"}
+      data-rail={subject.kind}
       className="flex h-full min-h-0 flex-col gap-2 overflow-auto rounded-2xl border border-line bg-surface px-4 py-3"
     >
-      <div className="flex items-center gap-2">
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={`${group.name} symbol`}
-            className="h-10 w-10 shrink-0 rounded-xl bg-surface-raised/80 object-contain"
-          />
-        ) : null}
-        <h2 className="text-lg leading-tight">{group.name}</h2>
-      </div>
-      <FactsWithPins facts={[...(group.facts ?? []), ...(group.entryFacts ?? [])]} />
+      {imageUrl || isSymbol ? (
+        <div className="flex items-center gap-2">
+          {imageUrl ? (
+            <img
+              src={imageUrl}
+              alt={isSymbol ? `${subject.name} symbol` : `${subject.name || "The meditation"}'s picture`}
+              className="h-10 w-10 shrink-0 rounded-xl bg-surface-raised/80 object-contain"
+            />
+          ) : null}
+          {isSymbol ? <h2 className="text-lg leading-tight">{subject.name}</h2> : null}
+        </div>
+      ) : null}
+      <FactsWithPins facts={subject.facts} />
     </section>
   );
 }
 
 /**
- * How far across an alternate row of boxes is nudged.
+ * The symbols stage: the symbol in play, large, over the block's own line of them.
  *
- * Half a box plus half a gutter, in the boxes' own units: they are `9rem` square with a
- * `1.5rem` gutter between them, so half of one plus half of the other is `5.25rem`. That is
- * what turns two equal rows into the honeycomb the owner described — *"something like
- * hexagonal shape for 6 intentions in Heart"* — without a single per-count number.
+ * The owner's round 26, verbatim: *"The Symbol stage needs to change - The current boxes of
+ * symbols is absolutely hideous, it is a sore in my sight. … The boxes and their names aligned to
+ * one side of the screen have to go. Instead, I want the view you currently have for the focus
+ * stage. One big symbol at the top which breathes and updates as the time passes. Rest of the
+ * symbols at the bottom in a single line also breathing."*
+ *
+ * So round 22's honeycomb of framed boxes is gone, and with it every name drawn beside a picture:
+ * what this stage draws is the **picture**, and the rail beside it is what names the one the clock
+ * has reached. The line underneath keeps the block's own order — all of the symbols, not only the
+ * ones still to come — so the stage reads as a family with one member in play rather than a row
+ * that reshuffles every time the clock moves on.
  */
-const ROW_NUDGE = "5.25rem";
-
-/**
- * The symbols in play, as a sheet of them.
- *
- * The owner's round 17, item 4: *"The symbol stage doesn't need to show me the
- * intentions, only symbols (I envision having pictures for all symbols, so that those
- * can be displayed here, until then, just the names of symbols will do."* — and, on
- * which of the two: *"Symbols for the meditation all shown as icons (only names if
- * images are not available, images if they are available). They should be shown in the
- * main region only instead of the intentions."*
- *
- * So a `symbols` stage's main region is this rather than the intentions column: the
- * block's symbols, in the order the block walks them, each drawn as its picture when
- * it has one and named always — a picture nobody can name is not a meditation aid.
- *
- * The owner's round 20 made it **the whole region and nothing else**: the rail beside
- * it drew the symbol in play a second time (`session-regions.ts` skips it for this
- * stage), and the boxes are large. Round 22 then fixed both the panel and the arrangement:
- * no background behind the boxes at all — *"I didn't mean floating on a giant panel … that
- * background strip or panel is not required, just the boxes"* — and balanced rows rather
- * than one staggered line, which is `symbolRows` in `session-regions.ts`. These are the
- * places the pictures of the symbols will go, so they are sized to be looked at rather than
- * scanned.
- *
- * The one **in play** is marked rather than scrolled to: there is nothing to scroll
- * here, so the clock is what says which symbol the reader is with (`stage-progress.ts`)
- * and the details beside this region follow it. That is also item 7's *"it should be
- * updated with time even though the scrolling stops"*, which is what a stage with no
- * scrolling at all is the extreme case of.
- */
-export function SymbolGallery({
+export function SymbolStage({
   groups,
   currentIndex,
   imageUrls,
+  reduceMotion,
 }: {
   groups: CompiledSymbolGroup[];
   /** Which symbol the stage's clock has reached, as an index into `groups`. */
   currentIndex: number;
   /** Resolved pictures, by media-asset id — the run screen's blob-URL cache. */
   imageUrls: Record<string, string>;
+  /** A reader who asked their machine for less motion gets the pictures still. */
+  reduceMotion: boolean;
 }): React.ReactNode {
+  const breathe = reduceMotion ? "" : "animate-breathe";
   if (groups.length === 0) {
     return (
-      <section
-        aria-labelledby="run-symbols"
-        className="flex h-full min-h-0 flex-col gap-2"
-      >
-        <h2 id="run-symbols" className={`${EYEBROW_CLASS} shrink-0 text-sm`}>
-          Symbols
-        </h2>
+      <section data-symbol-stage className="flex h-full min-h-0 flex-col gap-2">
         <p className="rounded-2xl border border-line bg-surface px-4 py-3 text-muted">
           This meditation has no symbols.
         </p>
       </section>
     );
   }
-  // The boxes, in balanced rows. `symbolRows` is the arithmetic — how many boxes a row holds
-  // — and what is left here is which boxes they are, with the row's own index kept so the
-  // clock's `data-current` and the tests' `data-symbol` still name the block's order.
-  let cursor = 0;
-  const rows = symbolRows(groups.length).map((width) => {
-    const row = groups
-      .slice(cursor, cursor + width)
-      .map((group, offset) => ({ group, index: cursor + offset }));
-    cursor += width;
-    return row;
-  });
+  const at = Math.min(Math.max(0, currentIndex), groups.length - 1);
+  const current = groups[at]!;
   return (
     <section
-      aria-labelledby="run-symbols"
-      className="flex h-full min-h-0 flex-col gap-2"
+      data-symbol-stage
+      className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-6"
     >
-      <h2 id="run-symbols" className={`${EYEBROW_CLASS} shrink-0 text-sm`}>
-        Symbols
-      </h2>
-      {/* No panel behind them: the boxes **are** the picture, and the background was the
-          "giant panel" the owner asked to lose. The block scrolls when a stage carries more
-          symbols than the region can hold, and the rows centre themselves inside it. */}
+      {/* The one in play, big and breathing. Named for a screen reader on the region rather than
+          as a caption a reader has to look past: the rail names it beside the stage, and a points
+          block has no rail at all. */}
       <div
-        data-symbol-gallery
-        className="flex min-h-0 flex-1 flex-col justify-center gap-y-4 overflow-y-auto py-2"
+        data-symbol-main
+        role="img"
+        aria-label={`${current.name} symbol`}
+        className={`flex min-h-0 flex-1 items-center justify-center ${breathe}`}
       >
-        {rows.map((row, rowIndex) => (
-          <ul
-            key={rowIndex}
-            data-symbol-row={rowIndex}
-            className="flex flex-wrap items-center justify-center gap-x-6 gap-y-4"
-            // Every other row sits half a box across. That is the whole of the shape: two
-            // rows of three read as a honeycomb rather than as a rectangle of names.
-            style={{ marginLeft: rowIndex % 2 === 1 ? ROW_NUDGE : undefined }}
-          >
-            {row.map(({ group, index }) => (
-              <li
-                key={`${index}-${group.name}`}
-                data-symbol={index}
-                data-current={index === currentIndex ? "true" : "false"}
-                className={`flex h-36 w-36 flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center transition-colors ${
-                  index === currentIndex
-                    ? "border-accent/60 bg-surface-raised"
-                    : "border-line bg-surface"
-                }`}
-              >
-                {group.imageAssetId && imageUrls[group.imageAssetId] ? (
-                  <>
-                    <img
-                      src={imageUrls[group.imageAssetId]!}
-                      alt={`${group.name} symbol`}
-                      className="h-24 w-24 object-contain"
-                    />
-                    {/* Named as well as drawn: the picture is the aid and the name is
-                        what makes it findable, which is the pair the symbol's own panel
-                        heads itself with. */}
-                    <span className="text-sm text-muted">{group.name}</span>
-                  </>
-                ) : (
-                  // No picture yet — the owner's *"until then, just the names of symbols
-                  // will do"* — so the name is the whole of the box, at the size the
-                  // picture beside it will be: these boxes are the pictures' places.
-                  <span className="flex min-h-24 min-w-24 items-center justify-center px-1 text-xl leading-tight text-text">
-                    {group.name}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        ))}
+        <SymbolFigure
+          group={current}
+          imageUrl={current.imageAssetId ? imageUrls[current.imageAssetId] : undefined}
+          className="h-48 w-48 sm:h-64 sm:w-64"
+        />
       </div>
+      <ul
+        data-symbol-line
+        className="flex shrink-0 flex-wrap items-center justify-center gap-6 pb-1"
+      >
+        {groups.map((group, index) => (
+          <li
+            key={`${index}-${group.name}`}
+            data-symbol={index}
+            data-current={index === at ? "true" : "false"}
+            // Staggered so the line breathes in a round rather than in one breath, which is the
+            // composition the owner asked for; the one in play is at full strength and the rest
+            // are held back, which is the only thing that marks it — the sizes are equal.
+            style={{ animationDelay: `${index * 0.7}s` }}
+            className={`flex items-center justify-center ${breathe} ${
+              index === at ? "opacity-100" : "opacity-60"
+            }`}
+          >
+            <SymbolFigure
+              group={group}
+              imageUrl={group.imageAssetId ? imageUrls[group.imageAssetId] : undefined}
+              className="h-16 w-16 sm:h-20 sm:w-20"
+            />
+          </li>
+        ))}
+      </ul>
     </section>
   );
+}
+
+/**
+ * One symbol, as the run screen draws it.
+ *
+ * The reader's own picture when there is one, and otherwise the glyph this app draws for the
+ * symbol (`focus-glyphs.tsx`) — which is the same pair every other surface uses, so a symbol looks
+ * like itself wherever it appears. `alt` is empty and the region is labelled instead: a picture
+ * repeated in a line of four announcements is worse than one name for the group.
+ */
+function SymbolFigure({
+  group,
+  imageUrl,
+  className,
+}: {
+  group: CompiledSymbolGroup;
+  imageUrl: string | undefined;
+  className: string;
+}): React.ReactNode {
+  if (imageUrl) {
+    return <img src={imageUrl} alt="" aria-hidden="true" className={`${className} object-contain`} />;
+  }
+  return <SymbolGlyph name={group.name} className={className} />;
 }
 
 /**
@@ -460,25 +464,34 @@ export function IntentionsTable({
 
   const groups = runGroups(lines);
   return (
-    <section className="flex h-full min-h-0 flex-1 flex-col gap-2" aria-labelledby="run-intentions">
-      <h2 id="run-intentions" className={`${EYEBROW_CLASS} shrink-0 text-sm`}>
-        {title}
-      </h2>
-      {lines.length === 0 ? (
-        <p className="rounded-2xl border border-line bg-surface px-4 py-3 text-muted">
-          Nothing for this stage.
-        </p>
-      ) : (
-        <div
-          ref={ref}
-          data-intentions-scroll
-          // Whether the column is walking itself down: `on`, `off`, or `held` — the
-          // last when the stage's switch is on and the reader's preference is what
-          // is stopping it. The suite reads this, because a still column has three
-          // possible reasons and they look identical from the outside.
-          data-auto-scroll={enabled ? "on" : held ? "held" : "off"}
-          className="min-h-0 flex-1 overflow-y-auto rounded-2xl border border-line bg-surface"
+    <section className="flex h-full min-h-0 flex-1 flex-col" aria-labelledby="run-intentions">
+      {/*
+       * The heading is **inside** the panel, which is the owner's round 26: *"The
+       * 'Intentions' heading is out of the panel with intentions - Make it so that the
+       * Intentions Heading is inside the panel, so that the panel properly aligns with the
+       * vertical Symbol panel on the left."* The two boxes therefore start on the same line,
+       * and the heading **sticks** to the top of the scroller so it keeps naming the column
+       * while the lines walk under it — the way a pinned fact does in the panel beside it.
+       */}
+      <div
+        ref={ref}
+        data-intentions-scroll
+        // Whether the column is walking itself down: `on`, `off`, or `held` — the
+        // last when the stage's switch is on and the reader's preference is what
+        // is stopping it. The suite reads this, because a still column has three
+        // possible reasons and they look identical from the outside.
+        data-auto-scroll={enabled ? "on" : held ? "held" : "off"}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto rounded-2xl border border-line bg-surface"
+      >
+        <h2
+          id="run-intentions"
+          className={`${EYEBROW_CLASS} sticky top-0 z-10 shrink-0 border-b border-line/60 bg-surface px-4 py-3 text-sm`}
         >
+          {title}
+        </h2>
+        {lines.length === 0 ? (
+          <p className="px-4 py-3 text-muted">Nothing for this stage.</p>
+        ) : (
           <table className="w-full border-separate border-spacing-0 text-left text-xl leading-relaxed">
             <colgroup>
               <col className="w-32" />
@@ -502,7 +515,7 @@ export function IntentionsTable({
                         rowSpan={group.rows.length}
                         className="border-b border-r border-line/60 px-3 py-2 text-left align-top text-sm font-medium text-muted"
                       >
-                        {group.symbol ?? ""}
+                        {group.label ?? ""}
                       </th>
                     ) : null}
                     <td className="border-b border-line/60 px-4 py-2">{line.text}</td>
@@ -511,8 +524,8 @@ export function IntentionsTable({
               </tbody>
             ))}
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }

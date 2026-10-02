@@ -5,6 +5,7 @@ import type {
   PlanBlockStage,
   PlanDisplay,
   StageKind,
+  StagePool,
   SymbolScope,
 } from "./models.ts";
 import { normalizePlanDisplay } from "./plan-display.ts";
@@ -15,21 +16,20 @@ export const PLAN_BLOCK_ERRORS = {
 } as const;
 
 /**
- * The alarm a new plan starts with, and the one the seeded plan carries: **off**.
+ * The alarm a new plan starts with, and the one the seeded plan carries: **on**.
  *
- * The owner's round 17, on the plan screen's `Alarm` switch: *"the thanks giving
- * session has alarm on, noone asked for an alarm-on on this screen, it always was
- * an alarm - off here."* Every layer used to answer `true` for "the value a new
- * thing starts with" — the preference, the seeded plan, and a plan built from the
- * preference — so the alarm rang for a reader who had never asked for it, and
- * turning it on was a press nobody had made on their behalf.
+ * Round 17 had this `false`, on the owner's words *"it always was an alarm - off here"*.
+ * The owner's round 26 reverses it: *"Alarm should be ON by default, only OFF for thanks
+ * giving"* — a session that has never been asked rings, and the one meditation that is
+ * spoken rather than held is the exception.
  *
- * It is a **default**, not a rule: the switch on the plan screen is still the
- * reader's, the run screen still writes it back, and `Plan.alarmEnabled: true` on a
- * plan that carries it is obeyed. What changed is only what the app hands a reader
- * who has said nothing.
+ * It is a **default**, not a rule, in both directions: the switch on the plan screen is
+ * still the reader's, the run screen still writes it back, and `Plan.alarmEnabled: false`
+ * on a plan that carries it is obeyed. A seeded Thanks Giving block is the app's own
+ * other answer — it carries `alarmEnabled: false` in the seed rather than relying on this
+ * row, so the exception is visible where the block is.
  */
-export const DEFAULT_ALARM_ENABLED = false;
+export const DEFAULT_ALARM_ENABLED = true;
 
 function invalid(): never {
   fail("plan.blocksInvalid", PLAN_BLOCK_ERRORS.invalid);
@@ -133,6 +133,11 @@ function requireStageKind(value: unknown): StageKind {
   invalid();
 }
 
+function requireStagePool(value: unknown): StagePool {
+  if (value === "meditation" || value === "declaration") return value;
+  invalid();
+}
+
 function requireStage(value: unknown): PlanBlockStage {
   const item = requireObject(value);
   const kind = requireStageKind(item.kind);
@@ -147,6 +152,9 @@ function requireStage(value: unknown): PlanBlockStage {
     binaural: item.binaural === undefined ? kind === "symbols" || kind === "focus" : Boolean(item.binaural),
     autoScroll:
       item.autoScroll === undefined ? autoScrollForKind(kind) : Boolean(item.autoScroll),
+    // Absent is the app's own answer — the block's own meditations — which is what every
+    // stored stage meant before the field existed (the owner's round 26).
+    ...(item.pool === undefined ? {} : { pool: requireStagePool(item.pool) }),
   };
 }
 

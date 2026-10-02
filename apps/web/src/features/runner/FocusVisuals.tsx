@@ -1,31 +1,35 @@
 import { accentForMeditation } from "@meditaur/ui";
 import type { CompiledSymbolGroup } from "@meditaur/domain";
 import { ChakraGlyph, SymbolGlyph } from "./focus-glyphs";
+import { ringPositions } from "./session-regions";
 
 /**
- * What a Focus stage draws (the owner's round 20, item 5).
+ * What a Focus stage draws — the owner's rounds 20 and 26.
  *
- * Verbatim: *"During focus, we would want to show beautiful visuals of the chakra's picture in
- * its colour, as well as all the symbols in the same colour breathing etc. occupying the
- * entire space that was earlier occupied by the intentions table."*
+ * Round 20 asked for the artwork: *"During focus, we would want to show beautiful visuals of the
+ * chakra's picture in its colour, as well as all the symbols in the same colour breathing etc.
+ * occupying the entire space that was earlier occupied by the intentions table."* Round 26 then
+ * moved the big-symbol-plus-line composition to the **symbols** stage and gave this one its own
+ * shape: *"For the Focus stage, I want all the symbols in a circle (without any boxes like they
+ * are today), all of the same size, all of them breathing"* — with the meditation *"at the centre
+ * of the circle — the symbols ring the meditation"*.
  *
- * So: the meditation's own picture — uploaded by the reader, or the glyph that stands for it —
- * and the block's symbols beneath it, all in one colour, breathing. The colour is the
- * meditation's accent (`accentForMeditation`): a chakra's own hue, the reader's override, or
- * the neutral cream for a point.
- *
- * Three deliberate choices, all of them the sort of thing that gets argued about later:
+ * Four deliberate choices:
  *
  * - **The picture is drawn as ink, not as a wash.** The accent is `currentColor` on every
  *   stroke, so the region reads as a drawing on the screen's own surface. The design rules
  *   forbid a large background wash, and this is the largest surface the app has.
+ * - **The size never varies.** Every symbol on the ring is the same box, which is the ask read
+ *   literally: what says which one the clock has reached is the rail beside the region, and on
+ *   the ring only how strongly it is drawn.
  * - **The breathing is honest about `prefers-reduced-motion`.** A reader who asked their
- *   machine for less motion gets the same picture, still — the same rule the intentions
- *   column follows — which is why the state is on the DOM as `data-breathe` rather than only
- *   in a class name.
- * - **The symbol the stage has reached is the one drawn larger.** The rail beside the region
- *   is what *names* it, and this is what makes it findable without reading — the sheet's own
- *   `data-current`, at the size a glance can use.
+ *   machine for less motion gets the same picture, still — the same rule the intentions column
+ *   follows — which is why the state is on the DOM as `data-breathe` rather than only in a
+ *   class name.
+ * - **The glow is painted, not filtered.** The centre is wrapped in a static radial gradient
+ *   rather than carrying a `drop-shadow`: a filter on an animating subtree is re-rasterised
+ *   every frame, which is exactly the frame-by-frame growth the owner reported on the old
+ *   focus stage.
  */
 export function FocusVisuals({
   name,
@@ -53,6 +57,7 @@ export function FocusVisuals({
 }): React.ReactNode {
   const accent = accentForMeditation({ name: name ?? "", colour });
   const breathe = reduceMotion ? "" : "animate-breathe";
+  const spots = ringPositions(groups.length);
   return (
     <div
       data-focus-visuals
@@ -60,59 +65,73 @@ export function FocusVisuals({
       // The accent is the ink: every glyph below is `currentColor`, so one declaration
       // paints the picture and nothing else has to know which colour it is.
       style={{ color: accent.hex }}
-      className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-8 overflow-hidden rounded-2xl border border-line bg-surface p-6"
+      className="flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl border border-line bg-surface p-4"
     >
-      <div data-focus-chakra className={`flex shrink-0 items-center justify-center ${breathe}`}>
-        {representationUrl ? (
-          <img
-            src={representationUrl}
-            alt={`${name ?? "This meditation"} representation`}
-            className="h-48 w-48 rounded-3xl object-contain ring-2 ring-current sm:h-64 sm:w-64"
-          />
-        ) : (
-          <ChakraGlyph
-            name={name}
-            className="h-48 w-48 drop-shadow-[0_0_18px_currentColor] sm:h-64 sm:w-64"
-          />
-        )}
-      </div>
-      {groups.length === 0 ? null : (
-        <ul
-          data-focus-symbols
-          className="flex min-h-0 flex-wrap content-center items-center justify-center gap-x-8 gap-y-4 overflow-hidden"
+      {/* The ring's own box: square, as large as the region and the viewport allow, and the
+          positions inside it are percentages of it (`ringPositions`). */}
+      <div
+        data-focus-ring
+        className="relative aspect-square h-full max-h-[min(30rem,78vh)] w-auto max-w-full"
+      >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full sm:h-56 sm:w-56"
+          style={{
+            background: "radial-gradient(circle, currentColor 0%, transparent 70%)",
+            opacity: 0.16,
+          }}
+        />
+        {/* The meditation, still, at the centre of the ring. */}
+        <div
+          data-focus-chakra
+          className="absolute left-1/2 top-1/2 flex h-28 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center sm:h-36 sm:w-36"
         >
-          {groups.map((group, index) => {
-            const picture = group.imageAssetId ? imageUrls[group.imageAssetId] : undefined;
-            return (
-              <li
-                key={`${index}-${group.name}`}
+          {representationUrl ? (
+            <img
+              src={representationUrl}
+              alt={`${name ?? "This meditation"} representation`}
+              className="h-full w-full rounded-3xl object-contain"
+            />
+          ) : (
+            <ChakraGlyph name={name} className="h-full w-full" />
+          )}
+        </div>
+        {groups.map((group, index) => {
+          const spot = spots[index] ?? { x: 50, y: 50 };
+          const picture = group.imageAssetId ? imageUrls[group.imageAssetId] : undefined;
+          return (
+            <div
+              key={`${index}-${group.name}`}
+              className="absolute"
+              // The placement is its own box's, so the breathing transform below never has to
+              // share a declaration with it (`translate` and the animation's `transform` would
+              // otherwise fight over the same element).
+              style={{ left: `${spot.x}%`, top: `${spot.y}%`, transform: "translate(-50%, -50%)" }}
+            >
+              <div
                 data-focus-symbol
                 data-current={index === currentIndex ? "true" : "false"}
-                // Staggered so the symbols breathe in a round rather than in one breath:
-                // a composition, which is what the owner asked for, and the same trick the
-                // symbols sheet uses for its scatter.
+                // Staggered so the ring breathes in a round rather than in one breath: a
+                // composition, which is what the owner asked for.
                 style={{ animationDelay: `${index * 0.7}s` }}
-                className={`flex items-center justify-center ${breathe}`}
+                className={`flex h-16 w-16 items-center justify-center sm:h-24 sm:w-24 ${breathe} ${
+                  index === currentIndex ? "opacity-100" : "opacity-65"
+                }`}
               >
                 {picture ? (
                   <img
                     src={picture}
                     alt={`${group.name} symbol`}
-                    className={`rounded-2xl object-contain ${
-                      index === currentIndex ? "h-20 w-20" : "h-14 w-14 opacity-70"
-                    }`}
+                    className="h-full w-full rounded-2xl object-contain"
                   />
                 ) : (
-                  <SymbolGlyph
-                    name={group.name}
-                    className={index === currentIndex ? "h-20 w-20" : "h-14 w-14 opacity-70"}
-                  />
+                  <SymbolGlyph name={group.name} className="h-full w-full" />
                 )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import type { JSX } from "react";
 
+import { ART_VIEW_BOX, SYMBOL_ART } from "./symbol-art";
+
 /**
  * The pictures a Focus stage draws: a chakra's own glyph, and a glyph per symbol.
  *
@@ -10,9 +12,14 @@ import type { JSX } from "react";
  *
  * Three rules shape what is here:
  *
- * - **Drawn, not filled.** Every glyph is a line drawing in `currentColor`, so the accent —
- *   the chakra's hue, or the reader's own override — is the ink. The design rules forbid a
- *   large background wash, and a session screen is the largest surface the app has.
+ * - **Drawn in `currentColor`, and in no colour of its own.** The accent — the chakra's hue,
+ *   or the reader's own override — is the ink. The design rules forbid a large background
+ *   wash, and a session screen is the largest surface the app has.
+ * - **Two hands, one ink.** Everything this file draws itself is line art. The two symbols the
+ *   owner drew by hand (`IMPORTED`, from `symbol-art.ts`) are the other way round: a brush
+ *   stroke leaves Linearity Curve as the outline of the width it swept, so there is no stroke
+ *   width to draw, and those are filled. The colour is `currentColor` either way, so both
+ *   hands sit on one screen in one hue.
  * - **A chakra's petals are its own.** The seven centres are traditionally drawn with 4, 6,
  *   10, 12, 16, 2 and (nominally) 1000 petals; the count is the one thing that tells them
  *   apart at a glance, so it is data here rather than decoration. The Crown is a bloom rather
@@ -21,8 +28,10 @@ import type { JSX } from "react";
  *   meditation gets a location mark: concentric circles. It is honest about being neither a
  *   chakra nor one of the four symbols below.
  *
- * Nothing here reaches for an asset: a reader's own picture of a chakra or a symbol is drawn
- * by `FocusVisuals` *instead* of the glyph, which is why this file is pure and unit-tested.
+ * Nothing here reaches for an asset — not even the owner's art, which is path data in
+ * `symbol-art.ts` rather than a file to fetch. A reader's own picture of a chakra or a symbol
+ * is drawn by `FocusVisuals` *instead* of the glyph. That is what keeps this file pure, and
+ * why `focus-glyphs.test.ts` reads its markup with no browser in the room.
  */
 
 /** The seven centres' petal counts. Anything else is not a chakra. */
@@ -56,22 +65,32 @@ export function petalsFor(name: string | null | undefined): number {
 }
 
 /**
- * The four symbols that have a glyph of their own.
+ * The symbols this file still draws as line art.
  *
- * Only these four: they are the ones the owner asked to have planted on every chakra and
- * point (round 21), which makes them the ones a reader meets in a circuit. Everything else —
- * the Karuna rows the app shipped, and a reader's own symbol — is drawn as a rosette, and a
- * symbol with an uploaded picture is drawn as that picture instead.
+ * The four reiki symbols are the ones the owner asked to have planted on every chakra and
+ * point (round 21), which makes them the ones a reader meets in a circuit. Two of the four —
+ * `Hon Sha Ze Sho Nen` and `Dai Kyo Mo` — are the owner's own brush art now (`IMPORTED`
+ * below), so this table holds the two that are still drawn here.
  */
 const DESIGNED: Record<string, (props: GlyphProps) => JSX.Element> = {
-  "hon sha ze sho nen": HonShaZeShoNen,
   "sei hei ki": SeiHeiKi,
   "cho ku rei": ChoKuRei,
-  "dai kyo mo": DaiKyoMo,
 };
 
+/**
+ * The art the owner drew by hand, keyed the way every other name in this file is.
+ *
+ * A lookup built once rather than a table of components, because the art is *data* — one
+ * string per brush stroke — and `keyOf` stays the one place a name is read.
+ */
+const IMPORTED: Record<string, string[]> = Object.fromEntries(
+  Object.entries(SYMBOL_ART).map(([name, paths]) => [keyOf(name), paths] as const),
+);
+
+/** Whether a symbol has a shape of its own — drawn in this file, or the owner's own brush. */
 export function hasDesignedSymbol(name: string | null | undefined): boolean {
-  return DESIGNED[keyOf(name)] !== undefined;
+  const key = keyOf(name);
+  return IMPORTED[key] !== undefined || DESIGNED[key] !== undefined;
 }
 
 type GlyphProps = { className?: string };
@@ -162,8 +181,38 @@ function scallop(count: number, radius: number, lift: number): string {
   return `${path}Z`;
 }
 
-/** A symbol's glyph: its own shape for the four the owner named, a rosette otherwise. */
+/**
+ * A symbol the owner drew, drawn as a **fill**.
+ *
+ * The export has no stroke in it at all: a brush stroke leaves Linearity Curve as the outline
+ * of the width it swept, so the ink is the shape. `currentColor` is still the colour, so one
+ * declaration on the region paints this and the line drawings beside it alike.
+ *
+ * Attributes rather than Tailwind classes, deliberately: a `fill-current` class that failed to
+ * generate would leave the art the black it was exported in, and black on a session screen is
+ * no picture — a silent failure that the attribute makes impossible.
+ */
+function ArtGlyph({ paths, className }: { paths: string[]; className?: string }) {
+  return (
+    <svg
+      viewBox={ART_VIEW_BOX}
+      className={className}
+      role="presentation"
+      aria-hidden="true"
+      fill="currentColor"
+      stroke="none"
+    >
+      {paths.map((d, at) => (
+        <path key={at} d={d} />
+      ))}
+    </svg>
+  );
+}
+
+/** A symbol's glyph: the owner's own art, this file's hand for two of them, a rosette otherwise. */
 export function SymbolGlyph({ name, className }: { name: string | null; className?: string }) {
+  const art = IMPORTED[keyOf(name)];
+  if (art) return <ArtGlyph paths={art} className={className} />;
   const designed = DESIGNED[keyOf(name)];
   if (designed) return <Frame className={className}>{designed({})}</Frame>;
   return (
@@ -194,29 +243,6 @@ function SeiHeiKi() {
       <path d="M50 16 V84" />
       <path d="M34 26 C 22 38 22 54 36 66" />
       <path d="M66 26 C 78 38 78 54 64 66" />
-    </>
-  );
-}
-
-function HonShaZeShoNen() {
-  // The distance symbol: a zigzag over a base, with the stem that carries it.
-  return (
-    <>
-      <path d="M28 22 H72 L28 54 H72" />
-      <path d="M50 54 V80" />
-      <path d="M34 80 H66" />
-    </>
-  );
-}
-
-function DaiKyoMo() {
-  // The master symbol: a stem, a crossbar, and a hook that turns back on itself.
-  return (
-    <>
-      <path d="M50 16 V64" />
-      <path d="M34 26 H66" />
-      <path d="M50 64 C 62 64 66 74 58 82" />
-      <path d="M58 82 C 52 87 46 84 47 79" />
     </>
   );
 }
